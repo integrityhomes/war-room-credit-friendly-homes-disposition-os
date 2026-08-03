@@ -20,6 +20,20 @@ DEFAULT_TIMEOUT_SECONDS = 90
 OPENAI_REQUEST_ATTEMPTS = 2
 MONEY_PATTERN = re.compile(r"\$((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)")
 
+CAMPAIGN_FIELD_LIMITS: dict[str, int] = {
+    "headline": 180,
+    "short_description": 1000,
+    "marketplace_description": 4000,
+    "facebook_group_post": 3000,
+    "email_subject": 180,
+    "email_body": 5000,
+    "sms_message": 480,
+    "classified_ad": 3000,
+    "social_caption": 1500,
+    "video_script": 3000,
+    "dwelyx_call_to_action": 1200,
+}
+
 
 class CampaignFactoryError(RuntimeError):
     """Raised when the AI campaign factory cannot produce a safe package."""
@@ -45,17 +59,17 @@ class CampaignFactorySettings:
 class CampaignPackage(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    headline: str = Field(min_length=1, max_length=180)
-    short_description: str = Field(min_length=1, max_length=1000)
-    marketplace_description: str = Field(min_length=1, max_length=4000)
-    facebook_group_post: str = Field(min_length=1, max_length=3000)
-    email_subject: str = Field(min_length=1, max_length=180)
-    email_body: str = Field(min_length=1, max_length=5000)
-    sms_message: str = Field(min_length=1, max_length=480)
-    classified_ad: str = Field(min_length=1, max_length=3000)
-    social_caption: str = Field(min_length=1, max_length=1500)
-    video_script: str = Field(min_length=1, max_length=3000)
-    dwelyx_call_to_action: str = Field(min_length=1, max_length=1200)
+    headline: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["headline"])
+    short_description: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["short_description"])
+    marketplace_description: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["marketplace_description"])
+    facebook_group_post: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["facebook_group_post"])
+    email_subject: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["email_subject"])
+    email_body: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["email_body"])
+    sms_message: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["sms_message"])
+    classified_ad: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["classified_ad"])
+    social_caption: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["social_caption"])
+    video_script: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["video_script"])
+    dwelyx_call_to_action: str = Field(min_length=1, max_length=CAMPAIGN_FIELD_LIMITS["dwelyx_call_to_action"])
 
     def channel_rows(self) -> list[tuple[str, str]]:
         return [
@@ -167,6 +181,24 @@ def build_fallback_campaign(property_record: OwnerFinanceProperty, dwelyx_url: s
         video_script=f"Here is an owner-finance opportunity at {address}. {base.short_description} {cta}",
         dwelyx_call_to_action=cta,
     )
+
+
+def normalize_campaign_payload(
+    payload: Mapping[str, Any],
+    fallback: CampaignPackage,
+) -> dict[str, str]:
+    """Replace missing or overlong AI fields with the known-safe field only."""
+    fallback_data = fallback.model_dump()
+    normalized: dict[str, str] = {}
+
+    for field_name, limit in CAMPAIGN_FIELD_LIMITS.items():
+        raw_value = payload.get(field_name)
+        value = raw_value.strip() if isinstance(raw_value, str) else ""
+        if not value or len(value) > limit:
+            value = str(fallback_data[field_name])
+        normalized[field_name] = value
+
+    return normalized
 
 
 def _extract_output_text(response: Mapping[str, Any]) -> str:
@@ -304,10 +336,14 @@ def generate_ai_campaign(
     )
 
     response_data = _request_openai(request, timeout_seconds)
+    fallback = build_fallback_campaign(property_record, dwelyx_url)
 
     try:
-        package = CampaignPackage.model_validate_json(_extract_output_text(response_data))
-    except ValidationError as exc:
+        raw_payload = json.loads(_extract_output_text(response_data))
+        if not isinstance(raw_payload, Mapping):
+            raise TypeError("Campaign output was not an object.")
+        package = CampaignPackage.model_validate(normalize_campaign_payload(raw_payload, fallback))
+    except (ValidationError, json.JSONDecodeError, TypeError) as exc:
         raise CampaignFactoryError(f"OpenAI returned an invalid campaign package: {exc}") from exc
 
     fact_errors = validate_campaign_facts(package, property_record, dwelyx_url)
