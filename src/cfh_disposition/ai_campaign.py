@@ -4,7 +4,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -16,6 +16,7 @@ from .models import OwnerFinanceProperty
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
+MONEY_PATTERN = re.compile(r"\$((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)")
 
 
 class CampaignFactoryError(RuntimeError):
@@ -181,14 +182,19 @@ def _extract_output_text(response: Mapping[str, Any]) -> str:
     raise CampaignFactoryError("OpenAI returned no campaign text.")
 
 
-def _allowed_money_values(property_record: OwnerFinanceProperty) -> set[str]:
-    values: set[str] = set()
-    for value in [property_record.total_price, property_record.down_payment, property_record.monthly_payment]:
-        if value is None:
-            continue
-        values.add(f"{value:,.0f}")
-        values.add(f"{value:.0f}")
-    return values
+def _allowed_money_values(property_record: OwnerFinanceProperty) -> set[Decimal]:
+    return {
+        value
+        for value in [property_record.total_price, property_record.down_payment, property_record.monthly_payment]
+        if value is not None
+    }
+
+
+def _parse_money_token(token: str) -> Decimal | None:
+    try:
+        return Decimal(token.replace(",", ""))
+    except InvalidOperation:
+        return None
 
 
 def validate_campaign_facts(
@@ -205,9 +211,9 @@ def validate_campaign_facts(
             errors.append(f"Prohibited claim detected: {claim}")
 
     allowed_money = _allowed_money_values(property_record)
-    for match in re.findall(r"\$([0-9][0-9,]*(?:\.[0-9]{1,2})?)", combined):
-        normalized = match.rstrip("0").rstrip(".") if "." in match else match
-        if normalized not in allowed_money and match not in allowed_money:
+    for match in MONEY_PATTERN.findall(combined):
+        parsed_value = _parse_money_token(match)
+        if parsed_value is None or parsed_value not in allowed_money:
             errors.append(f"Unapproved dollar amount detected: ${match}")
 
     if dwelyx_url.rstrip("/") not in combined:
