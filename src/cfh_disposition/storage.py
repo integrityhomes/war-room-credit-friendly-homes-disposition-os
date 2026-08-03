@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
-from uuid import UUID
+from urllib.parse import quote
+from uuid import UUID, uuid4
 
 from .models import BuyerProfile, OwnerFinanceProperty
+
+PHOTO_BUCKET = "cfh-property-photos"
+PHOTO_MAX_BYTES = 10 * 1024 * 1024
+PHOTO_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+PhotoUpload = tuple[str, bytes, str]
 
 
 class StorageError(RuntimeError):
@@ -14,13 +23,42 @@ class StorageError(RuntimeError):
 
 class Storage(Protocol):
     mode: str
+    supports_photo_uploads: bool
 
     def list_properties(self) -> list[OwnerFinanceProperty]: ...
     def save_property(self, item: OwnerFinanceProperty) -> None: ...
     def delete_property(self, property_id: UUID) -> None: ...
+    def upload_property_photos(self, property_id: UUID, files: list[PhotoUpload]) -> list[str]: ...
+    def delete_property_photo(self, public_url: str) -> None: ...
     def list_buyers(self) -> list[BuyerProfile]: ...
     def save_buyer(self, item: BuyerProfile) -> None: ...
     def delete_buyer(self, buyer_id: UUID) -> None: ...
+
+
+def validate_photo_upload(file_name: str, content: bytes, content_type: str) -> None:
+    extension = Path(file_name).suffix.lower()
+    if extension not in PHOTO_EXTENSIONS or content_type not in PHOTO_MIME_TYPES:
+        raise StorageError("Only JPG, PNG, and WEBP property photos are allowed.")
+    if not content:
+        raise StorageError(f"{file_name} is empty.")
+    if len(content) > PHOTO_MAX_BYTES:
+        raise StorageError(f"{file_name} is larger than 10 MB.")
+
+
+def _safe_photo_name(file_name: str) -> str:
+    extension = Path(file_name).suffix.lower()
+    stem = re.sub(r"[^a-zA-Z0-9_-]+", "-", Path(file_name).stem).strip("-")[:60]
+    return f"{stem or 'property-photo'}-{uuid4().hex}{extension}"
+
+
+def _public_photo_url(base_url: str, object_path: str) -> str:
+    encoded_path = quote(object_path, safe="/")
+    return f"{base_url.rstrip('/')}/storage/v1/object/public/{PHOTO_BUCKET}/{encoded_path}"
+
+
+def _photo_path_from_url(base_url: str, public_url: str) -> str | None:
+    prefix = f"{base_url.rstrip('/')}/storage/v1/object/public/{PHOTO_BUCKET}/"
+    return public_url[len(prefix) :] if public_url.startswith(prefix) else None
 
 
 @dataclass(frozen=True)
@@ -43,6 +81,7 @@ class SupabaseSettings:
 
 class InMemoryStorage:
     mode = "Demo memory"
+    supports_photo_uploads = False
 
     def __init__(
         self,
@@ -61,6 +100,12 @@ class InMemoryStorage:
     def delete_property(self, property_id: UUID) -> None:
         self._properties.pop(str(property_id), None)
 
+    def upload_property_photos(self, property_id: UUID, files: list[PhotoUpload]) -> list[str]:
+        raise StorageError("Connect Supabase before uploading property photos.")
+
+    def delete_property_photo(self, public_url: str) -> None:
+        raise StorageError("Connect Supabase before deleting uploaded photos.")
+
     def list_buyers(self) -> list[BuyerProfile]:
         return [item.model_copy(deep=True) for item in self._buyers.values()]
 
@@ -73,6 +118,7 @@ class InMemoryStorage:
 
 class SupabaseStorage:
     mode = "Supabase"
+    supports_photo_uploads = True
 
     def __init__(self, settings: SupabaseSettings, client: Any | None = None) -> None:
         if not settings.configured:
@@ -83,6 +129,7 @@ class SupabaseStorage:
             except ImportError as exc:
                 raise StorageError("Supabase client is not installed") from exc
             client = create_client(settings.url, settings.secret_key)
+        self._settings = settings
         self._client = client
 
     @staticmethod
@@ -128,8 +175,52 @@ class SupabaseStorage:
         except Exception as exc:
             raise StorageError("Could not save property to Supabase") from exc
 
+    def upload_property_photos(self, property_id: UUID, files: list[PhotoUpload]) -> list[str]:
+        uploaded_urls: list[str] = []
+        bucket = self._client.storage.from_(PHOTO_BUCKET)
+        for file_name, content, content_type in files:
+            validate_photo_upload(file_name, content, content_type)
+            object_path = f"{property_id}/{_safe_photo_name(file_name)}"
+            try:
+                bucket.upload(
+                    path=object_path,
+                    file=content,
+                    file_options={
+                        "content-type": content_type,
+                        "cache-control": "3600",
+                        "upsert": "false",
+                    },
+                )
+            except Exception as exc:
+                raise StorageError(
+                    "Could not upload property photos. Confirm the cfh-property-photos bucket migration was run."
+                ) from exc
+            uploaded_urls.append(_public_photo_url(self._settings.url, object_path))
+        return uploaded_urls
+
+    def delete_property_photo(self, public_url: str) -> None:
+        object_path = _photo_path_from_url(self._settings.url, public_url)
+        if not object_path:
+            return
+        try:
+            self._client.storage.from_(PHOTO_BUCKET).remove([object_path])
+        except Exception as exc:
+            raise StorageError("Could not delete the selected property photo from Supabase") from exc
+
+    def _delete_property_photo_folder(self, property_id: UUID) -> None:
+        try:
+            bucket = self._client.storage.from_(PHOTO_BUCKET)
+            response = bucket.list(str(property_id))
+            paths = [f"{property_id}/{item['name']}" for item in response or [] if item.get("name")]
+            if paths:
+                bucket.remove(paths)
+        except Exception:
+            # Property deletion should still succeed if the bucket is missing or already empty.
+            return
+
     def delete_property(self, property_id: UUID) -> None:
         try:
+            self._delete_property_photo_folder(property_id)
             self._client.table("cfh_properties").delete().eq("property_id", str(property_id)).execute()
         except Exception as exc:
             raise StorageError("Could not delete property from Supabase") from exc
