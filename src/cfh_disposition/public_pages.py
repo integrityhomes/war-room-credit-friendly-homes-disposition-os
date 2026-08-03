@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html import escape
@@ -10,7 +11,20 @@ import pandas as pd
 import streamlit as st
 
 from .analytics import AnalyticsError, ClickAnalyticsStore, ClickEvent, click_summary
-from .dwelyx import build_direct_dwelyx_url, build_dwelyx_url, dwelyx_base_url
+from .channel_tracking import (
+    build_channel_links,
+    canonical_channel_key,
+    channel_name,
+    channel_scorecard,
+    unmapped_clicks,
+)
+from .channels import CHANNELS
+from .dwelyx import (
+    build_direct_dwelyx_url,
+    build_dwelyx_url,
+    dwelyx_base_url,
+    tracking_app_base_url,
+)
 from .launch_plan import build_launch_plan
 from .models import OwnerFinanceProperty, PropertyStatus
 from .storage import Storage, StorageError
@@ -61,12 +75,13 @@ def _render_header() -> None:
     st.caption("Owner-financing opportunities with clear terms and straightforward property information.")
 
 
-def _browse_dwelyx_url(*, medium: str, property_id: UUID | None = None) -> str:
+def _browse_dwelyx_url(*, medium: str, property_id: UUID | None = None, target: str | None = None) -> str:
     return build_dwelyx_url(
-        dwelyx_base_url(st.secrets),
+        target or dwelyx_base_url(st.secrets),
         source="credit_friendly_homes",
         medium=medium,
         property_id=property_id,
+        tracking_base_url=tracking_app_base_url(st.secrets),
     )
 
 
@@ -74,7 +89,7 @@ def _render_portal(storage: Storage) -> None:
     _render_header()
     st.link_button(
         "Browse All Owner-Finance Homes on Dwelyx",
-        _browse_dwelyx_url(medium="available_homes_portal"),
+        _browse_dwelyx_url(medium="property_page"),
         type="primary",
         use_container_width=True,
     )
@@ -99,7 +114,7 @@ def _render_portal(storage: Storage) -> None:
             st.markdown(f"[View featured-home details]({public_property_path(item.property_id)})")
             st.link_button(
                 "Browse All Homes on Dwelyx",
-                _browse_dwelyx_url(medium="featured_home_card", property_id=item.property_id),
+                _browse_dwelyx_url(medium="property_page", property_id=item.property_id),
                 use_container_width=True,
             )
             st.divider()
@@ -115,7 +130,7 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
         st.warning("This featured property is not currently available.")
         st.link_button(
             "Browse All Owner-Finance Homes on Dwelyx",
-            _browse_dwelyx_url(medium="unavailable_property_page"),
+            _browse_dwelyx_url(medium="property_page"),
             type="primary",
             use_container_width=True,
         )
@@ -127,7 +142,7 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
 
     st.link_button(
         "Browse All Owner-Finance Homes on Dwelyx",
-        _browse_dwelyx_url(medium="property_landing_page", property_id=selected.property_id),
+        _browse_dwelyx_url(medium="property_page", property_id=selected.property_id),
         type="primary",
         use_container_width=True,
     )
@@ -159,7 +174,15 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
 
     listing_url = str(selected.application_url) if selected.application_url else ""
     if _is_dwelyx_listing(listing_url):
-        st.link_button("View This Home on Dwelyx", listing_url, use_container_width=True)
+        st.link_button(
+            "View This Home on Dwelyx",
+            _browse_dwelyx_url(
+                medium="property_page",
+                property_id=selected.property_id,
+                target=listing_url,
+            ),
+            use_container_width=True,
+        )
 
     st.caption(
         "This page is an advertisement for an owner-financing opportunity, not a promise of approval. "
@@ -216,9 +239,56 @@ def _render_dwelyx_redirect() -> None:
     )
 
 
+def _render_channel_center(storage: Storage) -> None:
+    st.title("14-Channel Link Center")
+    st.caption(
+        "Create a separate tracked Dwelyx link for every marketing channel so the dashboard can show what is producing traffic."
+    )
+
+    properties = _available_properties(storage)
+    property_options: dict[str, OwnerFinanceProperty | None] = {"All Dwelyx inventory": None}
+    property_options.update({item.display_address: item for item in properties})
+
+    left, right = st.columns(2)
+    campaign = left.text_input("Campaign name", value="owner_finance_homes")
+    selected_property_name = right.selectbox("Property — optional", list(property_options))
+    selected_property = property_options[selected_property_name]
+
+    links = build_channel_links(
+        dwelyx_base_url(st.secrets),
+        campaign=campaign,
+        property_id=selected_property.property_id if selected_property else None,
+        tracking_base_url=tracking_app_base_url(st.secrets),
+    )
+
+    st.success(f"{len(links)} separate channel links are ready.")
+    selected_channel_name = st.selectbox("Choose a channel to copy or test", [row["Channel"] for row in links])
+    selected_row = next(row for row in links if row["Channel"] == selected_channel_name)
+    st.text_input("Copy this channel's tracked Dwelyx link", value=selected_row["Tracked Dwelyx link"])
+    st.link_button(
+        "Test This Channel Link — records one click",
+        selected_row["Tracked Dwelyx link"],
+        type="primary",
+    )
+
+    st.subheader("Complete 14-channel link sheet")
+    link_table = pd.DataFrame(links)
+    st.dataframe(link_table, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Download 14-channel link sheet (CSV)",
+        data=link_table.to_csv(index=False).encode("utf-8"),
+        file_name=f"cfh_14_channel_links_{campaign.strip() or 'campaign'}.csv",
+        mime="text/csv",
+    )
+    st.info(
+        "Use the matching link in each channel. For a sign or QR-code campaign, use the Property Landing Page link and give the campaign a specific name such as saltville_signs_august_2026."
+    )
+    st.markdown("[Open the 14-Channel Marketing Analytics dashboard](?analytics=1)")
+
+
 def _render_click_analytics(storage: Storage) -> None:
-    st.title("Dwelyx Click Analytics")
-    st.caption("See which channels, campaigns, and properties send buyers into Dwelyx.")
+    st.title("14-Channel Marketing Analytics")
+    st.caption("See which of the 14 channels, campaigns, and properties send buyers into Dwelyx.")
     days = st.selectbox("Reporting window", [7, 30, 90], index=1, format_func=lambda value: f"Last {value} days")
 
     try:
@@ -227,27 +297,33 @@ def _render_click_analytics(storage: Storage) -> None:
         st.error(str(exc))
         return
 
-    summary = click_summary(events)
-    now = datetime.now(UTC)
-    seven_day_clicks = sum(event.occurred_at >= now - timedelta(days=7) for event in events)
+    scorecard = channel_scorecard(events)
+    mapped_clicks = sum(row.clicks for row in scorecard)
+    active_channels = sum(row.clicks > 0 for row in scorecard)
+    zero_channels = len(CHANNELS) - active_channels
+    top_row = max(scorecard, key=lambda row: row.clicks)
+    top_channel = top_row.channel.name if top_row.clicks else "No traffic yet"
+
     columns = st.columns(4)
-    columns[0].metric("Total clicks", summary["total"])
-    columns[1].metric("Clicks in last 7 days", seven_day_clicks)
-    columns[2].metric("Active channels", len(summary["sources"]))
-    columns[3].metric("Active campaigns", len(summary["campaigns"]))
+    columns[0].metric("Tracked clicks", mapped_clicks)
+    columns[1].metric("Active channels", f"{active_channels} of {len(CHANNELS)}")
+    columns[2].metric("Channels with zero traffic", zero_channels)
+    columns[3].metric("Top channel", top_channel)
+
+    st.subheader("All 14 channels")
+    score_rows = [row.as_row() for row in scorecard]
+    st.dataframe(pd.DataFrame(score_rows), use_container_width=True, hide_index=True)
 
     if not events:
         st.info("No tracked Dwelyx clicks have been recorded in this reporting window yet.")
-        st.caption("Use links created by the app. Each buyer click will be recorded automatically before Dwelyx opens.")
+        st.caption("Use links from the 14-Channel Link Center. Each buyer click is recorded before Dwelyx opens.")
+        st.markdown("[Open the 14-Channel Link Center](?channel_center=1)")
         return
 
-    properties = {str(item.property_id): item.display_address for item in _available_properties(storage)}
-    source_rows = [
-        {"Channel": source.replace("_", " ").title(), "Clicks": clicks}
-        for source, clicks in summary["sources"].items()
-    ]
-    st.subheader("Clicks by channel")
-    st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+    summary = click_summary(events)
+    now = datetime.now(UTC)
+    seven_day_clicks = sum(event.occurred_at >= now - timedelta(days=7) for event in events)
+    st.caption(f"Clicks recorded in the last 7 days: {seven_day_clicks}")
 
     campaign_rows = [
         {"Campaign": campaign.replace("_", " ").title(), "Clicks": clicks}
@@ -256,30 +332,60 @@ def _render_click_analytics(storage: Storage) -> None:
     st.subheader("Clicks by campaign")
     st.dataframe(pd.DataFrame(campaign_rows), use_container_width=True, hide_index=True)
 
+    properties = {str(item.property_id): item.display_address for item in _available_properties(storage)}
+    property_counts = Counter(event.property_id or "all_inventory" for event in events if canonical_channel_key(event.medium))
+    property_rows = [
+        {
+            "Property": "All Dwelyx inventory" if property_id == "all_inventory" else properties.get(property_id, property_id),
+            "Clicks": clicks,
+        }
+        for property_id, clicks in property_counts.most_common()
+    ]
+    st.subheader("Clicks by property")
+    st.dataframe(pd.DataFrame(property_rows), use_container_width=True, hide_index=True)
+
     recent_rows = []
     for event in events[:250]:
         recent_rows.append(
             {
                 "Date and time (UTC)": event.occurred_at.strftime("%Y-%m-%d %H:%M:%S"),
-                "Channel": event.medium.replace("_", " ").title(),
+                "Channel": channel_name(event.medium),
                 "Campaign": event.campaign.replace("_", " ").title(),
                 "Property": properties.get(event.property_id or "", event.property_id or "All Dwelyx inventory"),
             }
         )
     st.subheader("Recent tracked clicks")
     st.dataframe(pd.DataFrame(recent_rows), use_container_width=True, hide_index=True)
-    st.caption("Click events contain marketing attribution only. No buyer names, emails, phone numbers, or private application data are stored here.")
+
+    other_events = unmapped_clicks(events)
+    if other_events:
+        st.subheader("Other or legacy traffic")
+        other_counts = Counter(event.medium for event in other_events)
+        other_rows = [
+            {"Source": channel_name(medium), "Clicks": clicks}
+            for medium, clicks in other_counts.most_common()
+        ]
+        st.dataframe(pd.DataFrame(other_rows), use_container_width=True, hide_index=True)
+
+    st.caption(
+        "Click events contain marketing attribution only. No buyer names, emails, phone numbers, or private application data are stored here."
+    )
+    st.markdown("[Open the 14-Channel Link Center](?channel_center=1)")
 
 
 def render_public_request(storage: Storage) -> bool:
     """Render public routes before the private password gate."""
     go = _query_value("go").lower()
     analytics = _query_value("analytics").lower()
+    channel_center = _query_value("channel_center").lower()
     property_id = _query_value("property")
     homes = _query_value("homes").lower()
 
     if go == "dwelyx":
         _render_dwelyx_redirect()
+        return True
+    if channel_center in {"1", "true", "yes"} and st.session_state.get("authenticated"):
+        _render_channel_center(storage)
         return True
     if analytics in {"1", "true", "yes"} and st.session_state.get("authenticated"):
         _render_click_analytics(storage)
