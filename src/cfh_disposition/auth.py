@@ -5,7 +5,17 @@ from collections.abc import Mapping
 from typing import Any
 
 
+def _render_authenticated_shortcuts() -> None:
+    try:
+        import streamlit as st
+    except ImportError:
+        return
+    if st.session_state.get("authenticated"):
+        st.sidebar.markdown("[📊 Dwelyx Click Analytics](?analytics=1)")
+
+
 def configured_password(secrets: Mapping[str, Any]) -> str:
+    _render_authenticated_shortcuts()
     value = secrets.get("APP_PASSWORD", "")
     return str(value).strip()
 
