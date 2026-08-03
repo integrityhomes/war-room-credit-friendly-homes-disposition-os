@@ -59,6 +59,21 @@ def test_fallback_campaign_routes_everything_to_dwelyx_and_includes_address():
     assert validate_campaign_facts(package, item, url) == []
 
 
+def test_fact_guard_accepts_approved_money_followed_by_punctuation():
+    item = sample_property()
+    url = "https://www.dwelyx.com/?utm_source=credit_friendly_homes"
+    package = build_fallback_campaign(item, url)
+    package = package.model_copy(
+        update={
+            "short_description": (
+                f"{package.short_description} Purchase price $100,000, down payment $5,000, "
+                "and monthly payment $1,200."
+            )
+        }
+    )
+    assert validate_campaign_facts(package, item, url) == []
+
+
 def test_fact_guard_blocks_unapproved_money_and_claims():
     item = sample_property()
     url = "https://www.dwelyx.com"
