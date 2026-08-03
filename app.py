@@ -19,6 +19,7 @@ from cfh_disposition.models import (
     OwnerFinanceProperty,
     PropertyStatus,
 )
+from cfh_disposition.record_manager import render_record_manager
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, SupabaseSettings, build_storage
 
@@ -113,6 +114,7 @@ page = st.sidebar.radio(
     [
         "Executive War Room",
         "Property Intake",
+        "Record Manager",
         "Campaign Readiness",
         "Buyer Growth",
         "Marketplace Guard",
@@ -221,6 +223,9 @@ elif page == "Property Intake":
                     st.write(f"- {error}")
         except (ValidationError, InvalidOperation, StorageError) as exc:
             st.error(f"Property could not be saved: {exc}")
+
+elif page == "Record Manager":
+    render_record_manager(storage)
 
 elif page == "Campaign Readiness":
     st.subheader("Approve & Launch Everywhere — Readiness Preview")
@@ -378,13 +383,15 @@ else:
         "PR 1 — Foundation, property intake, launch validation, 14-channel registry, buyer matching, Marketplace Guard",
         "PR 2 — Streamlit deployment package fix",
         "PR 3 — Password gate and Supabase property/buyer storage",
-        "PR 4 — WordPress property landing pages and available-home portal",
-        "PR 5 — OpenAI campaign factory with structured outputs and fact guard",
-        "PR 6 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
-        "PR 7 — Email, SMS, referral, and buyer-reactivation automation",
-        "PR 8 — Marketplace/Facebook-group/classified assisted posting center",
-        "PR 9 — Buyer qualification, Call Now queue, showing and application follow-up",
-        "PR 10 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
+        "PR 4 — Edit and delete property/buyer records",
+        "PR 5 — Direct property photo upload and storage",
+        "PR 6 — WordPress property landing pages and available-home portal",
+        "PR 7 — OpenAI campaign factory with structured outputs and fact guard",
+        "PR 8 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
+        "PR 9 — Email, SMS, referral, and buyer-reactivation automation",
+        "PR 10 — Marketplace/Facebook-group/classified assisted posting center",
+        "PR 11 — Buyer qualification, Call Now queue, showing and application follow-up",
+        "PR 12 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
     ]
     for item in roadmap:
         st.write(item)
