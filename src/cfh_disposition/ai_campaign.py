@@ -43,17 +43,17 @@ class CampaignFactorySettings:
 class CampaignPackage(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    headline: str = Field(min_length=1, max_length=120)
-    short_description: str = Field(min_length=1, max_length=500)
-    marketplace_description: str = Field(min_length=1, max_length=2500)
-    facebook_group_post: str = Field(min_length=1, max_length=1800)
-    email_subject: str = Field(min_length=1, max_length=120)
-    email_body: str = Field(min_length=1, max_length=2500)
+    headline: str = Field(min_length=1, max_length=180)
+    short_description: str = Field(min_length=1, max_length=1000)
+    marketplace_description: str = Field(min_length=1, max_length=4000)
+    facebook_group_post: str = Field(min_length=1, max_length=3000)
+    email_subject: str = Field(min_length=1, max_length=180)
+    email_body: str = Field(min_length=1, max_length=5000)
     sms_message: str = Field(min_length=1, max_length=480)
-    classified_ad: str = Field(min_length=1, max_length=1800)
-    social_caption: str = Field(min_length=1, max_length=1000)
-    video_script: str = Field(min_length=1, max_length=1800)
-    dwelyx_call_to_action: str = Field(min_length=1, max_length=500)
+    classified_ad: str = Field(min_length=1, max_length=3000)
+    social_caption: str = Field(min_length=1, max_length=1500)
+    video_script: str = Field(min_length=1, max_length=3000)
+    dwelyx_call_to_action: str = Field(min_length=1, max_length=1200)
 
     def channel_rows(self) -> list[tuple[str, str]]:
         return [
@@ -241,7 +241,10 @@ def generate_ai_campaign(
         "You are the Credit Friendly Homes campaign writer. Produce accurate, compliant owner-finance marketing copy. "
         "Use only the supplied fact packet. Do not infer or embellish. Include the exact marketing address in every output field. "
         "Avoid protected-class targeting, neighborhood safety claims, credit approval promises, and pressure language. "
-        "Every channel must direct buyers to Dwelyx, where they can browse all inventory."
+        "Every channel must direct buyers to Dwelyx, where they can browse all inventory. "
+        "Stay within these hard character limits: headline 180, short_description 1000, marketplace_description 4000, "
+        "facebook_group_post 3000, email_subject 180, email_body 5000, sms_message 480, classified_ad 3000, "
+        "social_caption 1500, video_script 3000, and dwelyx_call_to_action 1200."
     )
     payload = {
         "model": settings.model,
