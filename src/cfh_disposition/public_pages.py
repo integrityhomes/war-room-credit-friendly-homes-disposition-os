@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html import escape
 from urllib.parse import urlsplit
@@ -194,7 +194,7 @@ def _render_dwelyx_redirect() -> None:
         try:
             ClickAnalyticsStore(st.secrets).record(
                 ClickEvent(
-                    occurred_at=datetime.now(timezone.utc),
+                    occurred_at=datetime.now(UTC),
                     source=source,
                     medium=medium,
                     campaign=campaign,
@@ -228,7 +228,7 @@ def _render_click_analytics(storage: Storage) -> None:
         return
 
     summary = click_summary(events)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     seven_day_clicks = sum(event.occurred_at >= now - timedelta(days=7) for event in events)
     columns = st.columns(4)
     columns[0].metric("Total clicks", summary["total"])
