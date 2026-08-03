@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
+from uuid import UUID
 
 from .models import BuyerProfile, OwnerFinanceProperty
 
@@ -16,8 +17,10 @@ class Storage(Protocol):
 
     def list_properties(self) -> list[OwnerFinanceProperty]: ...
     def save_property(self, item: OwnerFinanceProperty) -> None: ...
+    def delete_property(self, property_id: UUID) -> None: ...
     def list_buyers(self) -> list[BuyerProfile]: ...
     def save_buyer(self, item: BuyerProfile) -> None: ...
+    def delete_buyer(self, buyer_id: UUID) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -55,11 +58,17 @@ class InMemoryStorage:
     def save_property(self, item: OwnerFinanceProperty) -> None:
         self._properties[str(item.property_id)] = item.model_copy(deep=True)
 
+    def delete_property(self, property_id: UUID) -> None:
+        self._properties.pop(str(property_id), None)
+
     def list_buyers(self) -> list[BuyerProfile]:
         return [item.model_copy(deep=True) for item in self._buyers.values()]
 
     def save_buyer(self, item: BuyerProfile) -> None:
         self._buyers[str(item.buyer_id)] = item.model_copy(deep=True)
+
+    def delete_buyer(self, buyer_id: UUID) -> None:
+        self._buyers.pop(str(buyer_id), None)
 
 
 class SupabaseStorage:
@@ -119,6 +128,12 @@ class SupabaseStorage:
         except Exception as exc:
             raise StorageError("Could not save property to Supabase") from exc
 
+    def delete_property(self, property_id: UUID) -> None:
+        try:
+            self._client.table("cfh_properties").delete().eq("property_id", str(property_id)).execute()
+        except Exception as exc:
+            raise StorageError("Could not delete property from Supabase") from exc
+
     def list_buyers(self) -> list[BuyerProfile]:
         try:
             response = self._client.table("cfh_buyers").select("payload").order("created_at", desc=True).execute()
@@ -134,6 +149,12 @@ class SupabaseStorage:
             ).execute()
         except Exception as exc:
             raise StorageError("Could not save buyer to Supabase") from exc
+
+    def delete_buyer(self, buyer_id: UUID) -> None:
+        try:
+            self._client.table("cfh_buyers").delete().eq("buyer_id", str(buyer_id)).execute()
+        except Exception as exc:
+            raise StorageError("Could not delete buyer from Supabase") from exc
 
 
 def build_storage(
