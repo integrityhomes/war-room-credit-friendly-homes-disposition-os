@@ -6,21 +6,66 @@ import pandas as pd
 import streamlit as st
 from pydantic import ValidationError
 
+from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.content import build_deterministic_campaign_draft
 from cfh_disposition.dashboard import calculate_dashboard_metrics
 from cfh_disposition.launch_plan import build_launch_plan
 from cfh_disposition.marketplace import review_marketplace_copy
 from cfh_disposition.matching import match_buyer_to_property
-from cfh_disposition.models import OwnerFinanceProperty, PropertyStatus
+from cfh_disposition.models import (
+    BuyerProfile,
+    CommunicationPreference,
+    OwnerFinanceProperty,
+    PropertyStatus,
+)
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
+from cfh_disposition.storage import StorageError, SupabaseSettings, build_storage
 
 st.set_page_config(page_title="Credit Friendly Homes Disposition OS", page_icon="🏠", layout="wide")
 
-if "properties" not in st.session_state:
-    st.session_state.properties = SAMPLE_PROPERTIES.copy()
-if "buyers" not in st.session_state:
-    st.session_state.buyers = SAMPLE_BUYERS.copy()
+
+def require_password() -> None:
+    expected = configured_password(st.secrets)
+    if not expected:
+        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
+        st.code('APP_PASSWORD = "choose-a-strong-private-password"')
+        st.stop()
+
+    if st.session_state.get("authenticated"):
+        return
+
+    st.title("Credit Friendly Homes Disposition OS")
+    st.caption("Private internal access")
+    with st.form("login_form"):
+        submitted_password = st.text_input("App password", type="password")
+        submitted = st.form_submit_button("Sign in", type="primary")
+    if submitted and password_matches(submitted_password, expected):
+        st.session_state.authenticated = True
+        st.rerun()
+    if submitted:
+        st.error("Incorrect password.")
+    st.stop()
+
+
+@st.cache_resource
+def get_storage():
+    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
+
+
+def load_records(force: bool = False) -> None:
+    if st.session_state.get("records_loaded") and not force:
+        return
+    storage = get_storage()
+    try:
+        st.session_state.properties = storage.list_properties()
+        st.session_state.buyers = storage.list_buyers()
+        st.session_state.storage_error = ""
+    except StorageError as exc:
+        st.session_state.properties = []
+        st.session_state.buyers = []
+        st.session_state.storage_error = str(exc)
+    st.session_state.records_loaded = True
 
 
 def money(value: Decimal | None) -> str:
@@ -31,14 +76,55 @@ def property_options() -> dict[str, OwnerFinanceProperty]:
     return {item.display_address or str(item.property_id): item for item in st.session_state.properties}
 
 
+def save_property(record: OwnerFinanceProperty) -> None:
+    storage = get_storage()
+    storage.save_property(record)
+    current = {str(item.property_id): item for item in st.session_state.properties}
+    current[str(record.property_id)] = record
+    st.session_state.properties = list(current.values())
+
+
+def save_buyer(record: BuyerProfile) -> None:
+    storage = get_storage()
+    storage.save_buyer(record)
+    current = {str(item.buyer_id): item for item in st.session_state.buyers}
+    current[str(record.buyer_id)] = record
+    st.session_state.buyers = list(current.values())
+
+
+require_password()
+load_records()
+
 st.title("Credit Friendly Homes Disposition OS")
 st.caption("Owner-finance marketing, buyer growth, landing pages, compliance, and launch automation.")
 
+storage = get_storage()
+settings = SupabaseSettings.from_mapping(st.secrets)
+st.sidebar.success(f"Storage: {storage.mode}")
+if st.sidebar.button("Refresh saved records"):
+    load_records(force=True)
+    st.rerun()
+if st.sidebar.button("Log out"):
+    st.session_state.authenticated = False
+    st.rerun()
+
 page = st.sidebar.radio(
     "Navigation",
-    ["Executive War Room", "Property Intake", "Campaign Readiness", "Buyer Growth", "Marketplace Guard", "Build Roadmap"],
+    [
+        "Executive War Room",
+        "Property Intake",
+        "Campaign Readiness",
+        "Buyer Growth",
+        "Marketplace Guard",
+        "System Setup",
+        "Build Roadmap",
+    ],
 )
-st.sidebar.info("Public repository mode: never enter real API keys, passwords, or buyer records into GitHub.")
+st.sidebar.info("Public repository mode: credentials and real records belong only in Streamlit Secrets and Supabase.")
+
+if st.session_state.get("storage_error"):
+    st.error(st.session_state.storage_error)
+    st.warning("Open System Setup and confirm the Supabase migration and secrets before entering records.")
 
 if page == "Executive War Room":
     metrics = calculate_dashboard_metrics(st.session_state.properties, st.session_state.buyers)
@@ -69,7 +155,10 @@ if page == "Executive War Room":
             }
         )
     st.subheader("Property Disposition Board")
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No properties saved yet. Add the first one in Property Intake.")
 
     st.subheader("14-Channel Growth Plan")
     channel_rows = [{"Channel": item.name, "Mode": item.mode, "Purpose": item.purpose} for item in CHANNELS]
@@ -77,7 +166,9 @@ if page == "Executive War Room":
 
 elif page == "Property Intake":
     st.subheader("Add an Owner-Finance Property")
-    st.write("This intake uses session memory for the first build. Supabase and Google Sheets are connected in later PRs.")
+    if not settings.configured:
+        st.warning("Demo mode is active. Connect Supabase before entering real property information.")
+
     with st.form("property_intake", clear_on_submit=False):
         left, middle, right = st.columns(3)
         address = left.text_input("Street address*")
@@ -96,7 +187,7 @@ elif page == "Property Intake":
         disclosures = st.text_area("Public disclosures*")
         photo_text = st.text_area("Photo URLs* — one per line")
         application_url = st.text_input("Application URL")
-        submitted = st.form_submit_button("Validate and Add Property", type="primary")
+        submitted = st.form_submit_button("Validate and Save Property", type="primary")
 
     if submitted:
         try:
@@ -121,19 +212,22 @@ elif page == "Property Intake":
             )
             plan = build_launch_plan(record)
             record.status = PropertyStatus.READY if plan.can_launch else PropertyStatus.NEEDS_INFORMATION
-            st.session_state.properties.append(record)
+            save_property(record)
             if plan.can_launch:
-                st.success("Property added and ready for campaign generation.")
+                st.success("Property saved and ready for campaign generation.")
             else:
-                st.warning("Property added, but launch is blocked until the listed issues are fixed.")
+                st.warning("Property saved, but launch is blocked until the listed issues are fixed.")
                 for error in plan.validation.errors:
                     st.write(f"- {error}")
-        except (ValidationError, InvalidOperation) as exc:
-            st.error(f"Property could not be added: {exc}")
+        except (ValidationError, InvalidOperation, StorageError) as exc:
+            st.error(f"Property could not be saved: {exc}")
 
 elif page == "Campaign Readiness":
     st.subheader("Approve & Launch Everywhere — Readiness Preview")
     options = property_options()
+    if not options:
+        st.info("Add a property before building a campaign.")
+        st.stop()
     selected_name = st.selectbox("Choose property", list(options))
     selected = options[selected_name]
     plan = build_launch_plan(selected)
@@ -164,9 +258,59 @@ elif page == "Campaign Readiness":
     st.button("Approve & Launch Everywhere", disabled=True, help="Enabled after publishing adapters and approval records are built.")
 
 elif page == "Buyer Growth":
-    st.subheader("Buyer Matching Preview")
+    st.subheader("Buyer Database and Matching")
+    if not settings.configured:
+        st.warning("Demo mode is active. Connect Supabase before entering real buyer information.")
+
+    with st.expander("Add buyer", expanded=False):
+        with st.form("buyer_intake"):
+            left, right = st.columns(2)
+            first_name = left.text_input("First name*")
+            last_name = right.text_input("Last name")
+            email = left.text_input("Email")
+            phone = right.text_input("Phone")
+            cities = left.text_input("Preferred cities — comma separated")
+            states = right.text_input("Preferred states — comma separated")
+            minimum_bedrooms = left.number_input("Minimum bedrooms", min_value=0, max_value=20, value=2)
+            maximum_payment = right.text_input("Maximum monthly payment", value="1200")
+            available_down = left.text_input("Available down payment", value="5000")
+            move_days = right.number_input("Move timeframe in days", min_value=0, max_value=3650, value=60)
+            preference = left.selectbox("Preferred contact", [item.value for item in CommunicationPreference])
+            source = right.text_input("Buyer source", value="Website")
+            email_consent = left.checkbox("Email consent")
+            sms_consent = right.checkbox("SMS consent")
+            call_consent = left.checkbox("Call consent")
+            buyer_submitted = st.form_submit_button("Save Buyer", type="primary")
+
+        if buyer_submitted:
+            try:
+                buyer = BuyerProfile(
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    phone=phone,
+                    preferred_cities=[item.strip() for item in cities.split(",") if item.strip()],
+                    preferred_states=[item.strip().upper() for item in states.split(",") if item.strip()],
+                    minimum_bedrooms=minimum_bedrooms,
+                    maximum_monthly_payment=Decimal(maximum_payment.replace(",", "").replace("$", "")),
+                    available_down_payment=Decimal(available_down.replace(",", "").replace("$", "")),
+                    move_timeframe_days=move_days,
+                    communication_preference=CommunicationPreference(preference),
+                    email_consent=email_consent,
+                    sms_consent=sms_consent,
+                    call_consent=call_consent,
+                    source=source,
+                )
+                save_buyer(buyer)
+                st.success("Buyer saved.")
+            except (ValidationError, InvalidOperation, StorageError) as exc:
+                st.error(f"Buyer could not be saved: {exc}")
+
     options = property_options()
-    selected_name = st.selectbox("Choose property", list(options), key="buyer_property")
+    if not options:
+        st.info("Add a property to preview buyer matching.")
+        st.stop()
+    selected_name = st.selectbox("Match buyers to property", list(options), key="buyer_property")
     selected = options[selected_name]
     rows = []
     for buyer in st.session_state.buyers:
@@ -181,12 +325,17 @@ elif page == "Buyer Growth":
                 "Disqualifiers": "; ".join(match.disqualifiers),
             }
         )
-    st.dataframe(pd.DataFrame(rows).sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
-    st.info("Future PRs add Supabase storage, lead forms, referral links, reactivation, and Call Now queues.")
+    if rows:
+        st.dataframe(pd.DataFrame(rows).sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
+    else:
+        st.info("No buyers saved yet.")
 
 elif page == "Marketplace Guard":
     st.subheader("Facebook Marketplace Compliance Guard")
     options = property_options()
+    if not options:
+        st.info("Add a property before preparing Marketplace copy.")
+        st.stop()
     selected_name = st.selectbox("Choose property", list(options), key="marketplace_property")
     selected = options[selected_name]
     draft = build_deterministic_campaign_draft(selected)
@@ -204,19 +353,38 @@ elif page == "Marketplace Guard":
         st.warning(warning)
     st.caption("Final Marketplace publication remains manual. This guard reduces preventable errors but cannot guarantee platform approval.")
 
+elif page == "System Setup":
+    st.subheader("System Setup")
+    st.write("### Security")
+    st.success("App password is configured.")
+    st.write("### Storage")
+    if settings.configured:
+        st.success("Supabase credentials are configured in Streamlit Secrets.")
+        st.write("Run the included SQL migration before saving real records.")
+    else:
+        st.warning("Supabase is not connected. The app is using fictional demo data stored only in memory.")
+
+    st.write("### Required Streamlit Secrets")
+    st.code(
+        'APP_PASSWORD = "your-private-password"\n'
+        'SUPABASE_URL = "https://your-project.supabase.co"\n'
+        'SUPABASE_SECRET_KEY = "sb_secret_..."'
+    )
+    st.info("Never paste these values into GitHub, chat screenshots, property notes, or public pages.")
+
 else:
     st.subheader("Build Roadmap")
     roadmap = [
         "PR 1 — Foundation, property intake, launch validation, 14-channel registry, buyer matching, Marketplace Guard",
-        "PR 2 — Supabase property and buyer database with safe migrations",
-        "PR 3 — WordPress property landing pages and available-home portal",
-        "PR 4 — OpenAI campaign factory with structured outputs and fact guard",
-        "PR 5 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
-        "PR 6 — Email, SMS, referral, and buyer-reactivation automation",
-        "PR 7 — Marketplace/Facebook-group/classified assisted posting center",
-        "PR 8 — Buyer qualification, Call Now queue, showing and application follow-up",
-        "PR 9 — Instagram, TikTok, YouTube, Meta housing ads, and Google Ads adapters",
-        "PR 10 — Analytics, optimization, sold-property shutdown, permissions, and audit logs",
+        "PR 2 — Streamlit deployment package fix",
+        "PR 3 — Password gate and Supabase property/buyer storage",
+        "PR 4 — WordPress property landing pages and available-home portal",
+        "PR 5 — OpenAI campaign factory with structured outputs and fact guard",
+        "PR 6 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
+        "PR 7 — Email, SMS, referral, and buyer-reactivation automation",
+        "PR 8 — Marketplace/Facebook-group/classified assisted posting center",
+        "PR 9 — Buyer qualification, Call Now queue, showing and application follow-up",
+        "PR 10 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
     ]
     for item in roadmap:
         st.write(item)

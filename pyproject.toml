@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "war-room-credit-friendly-homes-disposition-os"
-version = "0.1.0"
+version = "0.2.0"
 description = "Owner-finance disposition, marketing, buyer growth, and compliance operating system."
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "pandas>=2.2,<3",
   "pydantic>=2.8,<3",
   "streamlit>=1.42,<2",
+  "supabase>=2.15,<3",
 ]
 
 [project.optional-dependencies]
