@@ -131,6 +131,7 @@ class SupabaseStorage:
             client = create_client(settings.url, settings.secret_key)
         self._settings = settings
         self._client = client
+        self._photo_bucket_ready = False
 
     @staticmethod
     def _property_row(item: OwnerFinanceProperty) -> dict[str, Any]:
@@ -159,6 +160,25 @@ class SupabaseStorage:
             "payload": item.model_dump(mode="json"),
         }
 
+    def _ensure_photo_bucket(self) -> None:
+        if self._photo_bucket_ready:
+            return
+        try:
+            self._client.storage.get_bucket(PHOTO_BUCKET)
+        except Exception:
+            try:
+                self._client.storage.create_bucket(
+                    PHOTO_BUCKET,
+                    options={
+                        "public": True,
+                        "allowed_mime_types": sorted(PHOTO_MIME_TYPES),
+                        "file_size_limit": PHOTO_MAX_BYTES,
+                    },
+                )
+            except Exception as exc:
+                raise StorageError("Could not automatically create the property-photo storage bucket.") from exc
+        self._photo_bucket_ready = True
+
     def list_properties(self) -> list[OwnerFinanceProperty]:
         try:
             response = self._client.table("cfh_properties").select("payload").order("updated_at", desc=True).execute()
@@ -176,6 +196,7 @@ class SupabaseStorage:
             raise StorageError("Could not save property to Supabase") from exc
 
     def upload_property_photos(self, property_id: UUID, files: list[PhotoUpload]) -> list[str]:
+        self._ensure_photo_bucket()
         uploaded_urls: list[str] = []
         bucket = self._client.storage.from_(PHOTO_BUCKET)
         for file_name, content, content_type in files:
@@ -192,9 +213,7 @@ class SupabaseStorage:
                     },
                 )
             except Exception as exc:
-                raise StorageError(
-                    "Could not upload property photos. Confirm the cfh-property-photos bucket migration was run."
-                ) from exc
+                raise StorageError("Could not upload property photos to Supabase.") from exc
             uploaded_urls.append(_public_photo_url(self._settings.url, object_path))
         return uploaded_urls
 
@@ -215,7 +234,6 @@ class SupabaseStorage:
             if paths:
                 bucket.remove(paths)
         except Exception:
-            # Property deletion should still succeed if the bucket is missing or already empty.
             return
 
     def delete_property(self, property_id: UUID) -> None:
