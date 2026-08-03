@@ -47,6 +47,85 @@ def _replace_buyer(record: BuyerProfile) -> None:
     st.session_state.buyers = list(current.values())
 
 
+def _property_with_photos(selected: OwnerFinanceProperty, photo_urls: list[str]) -> OwnerFinanceProperty:
+    data = selected.model_dump(mode="python")
+    data.update({"photo_urls": photo_urls, "updated_at": datetime.now(UTC)})
+    record = OwnerFinanceProperty.model_validate(data)
+    if selected.status in {PropertyStatus.DRAFT, PropertyStatus.NEEDS_INFORMATION, PropertyStatus.READY}:
+        record.status = PropertyStatus.READY if build_launch_plan(record).can_launch else PropertyStatus.NEEDS_INFORMATION
+    return record
+
+
+def _render_property_photos(storage: Storage, selected: OwnerFinanceProperty) -> None:
+    st.write("#### Property photos")
+    st.caption("Upload JPG, PNG, or WEBP photos. Each photo may be up to 10 MB.")
+    st.info("Uploaded property photos are public marketing assets. Do not upload IDs, contracts, applications, or private documents.")
+
+    uploaded_files = st.file_uploader(
+        "Choose property photos",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key=f"property_photos_{selected.property_id}",
+    )
+    upload_disabled = not uploaded_files or not storage.supports_photo_uploads
+    if not storage.supports_photo_uploads:
+        st.warning("Connect Supabase before uploading property photos.")
+
+    if st.button(
+        "Upload Selected Photos",
+        type="primary",
+        disabled=upload_disabled,
+        key=f"upload_property_photos_{selected.property_id}",
+    ):
+        try:
+            files = [(item.name, item.getvalue(), item.type or "") for item in uploaded_files]
+            new_urls = storage.upload_property_photos(selected.property_id, files)
+            combined_urls = [str(item) for item in selected.photo_urls]
+            combined_urls.extend(url for url in new_urls if url not in combined_urls)
+            record = _property_with_photos(selected, combined_urls)
+            storage.save_property(record)
+            _replace_property(record)
+            st.session_state.record_manager_message = f"{len(new_urls)} property photo(s) uploaded."
+            st.rerun()
+        except (ValidationError, StorageError) as exc:
+            st.error(str(exc))
+
+    existing_urls = [str(item) for item in selected.photo_urls]
+    if not existing_urls:
+        st.info("No property photos are saved yet.")
+        return
+
+    st.write(f"**Saved photos: {len(existing_urls)}**")
+    columns = st.columns(3)
+    for index, url in enumerate(existing_urls):
+        with columns[index % 3]:
+            st.image(url, caption=f"Photo {index + 1}", use_container_width=True)
+
+    remove_options = {f"Photo {index + 1}": url for index, url in enumerate(existing_urls)}
+    selected_labels = st.multiselect(
+        "Choose photos to remove",
+        list(remove_options),
+        key=f"remove_property_photos_{selected.property_id}",
+    )
+    if st.button(
+        "Remove Selected Photos",
+        disabled=not selected_labels,
+        key=f"remove_selected_photos_{selected.property_id}",
+    ):
+        try:
+            urls_to_remove = [remove_options[label] for label in selected_labels]
+            for url in urls_to_remove:
+                storage.delete_property_photo(url)
+            remaining_urls = [url for url in existing_urls if url not in urls_to_remove]
+            record = _property_with_photos(selected, remaining_urls)
+            storage.save_property(record)
+            _replace_property(record)
+            st.session_state.record_manager_message = f"{len(urls_to_remove)} property photo(s) removed."
+            st.rerun()
+        except (ValidationError, StorageError) as exc:
+            st.error(str(exc))
+
+
 def _render_property_manager(storage: Storage) -> None:
     st.write("### Properties")
     options = _property_options(st.session_state.properties)
@@ -54,13 +133,17 @@ def _render_property_manager(storage: Storage) -> None:
         st.info("No properties are saved yet.")
         return
 
-    selected_name = st.selectbox("Choose a property to edit or delete", list(options), key="record_property")
+    selected_name = st.selectbox("Choose a property to manage", list(options), key="record_property")
     selected = options[selected_name]
     plan = build_launch_plan(selected)
     if plan.can_launch:
         st.success("This property currently passes the launch-readiness gate.")
     else:
         st.warning(f"This property has {len(plan.validation.errors)} blocking issue(s).")
+
+    _render_property_photos(storage, selected)
+    st.divider()
+    st.write("#### Property details")
 
     with st.form("edit_property_form"):
         left, middle, right = st.columns(3)
@@ -97,8 +180,9 @@ def _render_property_manager(storage: Storage) -> None:
         showing = st.text_area("Showing instructions*", value=selected.showing_instructions)
         disclosures = st.text_area("Public disclosures*", value=selected.public_disclosures)
         photo_text = st.text_area(
-            "Photo URLs* — one per line",
+            "Photo URLs — one per line",
             value="\n".join(str(item) for item in selected.photo_urls),
+            help="Direct uploads are preferred. This field also supports existing external photo URLs.",
         )
         application_url = st.text_input(
             "Application URL",
@@ -140,7 +224,7 @@ def _render_property_manager(storage: Storage) -> None:
             st.error(f"Property could not be updated: {exc}")
 
     st.write("#### Delete property")
-    st.caption("Deletion permanently removes this record from Supabase.")
+    st.caption("Deletion permanently removes this record and its uploaded photos from Supabase.")
     confirmed = st.checkbox(
         "I understand this property will be permanently deleted.",
         key=f"confirm_property_{selected.property_id}",
@@ -257,7 +341,7 @@ def _render_buyer_manager(storage: Storage) -> None:
 
 
 def render_record_manager(storage: Storage) -> None:
-    st.subheader("Edit or Delete Saved Records")
+    st.subheader("Edit, Add Photos, or Delete Saved Records")
     message = st.session_state.pop("record_manager_message", "")
     if message:
         st.success(message)
