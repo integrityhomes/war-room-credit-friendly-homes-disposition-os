@@ -8,6 +8,7 @@ from cfh_disposition.ai_campaign import (
     build_fallback_campaign,
     generate_ai_campaign,
     marketing_address,
+    normalize_campaign_payload,
     property_fact_packet,
     validate_campaign_facts,
 )
@@ -71,6 +72,24 @@ def test_campaign_package_accepts_detailed_short_description():
     package = CampaignPackage.model_validate(payload)
     assert len(package.short_description) > 500
     assert len(package.short_description) <= 1000
+
+
+def test_overlong_ai_fields_are_replaced_individually_with_safe_fallbacks():
+    item = sample_property()
+    url = "https://www.dwelyx.com/?utm_source=credit_friendly_homes"
+    fallback = build_fallback_campaign(item, url)
+    payload = fallback.model_dump()
+    payload["headline"] = f"AI headline — {marketing_address(item)}"
+    payload["sms_message"] = "x" * 900
+    payload["short_description"] = "y" * 1500
+
+    normalized = normalize_campaign_payload(payload, fallback)
+    package = CampaignPackage.model_validate(normalized)
+
+    assert package.headline == payload["headline"]
+    assert package.sms_message == fallback.sms_message
+    assert package.short_description == fallback.short_description
+    assert validate_campaign_facts(package, item, url) == []
 
 
 def test_fact_guard_accepts_approved_money_followed_by_punctuation():
