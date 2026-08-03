@@ -9,7 +9,6 @@ from .models import (
     PropertyStatus,
 )
 
-
 SAMPLE_PROPERTIES = [
     OwnerFinanceProperty(
         status=PropertyStatus.READY,
