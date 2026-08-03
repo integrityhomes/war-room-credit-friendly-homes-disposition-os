@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from .models import BuyerProfile, CommunicationPreference, OwnerFinanceProperty, PropertyStatus
+from .models import (
+    BuyerProfile,
+    CommunicationPreference,
+    OwnerFinanceProperty,
+    PropertyStatus,
+)
 
 
 SAMPLE_PROPERTIES = [
