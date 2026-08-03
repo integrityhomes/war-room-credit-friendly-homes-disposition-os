@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import streamlit as st
 
+from .dwelyx import build_dwelyx_url, dwelyx_base_url
 from .launch_plan import build_launch_plan
 from .models import OwnerFinanceProperty, PropertyStatus
 from .storage import Storage, StorageError
@@ -34,6 +36,13 @@ def public_portal_path() -> str:
     return "?homes=1"
 
 
+def _is_dwelyx_listing(url: str | None) -> bool:
+    if not url:
+        return False
+    hostname = (urlsplit(url).hostname or "").lower()
+    return hostname == "dwelyx.com" or hostname.endswith(".dwelyx.com")
+
+
 def _available_properties(storage: Storage) -> list[OwnerFinanceProperty]:
     try:
         properties = storage.list_properties()
@@ -47,12 +56,28 @@ def _render_header() -> None:
     st.caption("Owner-financing opportunities with clear terms and straightforward property information.")
 
 
+def _browse_dwelyx_url(*, medium: str, property_id: UUID | None = None) -> str:
+    return build_dwelyx_url(
+        dwelyx_base_url(st.secrets),
+        source="credit_friendly_homes",
+        medium=medium,
+        property_id=property_id,
+    )
+
+
 def _render_portal(storage: Storage) -> None:
     _render_header()
-    st.subheader("Available Owner-Finance Homes")
+    st.link_button(
+        "Browse All Owner-Finance Homes on Dwelyx",
+        _browse_dwelyx_url(medium="available_homes_portal"),
+        type="primary",
+        use_container_width=True,
+    )
+    st.caption("Dwelyx is the main marketplace. Buyers can browse every available owner-finance home there.")
+    st.subheader("Featured Owner-Finance Homes")
     properties = _available_properties(storage)
     if not properties:
-        st.info("No homes are available right now. Please check back soon.")
+        st.info("No featured homes are available here right now. Browse Dwelyx for the full inventory.")
         st.caption("Equal Housing Opportunity")
         return
 
@@ -66,7 +91,12 @@ def _render_portal(storage: Storage) -> None:
             st.write(f"Price: **{money(item.total_price)}**")
             st.write(f"Down payment: **{money(item.down_payment)}**")
             st.write(f"Monthly payment: **{money(item.monthly_payment)}**")
-            st.markdown(f"[View home details]({public_property_path(item.property_id)})")
+            st.markdown(f"[View featured-home details]({public_property_path(item.property_id)})")
+            st.link_button(
+                "Browse All Homes on Dwelyx",
+                _browse_dwelyx_url(medium="featured_home_card", property_id=item.property_id),
+                use_container_width=True,
+            )
             st.divider()
 
     st.caption("Availability and terms are subject to verification. Equal Housing Opportunity.")
@@ -77,13 +107,26 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
     properties = _available_properties(storage)
     selected = next((item for item in properties if str(item.property_id) == property_id), None)
     if selected is None:
-        st.warning("This property is not currently available.")
-        st.markdown(f"[Browse available homes]({public_portal_path()})")
+        st.warning("This featured property is not currently available.")
+        st.link_button(
+            "Browse All Owner-Finance Homes on Dwelyx",
+            _browse_dwelyx_url(medium="unavailable_property_page"),
+            type="primary",
+            use_container_width=True,
+        )
         return
 
     location = public_location(selected)
-    st.markdown(f"[← Browse all available homes]({public_portal_path()})")
+    st.markdown(f"[← Browse featured homes]({public_portal_path()})")
     st.header(f"Owner-Finance Home in {location}")
+
+    st.link_button(
+        "Browse All Owner-Finance Homes on Dwelyx",
+        _browse_dwelyx_url(medium="property_landing_page", property_id=selected.property_id),
+        type="primary",
+        use_container_width=True,
+    )
+    st.caption("This home may not be the right fit. Dwelyx shows the full owner-finance inventory.")
 
     if selected.photo_urls:
         st.image([str(item) for item in selected.photo_urls], use_container_width=True)
@@ -109,10 +152,9 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
     st.subheader("Important disclosures")
     st.write(selected.public_disclosures)
 
-    if selected.application_url:
-        st.link_button("Apply or Request More Information", str(selected.application_url), type="primary")
-    else:
-        st.info("Contact Credit Friendly Homes for application and showing information.")
+    listing_url = str(selected.application_url) if selected.application_url else ""
+    if _is_dwelyx_listing(listing_url):
+        st.link_button("View This Home on Dwelyx", listing_url, use_container_width=True)
 
     st.caption(
         "This page is an advertisement for an owner-financing opportunity, not a promise of approval. "
