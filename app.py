@@ -19,6 +19,7 @@ from cfh_disposition.models import (
     OwnerFinanceProperty,
     PropertyStatus,
 )
+from cfh_disposition.public_pages import public_portal_path, public_property_path, render_public_request
 from cfh_disposition.record_manager import render_record_manager
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, SupabaseSettings, build_storage
@@ -93,6 +94,10 @@ def save_buyer(record: BuyerProfile) -> None:
     st.session_state.buyers = list(current.values())
 
 
+storage = get_storage()
+if render_public_request(storage):
+    st.stop()
+
 require_password()
 load_records()
 
@@ -141,6 +146,8 @@ if page == "Executive War Room":
     ]
     for column, (label, value) in zip(columns, values, strict=True):
         column.metric(label, value)
+
+    st.markdown(f"[Open public available-homes portal]({public_portal_path()})")
 
     rows = []
     for item in st.session_state.properties:
@@ -246,6 +253,11 @@ elif page == "Campaign Readiness":
             st.write(f"- {error}")
     for warning in plan.validation.warnings:
         st.warning(warning)
+
+    st.write("### Public landing-page links")
+    st.markdown(f"[Open this property's public landing page]({public_property_path(selected.property_id)})")
+    st.markdown(f"[Open the public available-homes portal]({public_portal_path()})")
+    st.caption("Public pages show city, state, and ZIP but keep the street address private.")
 
     st.write("### Safe campaign preview")
     st.text_input("Headline", value=draft.headline)
@@ -365,7 +377,7 @@ elif page == "System Setup":
     st.write("### Storage")
     if settings.configured:
         st.success("Supabase credentials are configured in Streamlit Secrets.")
-        st.write("Run the included SQL migration before saving real records.")
+        st.write("Private records and public property photos are connected.")
     else:
         st.warning("Supabase is not connected. The app is using fictional demo data stored only in memory.")
 
@@ -385,13 +397,14 @@ else:
         "PR 3 — Password gate and Supabase property/buyer storage",
         "PR 4 — Edit and delete property/buyer records",
         "PR 5 — Direct property photo upload and storage",
-        "PR 6 — WordPress property landing pages and available-home portal",
-        "PR 7 — OpenAI campaign factory with structured outputs and fact guard",
-        "PR 8 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
-        "PR 9 — Email, SMS, referral, and buyer-reactivation automation",
-        "PR 10 — Marketplace/Facebook-group/classified assisted posting center",
-        "PR 11 — Buyer qualification, Call Now queue, showing and application follow-up",
-        "PR 12 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
+        "PR 6 — Automatic Supabase photo-bucket setup",
+        "PR 7 — Public property landing pages and available-homes portal",
+        "PR 8 — Public buyer lead capture and qualification",
+        "PR 9 — OpenAI campaign factory with structured outputs and fact guard",
+        "PR 10 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
+        "PR 11 — Email, SMS, referral, and buyer-reactivation automation",
+        "PR 12 — Marketplace/Facebook-group/classified assisted posting center",
+        "PR 13 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
     ]
     for item in roadmap:
         st.write(item)
