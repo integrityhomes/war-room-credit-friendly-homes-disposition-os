@@ -9,16 +9,10 @@ from pydantic import ValidationError
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.content import build_deterministic_campaign_draft
-from cfh_disposition.dashboard import calculate_dashboard_metrics
+from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
 from cfh_disposition.launch_plan import build_launch_plan
 from cfh_disposition.marketplace import review_marketplace_copy
-from cfh_disposition.matching import match_buyer_to_property
-from cfh_disposition.models import (
-    BuyerProfile,
-    CommunicationPreference,
-    OwnerFinanceProperty,
-    PropertyStatus,
-)
+from cfh_disposition.models import OwnerFinanceProperty, PropertyStatus
 from cfh_disposition.public_pages import public_portal_path, public_property_path, render_public_request
 from cfh_disposition.record_manager import render_record_manager
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
@@ -86,14 +80,6 @@ def save_property(record: OwnerFinanceProperty) -> None:
     st.session_state.properties = list(current.values())
 
 
-def save_buyer(record: BuyerProfile) -> None:
-    storage = get_storage()
-    storage.save_buyer(record)
-    current = {str(item.buyer_id): item for item in st.session_state.buyers}
-    current[str(record.buyer_id)] = record
-    st.session_state.buyers = list(current.values())
-
-
 storage = get_storage()
 if render_public_request(storage):
     st.stop()
@@ -102,10 +88,11 @@ require_password()
 load_records()
 
 st.title("Credit Friendly Homes Disposition OS")
-st.caption("Owner-finance marketing, buyer growth, landing pages, compliance, and launch automation.")
+st.caption("Owner-finance marketing, Dwelyx traffic, landing pages, compliance, and launch automation.")
 
 storage = get_storage()
 settings = SupabaseSettings.from_mapping(st.secrets)
+dwelyx_url = dwelyx_base_url(st.secrets)
 st.sidebar.success(f"Storage: {storage.mode}")
 if st.sidebar.button("Refresh saved records"):
     load_records(force=True)
@@ -121,7 +108,7 @@ page = st.sidebar.radio(
         "Property Intake",
         "Record Manager",
         "Campaign Readiness",
-        "Buyer Growth",
+        "Dwelyx Traffic Hub",
         "Marketplace Guard",
         "System Setup",
         "Build Roadmap",
@@ -131,26 +118,33 @@ st.sidebar.info("Public repository mode: credentials and real records belong onl
 
 if st.session_state.get("storage_error"):
     st.error(st.session_state.storage_error)
-    st.warning("Open System Setup and confirm the Supabase migration and secrets before entering records.")
+    st.warning("Open System Setup and confirm the Supabase connection before entering records.")
 
 if page == "Executive War Room":
-    metrics = calculate_dashboard_metrics(st.session_state.properties, st.session_state.buyers)
-    columns = st.columns(6)
+    properties = st.session_state.properties
+    launch_ready = sum(item.status == PropertyStatus.READY for item in properties)
+    marketing_live = sum(item.status == PropertyStatus.LIVE for item in properties)
+    needs_information = sum(item.status == PropertyStatus.NEEDS_INFORMATION for item in properties)
+
+    columns = st.columns(4)
     values = [
-        ("Properties", metrics.total_properties),
-        ("Launch Ready", metrics.launch_ready),
-        ("Marketing Live", metrics.live_properties),
-        ("Needs Information", metrics.needs_information),
-        ("Buyers", metrics.total_buyers),
-        ("Eligible Matches", metrics.eligible_matches),
+        ("Properties", len(properties)),
+        ("Launch Ready", launch_ready),
+        ("Marketing Live", marketing_live),
+        ("Needs Information", needs_information),
     ]
     for column, (label, value) in zip(columns, values, strict=True):
         column.metric(label, value)
 
-    st.markdown(f"[Open public available-homes portal]({public_portal_path()})")
+    st.link_button(
+        "Open Dwelyx — Full Owner-Finance Marketplace",
+        build_dwelyx_url(dwelyx_url, source="credit_friendly_homes", medium="executive_war_room"),
+        type="primary",
+    )
+    st.markdown(f"[Open featured-homes landing portal]({public_portal_path()})")
 
     rows = []
-    for item in st.session_state.properties:
+    for item in properties:
         plan = build_launch_plan(item)
         rows.append(
             {
@@ -195,7 +189,7 @@ elif page == "Property Intake":
         showing = st.text_area("Showing instructions*")
         disclosures = st.text_area("Public disclosures*")
         photo_text = st.text_area("Photo URLs* — one per line")
-        application_url = st.text_input("Application URL")
+        application_url = st.text_input("Dwelyx property listing URL — optional")
         submitted = st.form_submit_button("Validate and Save Property", type="primary")
 
     if submitted:
@@ -254,10 +248,18 @@ elif page == "Campaign Readiness":
     for warning in plan.validation.warnings:
         st.warning(warning)
 
-    st.write("### Public landing-page links")
-    st.markdown(f"[Open this property's public landing page]({public_property_path(selected.property_id)})")
-    st.markdown(f"[Open the public available-homes portal]({public_portal_path()})")
-    st.caption("Public pages show city, state, and ZIP but keep the street address private.")
+    tracked_dwelyx_link = build_dwelyx_url(
+        dwelyx_url,
+        source="credit_friendly_homes",
+        medium="property_campaign",
+        property_id=selected.property_id,
+    )
+    st.write("### Buyer destination links")
+    st.text_input("Tracked Dwelyx marketplace link", value=tracked_dwelyx_link)
+    st.link_button("Open Dwelyx Marketplace", tracked_dwelyx_link, type="primary")
+    st.markdown(f"[Open this property's featured landing page]({public_property_path(selected.property_id)})")
+    st.markdown(f"[Open the featured-homes portal]({public_portal_path()})")
+    st.caption("All buyer calls to action should lead into Dwelyx so buyers can browse the full inventory.")
 
     st.write("### Safe campaign preview")
     st.text_input("Headline", value=draft.headline)
@@ -274,78 +276,42 @@ elif page == "Campaign Readiness":
     st.dataframe(pd.DataFrame(launch_rows), use_container_width=True, hide_index=True)
     st.button("Approve & Launch Everywhere", disabled=True, help="Enabled after publishing adapters and approval records are built.")
 
-elif page == "Buyer Growth":
-    st.subheader("Buyer Database and Matching")
-    if not settings.configured:
-        st.warning("Demo mode is active. Connect Supabase before entering real buyer information.")
+elif page == "Dwelyx Traffic Hub":
+    st.subheader("Dwelyx Traffic Hub")
+    st.success("All buyer traffic is directed to Dwelyx, where buyers can browse the full owner-finance inventory.")
+    st.link_button("Open Dwelyx", dwelyx_url, type="primary")
 
-    with st.expander("Add buyer", expanded=False):
-        with st.form("buyer_intake"):
-            left, right = st.columns(2)
-            first_name = left.text_input("First name*")
-            last_name = right.text_input("Last name")
-            email = left.text_input("Email")
-            phone = right.text_input("Phone")
-            cities = left.text_input("Preferred cities — comma separated")
-            states = right.text_input("Preferred states — comma separated")
-            minimum_bedrooms = left.number_input("Minimum bedrooms", min_value=0, max_value=20, value=2)
-            maximum_payment = right.text_input("Maximum monthly payment", value="1200")
-            available_down = left.text_input("Available down payment", value="5000")
-            move_days = right.number_input("Move timeframe in days", min_value=0, max_value=3650, value=60)
-            preference = left.selectbox("Preferred contact", [item.value for item in CommunicationPreference])
-            source = right.text_input("Buyer source", value="Website")
-            email_consent = left.checkbox("Email consent")
-            sms_consent = right.checkbox("SMS consent")
-            call_consent = left.checkbox("Call consent")
-            buyer_submitted = st.form_submit_button("Save Buyer", type="primary")
+    st.write("### Build a tracked marketing link")
+    left, right = st.columns(2)
+    source = left.selectbox(
+        "Lead source",
+        [
+            "Facebook Marketplace",
+            "Facebook Groups",
+            "Google",
+            "Signs and QR Codes",
+            "Email",
+            "SMS",
+            "Website",
+            "Classifieds",
+            "Other",
+        ],
+    )
+    campaign = right.text_input("Campaign name", value="owner_finance_homes")
 
-        if buyer_submitted:
-            try:
-                buyer = BuyerProfile(
-                    first_name=first_name,
-                    last_name=last_name,
-                    email=email,
-                    phone=phone,
-                    preferred_cities=[item.strip() for item in cities.split(",") if item.strip()],
-                    preferred_states=[item.strip().upper() for item in states.split(",") if item.strip()],
-                    minimum_bedrooms=minimum_bedrooms,
-                    maximum_monthly_payment=Decimal(maximum_payment.replace(",", "").replace("$", "")),
-                    available_down_payment=Decimal(available_down.replace(",", "").replace("$", "")),
-                    move_timeframe_days=move_days,
-                    communication_preference=CommunicationPreference(preference),
-                    email_consent=email_consent,
-                    sms_consent=sms_consent,
-                    call_consent=call_consent,
-                    source=source,
-                )
-                save_buyer(buyer)
-                st.success("Buyer saved.")
-            except (ValidationError, InvalidOperation, StorageError) as exc:
-                st.error(f"Buyer could not be saved: {exc}")
-
-    options = property_options()
-    if not options:
-        st.info("Add a property to preview buyer matching.")
-        st.stop()
-    selected_name = st.selectbox("Match buyers to property", list(options), key="buyer_property")
-    selected = options[selected_name]
-    rows = []
-    for buyer in st.session_state.buyers:
-        match = match_buyer_to_property(buyer, selected)
-        rows.append(
-            {
-                "Buyer": f"{buyer.first_name} {buyer.last_name}".strip(),
-                "Source": buyer.source,
-                "Score": match.score,
-                "Eligible": "Yes" if match.is_eligible else "No",
-                "Reasons": "; ".join(match.reasons),
-                "Disqualifiers": "; ".join(match.disqualifiers),
-            }
-        )
-    if rows:
-        st.dataframe(pd.DataFrame(rows).sort_values("Score", ascending=False), use_container_width=True, hide_index=True)
-    else:
-        st.info("No buyers saved yet.")
+    options = {"All Dwelyx inventory": None, **property_options()}
+    selected_name = st.selectbox("Property that generated the interest — optional", list(options))
+    selected_property = options[selected_name]
+    tracked_url = build_dwelyx_url(
+        dwelyx_url,
+        source="credit_friendly_homes",
+        medium=source,
+        campaign=campaign,
+        property_id=selected_property.property_id if selected_property else None,
+    )
+    st.text_input("Copy this tracked Dwelyx link", value=tracked_url)
+    st.link_button("Test This Dwelyx Link", tracked_url)
+    st.caption("Use this link in the ad, text, email, QR code, sign, or social post. Dwelyx remains the buyer marketplace and buyer database.")
 
 elif page == "Marketplace Guard":
     st.subheader("Facebook Marketplace Compliance Guard")
@@ -368,6 +334,11 @@ elif page == "Marketplace Guard":
             st.write(f"- {error}")
     for warning in check.warnings:
         st.warning(warning)
+    st.link_button(
+        "Buyer Call to Action — Browse Dwelyx",
+        build_dwelyx_url(dwelyx_url, source="credit_friendly_homes", medium="facebook_marketplace", property_id=selected.property_id),
+        type="primary",
+    )
     st.caption("Final Marketplace publication remains manual. This guard reduces preventable errors but cannot guarantee platform approval.")
 
 elif page == "System Setup":
@@ -380,6 +351,10 @@ elif page == "System Setup":
         st.write("Private records and public property photos are connected.")
     else:
         st.warning("Supabase is not connected. The app is using fictional demo data stored only in memory.")
+
+    st.write("### Dwelyx buyer destination")
+    st.success(f"All buyer traffic points to {dwelyx_url}")
+    st.caption("DWELYX_URL can be added to Streamlit Secrets later if the destination changes.")
 
     st.write("### Required Streamlit Secrets")
     st.code(
@@ -398,13 +373,14 @@ else:
         "PR 4 — Edit and delete property/buyer records",
         "PR 5 — Direct property photo upload and storage",
         "PR 6 — Automatic Supabase photo-bucket setup",
-        "PR 7 — Public property landing pages and available-homes portal",
-        "PR 8 — Public buyer lead capture and qualification",
-        "PR 9 — OpenAI campaign factory with structured outputs and fact guard",
-        "PR 10 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
-        "PR 11 — Email, SMS, referral, and buyer-reactivation automation",
-        "PR 12 — Marketplace/Facebook-group/classified assisted posting center",
-        "PR 13 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
+        "PR 7 — Public property landing pages and featured-homes portal",
+        "PR 8 — Dwelyx buyer routing and tracked traffic-link hub",
+        "PR 9 — Dwelyx click analytics and source reporting",
+        "PR 10 — OpenAI campaign factory with structured outputs and fact guard",
+        "PR 11 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
+        "PR 12 — Email, SMS, referral, and buyer-reactivation traffic automation",
+        "PR 13 — Marketplace/Facebook-group/classified assisted posting center",
+        "PR 14 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
     ]
     for item in roadmap:
         st.write(item)
