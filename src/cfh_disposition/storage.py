@@ -30,7 +30,7 @@ class SupabaseSettings:
         return bool(self.url and self.secret_key)
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "SupabaseSettings":
+    def from_mapping(cls, values: Mapping[str, Any]) -> SupabaseSettings:
         secret = values.get("SUPABASE_SECRET_KEY") or values.get("SUPABASE_SERVICE_ROLE_KEY") or ""
         return cls(
             url=str(values.get("SUPABASE_URL", "")).strip(),
