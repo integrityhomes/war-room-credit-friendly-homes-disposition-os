@@ -27,7 +27,7 @@ def test_supabase_settings_prefer_new_secret_key():
     assert settings.secret_key == "sb_secret_test"
 
 
-def test_in_memory_storage_upserts_records():
+def test_in_memory_storage_upserts_and_deletes_records():
     storage = InMemoryStorage()
     property_record = OwnerFinanceProperty(address="101 Demo Road", state="VA")
     storage.save_property(property_record)
@@ -42,6 +42,11 @@ def test_in_memory_storage_upserts_records():
     storage.save_buyer(buyer)
     assert len(storage.list_buyers()) == 1
     assert storage.list_buyers()[0].phone == "555-0100"
+
+    storage.delete_property(property_record.property_id)
+    storage.delete_buyer(buyer.buyer_id)
+    assert storage.list_properties() == []
+    assert storage.list_buyers() == []
 
 
 def test_supabase_row_serialization_round_trips():
