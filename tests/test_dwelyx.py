@@ -1,16 +1,25 @@
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
-from cfh_disposition.dwelyx import DEFAULT_DWELYX_URL, build_dwelyx_url, dwelyx_base_url
+from cfh_disposition.dwelyx import (
+    DEFAULT_DWELYX_URL,
+    DEFAULT_TRACKING_APP_URL,
+    build_direct_dwelyx_url,
+    build_dwelyx_url,
+    dwelyx_base_url,
+    tracking_app_base_url,
+)
 
 
 def test_dwelyx_base_url_defaults_and_normalizes():
     assert dwelyx_base_url() == DEFAULT_DWELYX_URL
     assert dwelyx_base_url({"DWELYX_URL": "www.dwelyx.com/"}) == "https://www.dwelyx.com"
+    assert tracking_app_base_url() == DEFAULT_TRACKING_APP_URL
 
 
-def test_build_dwelyx_url_adds_attribution():
+def test_build_direct_dwelyx_url_adds_attribution():
     property_id = uuid4()
-    url = build_dwelyx_url(
+    url = build_direct_dwelyx_url(
         "https://www.dwelyx.com",
         source="Credit Friendly Homes",
         medium="Facebook Marketplace",
@@ -24,8 +33,28 @@ def test_build_dwelyx_url_adds_attribution():
     assert f"utm_content=property_{property_id}" in url
 
 
-def test_build_dwelyx_url_preserves_existing_query_values():
+def test_build_dwelyx_url_uses_tracking_redirect():
+    property_id = uuid4()
     url = build_dwelyx_url(
+        "https://www.dwelyx.com",
+        source="Credit Friendly Homes",
+        medium="Facebook Marketplace",
+        campaign="Owner Finance Homes",
+        property_id=property_id,
+    )
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    assert f"{parts.scheme}://{parts.netloc}" == DEFAULT_TRACKING_APP_URL
+    assert query["go"] == ["dwelyx"]
+    assert query["target"] == ["https://www.dwelyx.com"]
+    assert query["source"] == ["credit_friendly_homes"]
+    assert query["medium"] == ["facebook_marketplace"]
+    assert query["campaign"] == ["owner_finance_homes"]
+    assert query["property_id"] == [str(property_id)]
+
+
+def test_direct_dwelyx_url_preserves_existing_query_values():
+    url = build_direct_dwelyx_url(
         "https://www.dwelyx.com/homes?state=VA",
         source="credit_friendly_homes",
         medium="signs",
