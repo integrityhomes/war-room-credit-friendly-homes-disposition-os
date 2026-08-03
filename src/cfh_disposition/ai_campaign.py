@@ -118,11 +118,16 @@ def _money(value: Decimal | None) -> str:
     return "Not provided" if value is None else f"${value:,.0f}"
 
 
+def marketing_address(property_record: OwnerFinanceProperty) -> str:
+    city_state = ", ".join(part for part in [property_record.city, property_record.state] if part)
+    locality = f"{city_state} {property_record.zip_code}".strip()
+    return ", ".join(part for part in [property_record.address, locality] if part)
+
+
 def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str) -> dict[str, Any]:
+    address = marketing_address(property_record)
     return {
-        "public_location": ", ".join(
-            part for part in [property_record.city, property_record.state, property_record.zip_code] if part
-        ),
+        "marketing_address": address,
         "bedrooms": property_record.bedrooms,
         "bathrooms": str(property_record.bathrooms) if property_record.bathrooms is not None else None,
         "purchase_price": _money(property_record.total_price),
@@ -134,7 +139,7 @@ def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str)
         "dwelyx_url": dwelyx_url,
         "instructions": [
             "Use only these facts. Never invent amenities, financing terms, approval criteria, neighborhood claims, or repair details.",
-            "Do not expose the street address.",
+            "Include the exact marketing_address in every output field, including the headline, email subject, SMS, and Dwelyx call to action.",
             "Do not promise approval or use discriminatory/fair-housing-risk language.",
             "Every buyer call to action must direct the buyer to Dwelyx so they can browse all owner-finance inventory.",
             "Keep the tone practical, clear, and conversational.",
@@ -144,7 +149,8 @@ def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str)
 
 def build_fallback_campaign(property_record: OwnerFinanceProperty, dwelyx_url: str) -> CampaignPackage:
     base = build_deterministic_campaign_draft(property_record)
-    cta = f"Browse this home and all available owner-finance homes on Dwelyx: {dwelyx_url}"
+    address = marketing_address(property_record)
+    cta = f"Browse {address} and all available owner-finance homes on Dwelyx: {dwelyx_url}"
     return CampaignPackage(
         headline=base.headline,
         short_description=f"{base.short_description} {cta}",
@@ -155,7 +161,7 @@ def build_fallback_campaign(property_record: OwnerFinanceProperty, dwelyx_url: s
         sms_message=f"{base.sms_message} Browse all homes: {dwelyx_url}",
         classified_ad=f"{base.marketplace_description}\n\n{cta}",
         social_caption=f"{base.short_description}\n\n{cta}",
-        video_script=f"Here is an owner-finance opportunity in {property_record.city}, {property_record.state}. {base.short_description} {cta}",
+        video_script=f"Here is an owner-finance opportunity at {address}. {base.short_description} {cta}",
         dwelyx_call_to_action=cta,
     )
 
@@ -207,8 +213,11 @@ def validate_campaign_facts(
     if dwelyx_url.rstrip("/") not in combined:
         errors.append("Dwelyx destination is missing from the campaign package.")
 
-    if property_record.address and property_record.address.lower() in lowered:
-        errors.append("Street address was exposed in public marketing copy.")
+    address = marketing_address(property_record)
+    if address:
+        for label, text in package.channel_rows():
+            if address.lower() not in text.lower():
+                errors.append(f"Property address is missing from {label}.")
 
     return sorted(set(errors))
 
@@ -224,8 +233,9 @@ def generate_ai_campaign(
 
     developer_prompt = (
         "You are the Credit Friendly Homes campaign writer. Produce accurate, compliant owner-finance marketing copy. "
-        "Use only the supplied fact packet. Do not infer or embellish. Avoid protected-class targeting, neighborhood safety claims, "
-        "credit approval promises, and pressure language. Every channel must direct buyers to Dwelyx, where they can browse all inventory."
+        "Use only the supplied fact packet. Do not infer or embellish. Include the exact marketing address in every output field. "
+        "Avoid protected-class targeting, neighborhood safety claims, credit approval promises, and pressure language. "
+        "Every channel must direct buyers to Dwelyx, where they can browse all inventory."
     )
     payload = {
         "model": settings.model,

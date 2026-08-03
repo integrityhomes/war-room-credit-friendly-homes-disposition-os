@@ -19,9 +19,10 @@ def money(value: Decimal | None) -> str:
 
 
 def public_location(item: OwnerFinanceProperty) -> str:
-    """Return a marketing-safe location without exposing the street address."""
-    parts = [item.city, item.state, item.zip_code]
-    return ", ".join(part for part in parts if part)
+    """Return the complete marketing address, including the street address."""
+    city_state = ", ".join(part for part in [item.city, item.state] if part)
+    locality = f"{city_state} {item.zip_code}".strip()
+    return ", ".join(part for part in [item.address, locality] if part)
 
 
 def is_public_property(item: OwnerFinanceProperty) -> bool:
@@ -118,7 +119,7 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
 
     location = public_location(selected)
     st.markdown(f"[← Browse featured homes]({public_portal_path()})")
-    st.header(f"Owner-Finance Home in {location}")
+    st.header(f"Owner-Finance Home — {location}")
 
     st.link_button(
         "Browse All Owner-Finance Homes on Dwelyx",
