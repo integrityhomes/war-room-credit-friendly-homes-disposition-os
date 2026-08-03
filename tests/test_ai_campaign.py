@@ -1,9 +1,12 @@
+import json
 from decimal import Decimal
 
+import cfh_disposition.ai_campaign as ai_campaign
 from cfh_disposition.ai_campaign import (
     CampaignFactorySettings,
     CampaignPackage,
     build_fallback_campaign,
+    generate_ai_campaign,
     marketing_address,
     property_fact_packet,
     validate_campaign_facts,
@@ -83,6 +86,40 @@ def test_fact_guard_accepts_approved_money_followed_by_punctuation():
         }
     )
     assert validate_campaign_facts(package, item, url) == []
+
+
+def test_generate_ai_campaign_retries_one_timeout(monkeypatch):
+    item = sample_property()
+    url = "https://www.dwelyx.com/?utm_source=credit_friendly_homes"
+    expected = build_fallback_campaign(item, url)
+    calls: list[int] = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"output_text": expected.model_dump_json()}).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise TimeoutError("The read operation timed out")
+        return FakeResponse()
+
+    monkeypatch.setattr(ai_campaign, "urlopen", fake_urlopen)
+    generated = generate_ai_campaign(
+        item,
+        url,
+        CampaignFactorySettings(api_key="test-key"),
+        timeout_seconds=1,
+    )
+
+    assert generated == expected
+    assert calls == [1, 1]
 
 
 def test_fact_guard_blocks_unapproved_money_and_claims():

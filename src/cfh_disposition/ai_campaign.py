@@ -16,6 +16,8 @@ from .models import OwnerFinanceProperty
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
+DEFAULT_TIMEOUT_SECONDS = 90
+OPENAI_REQUEST_ATTEMPTS = 2
 MONEY_PATTERN = re.compile(r"\$((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)")
 
 
@@ -228,11 +230,32 @@ def validate_campaign_facts(
     return sorted(set(errors))
 
 
+def _request_openai(request: Request, timeout_seconds: int) -> Mapping[str, Any]:
+    last_error: URLError | TimeoutError | None = None
+
+    for _attempt in range(OPENAI_REQUEST_ATTEMPTS):
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise CampaignFactoryError(f"OpenAI request failed ({exc.code}): {detail[:500]}") from exc
+        except json.JSONDecodeError as exc:
+            raise CampaignFactoryError("OpenAI returned an unreadable response. Safe template copy remains available.") from exc
+        except (URLError, TimeoutError) as exc:
+            last_error = exc
+
+    raise CampaignFactoryError(
+        "OpenAI was temporarily slow or unavailable after two automatic attempts. "
+        "Safe template copy remains available; try generating again shortly."
+    ) from last_error
+
+
 def generate_ai_campaign(
     property_record: OwnerFinanceProperty,
     dwelyx_url: str,
     settings: CampaignFactorySettings,
-    timeout_seconds: int = 45,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> CampaignPackage:
     if not settings.configured:
         raise CampaignFactoryError("OPENAI_API_KEY is not configured.")
@@ -280,14 +303,7 @@ def generate_ai_campaign(
         method="POST",
     )
 
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise CampaignFactoryError(f"OpenAI request failed ({exc.code}): {detail[:500]}") from exc
-    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise CampaignFactoryError(f"OpenAI request failed: {exc}") from exc
+    response_data = _request_openai(request, timeout_seconds)
 
     try:
         package = CampaignPackage.model_validate_json(_extract_output_text(response_data))
