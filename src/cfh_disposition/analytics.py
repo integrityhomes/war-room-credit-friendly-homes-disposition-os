@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -31,7 +32,7 @@ class ClickEvent:
 
     def to_payload(self) -> dict[str, str | None]:
         return {
-            "occurred_at": self.occurred_at.astimezone(timezone.utc).isoformat(),
+            "occurred_at": self.occurred_at.astimezone(UTC).isoformat(),
             "source": self.source,
             "medium": self.medium,
             "campaign": self.campaign,
@@ -42,9 +43,9 @@ class ClickEvent:
     def from_payload(cls, payload: Mapping[str, Any]) -> ClickEvent:
         occurred_at = datetime.fromisoformat(str(payload["occurred_at"]))
         if occurred_at.tzinfo is None:
-            occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+            occurred_at = occurred_at.replace(tzinfo=UTC)
         return cls(
-            occurred_at=occurred_at.astimezone(timezone.utc),
+            occurred_at=occurred_at.astimezone(UTC),
             source=str(payload.get("source", "unknown")),
             medium=str(payload.get("medium", "unknown")),
             campaign=str(payload.get("campaign", "owner_finance_homes")),
@@ -64,7 +65,7 @@ def decode_event_token(token: str) -> ClickEvent:
 
 
 def event_object_path(event: ClickEvent) -> str:
-    timestamp = event.occurred_at.astimezone(timezone.utc)
+    timestamp = event.occurred_at.astimezone(UTC)
     token = encode_event_token(event)
     return (
         f"{CLICK_PREFIX}/{timestamp:%Y/%m/%d}/"
@@ -82,7 +83,7 @@ def event_from_object_name(name: str) -> ClickEvent | None:
         return None
     try:
         return decode_event_token(parts[2])
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError, binascii.Error):
         return None
 
 
@@ -151,7 +152,7 @@ class ClickAnalyticsStore:
     def list_recent(self, days: int = DEFAULT_REPORT_DAYS) -> list[ClickEvent]:
         self._ensure_bucket()
         days = max(1, min(days, 365))
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         events: list[ClickEvent] = []
         bucket = self._client.storage.from_(CLICK_BUCKET)
 
