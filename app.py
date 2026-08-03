@@ -6,6 +6,13 @@ import pandas as pd
 import streamlit as st
 from pydantic import ValidationError
 
+from cfh_disposition.ai_campaign import (
+    CampaignFactoryError,
+    CampaignFactorySettings,
+    CampaignPackage,
+    build_fallback_campaign,
+    generate_ai_campaign,
+)
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.content import build_deterministic_campaign_draft
@@ -93,6 +100,7 @@ st.caption("Owner-finance marketing, Dwelyx traffic, landing pages, compliance, 
 storage = get_storage()
 settings = SupabaseSettings.from_mapping(st.secrets)
 dwelyx_url = dwelyx_base_url(st.secrets)
+campaign_settings = CampaignFactorySettings.from_mapping(st.secrets)
 st.sidebar.success(f"Storage: {storage.mode}")
 if st.sidebar.button("Refresh saved records"):
     load_records(force=True)
@@ -237,7 +245,6 @@ elif page == "Campaign Readiness":
     selected_name = st.selectbox("Choose property", list(options))
     selected = options[selected_name]
     plan = build_launch_plan(selected)
-    draft = build_deterministic_campaign_draft(selected)
 
     if plan.can_launch:
         st.success("Property facts passed the launch gate.")
@@ -252,6 +259,7 @@ elif page == "Campaign Readiness":
         dwelyx_url,
         source="credit_friendly_homes",
         medium="property_campaign",
+        campaign="owner_finance_home",
         property_id=selected.property_id,
     )
     st.write("### Buyer destination links")
@@ -259,14 +267,43 @@ elif page == "Campaign Readiness":
     st.link_button("Open Dwelyx Marketplace", tracked_dwelyx_link, type="primary")
     st.markdown(f"[Open this property's featured landing page]({public_property_path(selected.property_id)})")
     st.markdown(f"[Open the featured-homes portal]({public_portal_path()})")
-    st.caption("All buyer calls to action should lead into Dwelyx so buyers can browse the full inventory.")
+    st.caption("All buyer calls to action lead into Dwelyx so buyers can browse the full inventory.")
 
-    st.write("### Safe campaign preview")
-    st.text_input("Headline", value=draft.headline)
-    st.text_area("Short description", value=draft.short_description, height=120)
-    st.text_area("Marketplace description", value=draft.marketplace_description, height=240)
-    st.text_input("Email subject", value=draft.email_subject)
-    st.text_area("SMS", value=draft.sms_message, height=80)
+    campaign_key = f"campaign_package_{selected.property_id}"
+    campaign_mode_key = f"campaign_mode_{selected.property_id}"
+    fallback_package = build_fallback_campaign(selected, tracked_dwelyx_link)
+
+    st.write("### AI Campaign Factory")
+    if campaign_settings.configured:
+        st.success(f"OpenAI is connected. Campaign model: {campaign_settings.model}")
+    else:
+        st.info("Safe template mode is active until OPENAI_API_KEY is added in Streamlit Secrets.")
+
+    generate_disabled = not plan.can_launch or not campaign_settings.configured
+    if st.button(
+        "Generate Complete AI Campaign Package",
+        type="primary",
+        disabled=generate_disabled,
+        help="Uses strict structured output and blocks invented facts, unapproved dollar amounts, prohibited claims, and street-address exposure.",
+    ):
+        try:
+            with st.spinner("Generating and checking every campaign channel..."):
+                package = generate_ai_campaign(selected, tracked_dwelyx_link, campaign_settings)
+            st.session_state[campaign_key] = package.model_dump(mode="json")
+            st.session_state[campaign_mode_key] = "AI generated — fact guard passed"
+            st.success("AI campaign generated and approved by the fact guard.")
+        except CampaignFactoryError as exc:
+            st.error(str(exc))
+            st.warning("The unsafe or failed AI draft was not used. Safe template copy remains available below.")
+
+    package_data = st.session_state.get(campaign_key)
+    package = CampaignPackage.model_validate(package_data) if package_data else fallback_package
+    mode = st.session_state.get(campaign_mode_key, "Safe template fallback")
+    st.caption(f"Campaign source: {mode}")
+
+    for index, (label, text) in enumerate(package.channel_rows()):
+        height = 90 if label in {"Headline", "Email Subject", "SMS", "Dwelyx Call to Action"} else 180
+        st.text_area(label, value=text, height=height, key=f"campaign_{selected.property_id}_{index}")
 
     launch_rows = [
         {"Channel": item.channel.name, "Mode": item.channel.mode, "State": item.state, "Reason": item.reason}
@@ -356,11 +393,19 @@ elif page == "System Setup":
     st.success(f"All buyer traffic points to {dwelyx_url}")
     st.caption("DWELYX_URL can be added to Streamlit Secrets later if the destination changes.")
 
+    st.write("### AI Campaign Factory")
+    if campaign_settings.configured:
+        st.success(f"OpenAI is connected using {campaign_settings.model}.")
+    else:
+        st.warning("OPENAI_API_KEY is not configured. Campaigns use safe template mode.")
+
     st.write("### Required Streamlit Secrets")
     st.code(
         'APP_PASSWORD = "your-private-password"\n'
         'SUPABASE_URL = "https://your-project.supabase.co"\n'
-        'SUPABASE_SECRET_KEY = "sb_secret_..."'
+        'SUPABASE_SECRET_KEY = "sb_secret_..."\n'
+        'OPENAI_API_KEY = "sk-..."\n'
+        'OPENAI_MODEL = "gpt-5-mini"  # optional'
     )
     st.info("Never paste these values into GitHub, chat screenshots, property notes, or public pages.")
 
@@ -375,8 +420,8 @@ else:
         "PR 6 — Automatic Supabase photo-bucket setup",
         "PR 7 — Public property landing pages and featured-homes portal",
         "PR 8 — Dwelyx buyer routing and tracked traffic-link hub",
-        "PR 9 — Dwelyx click analytics and source reporting",
-        "PR 10 — OpenAI campaign factory with structured outputs and fact guard",
+        "PR 9 — OpenAI campaign factory with strict structured output and fact guard",
+        "PR 10 — Dwelyx click analytics and source reporting",
         "PR 11 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
         "PR 12 — Email, SMS, referral, and buyer-reactivation traffic automation",
         "PR 13 — Marketplace/Facebook-group/classified assisted posting center",
