@@ -16,5 +16,5 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - run: ruff check --fix --diff .
+      - run: ruff check .
       - run: pytest
