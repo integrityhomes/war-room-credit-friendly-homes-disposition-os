@@ -11,7 +11,8 @@ def _render_authenticated_shortcuts() -> None:
     except ImportError:
         return
     if st.session_state.get("authenticated"):
-        st.sidebar.markdown("[📊 Dwelyx Click Analytics](?analytics=1)")
+        st.sidebar.markdown("[🔗 14-Channel Link Center](?channel_center=1)")
+        st.sidebar.markdown("[📊 14-Channel Marketing Analytics](?analytics=1)")
 
 
 def configured_password(secrets: Mapping[str, Any]) -> str:
