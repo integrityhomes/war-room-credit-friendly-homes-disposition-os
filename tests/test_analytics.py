@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from cfh_disposition.analytics import (
     ClickEvent,
@@ -12,7 +12,7 @@ from cfh_disposition.analytics import (
 
 def sample_event() -> ClickEvent:
     return ClickEvent(
-        occurred_at=datetime(2026, 8, 3, 22, 30, tzinfo=timezone.utc),
+        occurred_at=datetime(2026, 8, 3, 22, 30, tzinfo=UTC),
         source="credit_friendly_homes",
         medium="facebook_marketplace",
         campaign="owner_finance_homes",
