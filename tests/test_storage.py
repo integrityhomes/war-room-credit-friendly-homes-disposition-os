@@ -1,8 +1,18 @@
 from decimal import Decimal
 
+import pytest
+
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.models import BuyerProfile, OwnerFinanceProperty
-from cfh_disposition.storage import InMemoryStorage, SupabaseSettings, SupabaseStorage
+from cfh_disposition.storage import (
+    InMemoryStorage,
+    StorageError,
+    SupabaseSettings,
+    SupabaseStorage,
+    _photo_path_from_url,
+    _public_photo_url,
+    validate_photo_upload,
+)
 
 
 def test_password_matching_is_exact():
@@ -68,3 +78,26 @@ def test_supabase_row_serialization_round_trips():
     rebuilt_buyer = BuyerProfile.model_validate(buyer_row["payload"])
     assert rebuilt_buyer.buyer_id == buyer.buyer_id
     assert rebuilt_buyer.maximum_monthly_payment == Decimal("1300")
+
+
+def test_photo_public_url_round_trip():
+    base_url = "https://demo.supabase.co"
+    object_path = "property-id/front porch.jpg"
+    public_url = _public_photo_url(base_url, object_path)
+    assert public_url.endswith("/cfh-property-photos/property-id/front%20porch.jpg")
+    assert _photo_path_from_url(base_url, public_url) == "property-id/front%20porch.jpg"
+
+
+def test_photo_validation_accepts_supported_images():
+    validate_photo_upload("front.jpg", b"photo-bytes", "image/jpeg")
+    validate_photo_upload("kitchen.webp", b"photo-bytes", "image/webp")
+
+
+def test_photo_validation_rejects_private_documents():
+    with pytest.raises(StorageError, match="Only JPG, PNG, and WEBP"):
+        validate_photo_upload("application.pdf", b"private-document", "application/pdf")
+
+
+def test_photo_validation_rejects_oversized_files():
+    with pytest.raises(StorageError, match="larger than 10 MB"):
+        validate_photo_upload("front.png", b"x" * (10 * 1024 * 1024 + 1), "image/png")
