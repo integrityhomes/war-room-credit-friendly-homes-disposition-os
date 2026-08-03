@@ -4,18 +4,22 @@ Owner-finance marketing, landing pages, SEO, buyer growth, compliance, and dispo
 
 > This is a public code repository. Never commit real credentials, buyer information, applications, or production property records.
 
-## Current first-build features
+## Current features
 
-- Streamlit executive dashboard
-- Owner-finance property intake
-- Property launch validation
+- Password-protected Streamlit application
+- Supabase-backed permanent property and buyer storage
+- Safe demo fallback when Supabase is not connected
+- Owner-finance property intake and launch validation
 - 14-channel marketing registry
 - `Approve & Launch Everywhere` readiness plan
-- Safe deterministic campaign preview before OpenAI is connected
-- Buyer-to-property matching preview
+- Buyer intake and property matching
 - Facebook Marketplace compliance guard
 - Fictional sample data
 - Automated tests and GitHub Actions
+
+## Production setup
+
+See [`docs/SETUP_SUPABASE.md`](docs/SETUP_SUPABASE.md).
 
 ## Local setup
 
@@ -33,6 +37,6 @@ ruff check .
 pytest
 ```
 
-## Planned integrations
+## Security
 
-Supabase, Google Sheets, WordPress, OpenAI, REI BlackBook, Meta, Google Ads, Instagram, TikTok, and YouTube will be added through replaceable provider adapters in later pull requests.
+The repository contains code only. Real records live in Supabase. Credentials live in Streamlit Secrets. The public Streamlit URL is protected by an application password.
