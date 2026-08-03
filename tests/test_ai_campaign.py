@@ -59,6 +59,17 @@ def test_fallback_campaign_routes_everything_to_dwelyx_and_includes_address():
     assert validate_campaign_facts(package, item, url) == []
 
 
+def test_campaign_package_accepts_detailed_short_description():
+    item = sample_property()
+    url = "https://www.dwelyx.com/?utm_source=credit_friendly_homes"
+    fallback = build_fallback_campaign(item, url)
+    payload = fallback.model_dump()
+    payload["short_description"] = f"{marketing_address(item)}. " + ("Detailed property information. " * 22) + url
+    package = CampaignPackage.model_validate(payload)
+    assert len(package.short_description) > 500
+    assert len(package.short_description) <= 1000
+
+
 def test_fact_guard_accepts_approved_money_followed_by_punctuation():
     item = sample_property()
     url = "https://www.dwelyx.com/?utm_source=credit_friendly_homes"
