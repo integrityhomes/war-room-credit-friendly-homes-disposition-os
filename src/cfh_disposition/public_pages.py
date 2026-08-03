@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from html import escape
 from urllib.parse import urlsplit
 from uuid import UUID
 
+import pandas as pd
 import streamlit as st
 
-from .dwelyx import build_dwelyx_url, dwelyx_base_url
+from .analytics import AnalyticsError, ClickAnalyticsStore, ClickEvent, click_summary
+from .dwelyx import build_direct_dwelyx_url, build_dwelyx_url, dwelyx_base_url
 from .launch_plan import build_launch_plan
 from .models import OwnerFinanceProperty, PropertyStatus
 from .storage import Storage, StorageError
@@ -163,14 +167,123 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
     )
 
 
+def _query_value(name: str, default: str = "") -> str:
+    return str(st.query_params.get(name, default)).strip()
+
+
+def _render_dwelyx_redirect() -> None:
+    configured_target = dwelyx_base_url(st.secrets)
+    requested_target = _query_value("target", configured_target)
+    target = requested_target if _is_dwelyx_listing(requested_target) else configured_target
+    source = _query_value("source", "credit_friendly_homes")
+    medium = _query_value("medium", "unknown")
+    campaign = _query_value("campaign", "owner_finance_homes")
+    property_id = _query_value("property_id") or None
+
+    destination = build_direct_dwelyx_url(
+        target,
+        source=source,
+        medium=medium,
+        campaign=campaign,
+        property_id=property_id,
+    )
+
+    signature = f"{source}|{medium}|{campaign}|{property_id or ''}"
+    session_key = f"dwelyx_click_logged::{signature}"
+    if not st.session_state.get(session_key):
+        try:
+            ClickAnalyticsStore(st.secrets).record(
+                ClickEvent(
+                    occurred_at=datetime.now(timezone.utc),
+                    source=source,
+                    medium=medium,
+                    campaign=campaign,
+                    property_id=property_id,
+                )
+            )
+            st.session_state[session_key] = True
+        except AnalyticsError:
+            # Never block a buyer from reaching Dwelyx because analytics is unavailable.
+            pass
+
+    st.title("Opening Dwelyx")
+    st.write("You are being sent to the full owner-finance marketplace.")
+    st.link_button("Continue to Dwelyx", destination, type="primary", use_container_width=True)
+    safe_destination = escape(destination, quote=True)
+    st.markdown(
+        f'<meta http-equiv="refresh" content="0; url={safe_destination}">',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_click_analytics(storage: Storage) -> None:
+    st.title("Dwelyx Click Analytics")
+    st.caption("See which channels, campaigns, and properties send buyers into Dwelyx.")
+    days = st.selectbox("Reporting window", [7, 30, 90], index=1, format_func=lambda value: f"Last {value} days")
+
+    try:
+        events = ClickAnalyticsStore(st.secrets).list_recent(days)
+    except AnalyticsError as exc:
+        st.error(str(exc))
+        return
+
+    summary = click_summary(events)
+    now = datetime.now(timezone.utc)
+    seven_day_clicks = sum(event.occurred_at >= now - timedelta(days=7) for event in events)
+    columns = st.columns(4)
+    columns[0].metric("Total clicks", summary["total"])
+    columns[1].metric("Clicks in last 7 days", seven_day_clicks)
+    columns[2].metric("Active channels", len(summary["sources"]))
+    columns[3].metric("Active campaigns", len(summary["campaigns"]))
+
+    if not events:
+        st.info("No tracked Dwelyx clicks have been recorded in this reporting window yet.")
+        st.caption("Use links created by the app. Each buyer click will be recorded automatically before Dwelyx opens.")
+        return
+
+    properties = {str(item.property_id): item.display_address for item in _available_properties(storage)}
+    source_rows = [
+        {"Channel": source.replace("_", " ").title(), "Clicks": clicks}
+        for source, clicks in summary["sources"].items()
+    ]
+    st.subheader("Clicks by channel")
+    st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+
+    campaign_rows = [
+        {"Campaign": campaign.replace("_", " ").title(), "Clicks": clicks}
+        for campaign, clicks in summary["campaigns"].items()
+    ]
+    st.subheader("Clicks by campaign")
+    st.dataframe(pd.DataFrame(campaign_rows), use_container_width=True, hide_index=True)
+
+    recent_rows = []
+    for event in events[:250]:
+        recent_rows.append(
+            {
+                "Date and time (UTC)": event.occurred_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "Channel": event.medium.replace("_", " ").title(),
+                "Campaign": event.campaign.replace("_", " ").title(),
+                "Property": properties.get(event.property_id or "", event.property_id or "All Dwelyx inventory"),
+            }
+        )
+    st.subheader("Recent tracked clicks")
+    st.dataframe(pd.DataFrame(recent_rows), use_container_width=True, hide_index=True)
+    st.caption("Click events contain marketing attribution only. No buyer names, emails, phone numbers, or private application data are stored here.")
+
+
 def render_public_request(storage: Storage) -> bool:
-    """Render a public route before the private password gate.
+    """Render public routes before the private password gate."""
+    go = _query_value("go").lower()
+    analytics = _query_value("analytics").lower()
+    property_id = _query_value("property")
+    homes = _query_value("homes").lower()
 
-    Returns True when a public route was requested, even if the property is unavailable.
-    """
-    property_id = str(st.query_params.get("property", "")).strip()
-    homes = str(st.query_params.get("homes", "")).strip().lower()
-
+    if go == "dwelyx":
+        _render_dwelyx_redirect()
+        return True
+    if analytics in {"1", "true", "yes"} and st.session_state.get("authenticated"):
+        _render_click_analytics(storage)
+        return True
     if property_id:
         _render_property_detail(storage, property_id)
         return True
