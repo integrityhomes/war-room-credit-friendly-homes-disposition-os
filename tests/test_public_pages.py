@@ -23,10 +23,10 @@ def launch_ready_property() -> OwnerFinanceProperty:
     )
 
 
-def test_public_location_hides_street_address():
+def test_public_location_includes_complete_street_address():
     item = launch_ready_property()
-    assert public_location(item) == "Bristol, VA, 24201"
-    assert item.address not in public_location(item)
+    assert public_location(item) == "101 Private Street, Bristol, VA 24201"
+    assert item.address in public_location(item)
 
 
 def test_only_ready_or_live_launchable_properties_are_public():
