@@ -29,6 +29,10 @@ def test_meta_safe_marketplace_package_passes() -> None:
     assert len(META_MARKETPLACE_POLICY_CHECKLIST) >= 12
     assert "No payment is requested through Facebook." in package.description
     assert "Equal Housing Opportunity." in package.description
+    assert "not rent" in package.description.lower()
+    assert f"${SAMPLE_PROPERTIES[0].down_payment:,.0f}" in package.description
+    assert f"${SAMPLE_PROPERTIES[0].monthly_payment:,.0f}" in package.description
+    assert f"${SAMPLE_PROPERTIES[0].total_price:,.0f}" not in package.description
 
 
 def test_approval_guarantee_is_blocked() -> None:
@@ -128,7 +132,7 @@ def test_required_disclosures_and_tracked_link_are_blocking() -> None:
     assert any("dwelyx" in error.lower() for error in result.errors)
 
 
-def test_exact_financial_terms_are_required() -> None:
+def test_exact_public_financial_terms_are_required() -> None:
     package = safe_package()
     incomplete = package.description.replace(f"${SAMPLE_PROPERTIES[0].down_payment:,.0f}", "$1")
     result = review_marketplace_copy(
@@ -140,3 +144,33 @@ def test_exact_financial_terms_are_required() -> None:
     )
     assert not result.passed
     assert any("exact down payment" in error.lower() for error in result.errors)
+
+
+def test_public_purchase_price_is_blocked_for_marketplace() -> None:
+    package = safe_package()
+    description = (
+        f"{package.description}\nPurchase price: ${SAMPLE_PROPERTIES[0].total_price:,.0f}"
+    )
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        package.title,
+        description,
+        listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
+    )
+    assert not result.passed
+    assert any("remove the total purchase price" in error.lower() for error in result.errors)
+
+
+def test_not_rent_clarity_is_required() -> None:
+    package = safe_package()
+    incomplete = package.description.replace("The monthly payment shown is not rent.", "")
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        package.title,
+        incomplete,
+        listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
+    )
+    assert not result.passed
+    assert any("not rent" in error.lower() for error in result.errors)
