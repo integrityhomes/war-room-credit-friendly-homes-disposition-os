@@ -44,7 +44,7 @@ def test_build_direct_dwelyx_url_adds_attribution():
     assert f"utm_content=property_{property_id}" in url
 
 
-def test_build_dwelyx_url_uses_tracking_redirect():
+def test_build_dwelyx_url_uses_compact_tracking_redirect_for_defaults():
     property_id = uuid4()
     url = build_dwelyx_url(
         "https://www.dwelyx.com/buyer/register",
@@ -57,11 +57,22 @@ def test_build_dwelyx_url_uses_tracking_redirect():
     query = parse_qs(parts.query)
     assert f"{parts.scheme}://{parts.netloc}" == DEFAULT_TRACKING_APP_URL
     assert query["go"] == ["dwelyx"]
-    assert query["target"] == ["https://www.dwelyx.com/buyer/register"]
-    assert query["source"] == ["credit_friendly_homes"]
     assert query["medium"] == ["facebook_marketplace"]
     assert query["campaign"] == ["owner_finance_homes"]
     assert query["property_id"] == [str(property_id)]
+    assert "target" not in query
+    assert "source" not in query
+
+
+def test_build_dwelyx_url_keeps_nondefault_target_and_source():
+    url = build_dwelyx_url(
+        "https://buyers.example.com/register",
+        source="Partner Campaign",
+        medium="Signs",
+    )
+    query = parse_qs(urlsplit(url).query)
+    assert query["target"] == ["https://buyers.example.com/register"]
+    assert query["source"] == ["partner_campaign"]
 
 
 def test_direct_dwelyx_url_preserves_existing_query_values():
