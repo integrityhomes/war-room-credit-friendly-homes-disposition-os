@@ -13,6 +13,16 @@ import streamlit as st
 from pydantic import BaseModel, ConfigDict, Field
 
 from .ai_campaign import CampaignPackage, build_fallback_campaign
+from .automatic_launch import (
+    AutomationDispatchSettings,
+    AutomationLaunchError,
+    LaunchAction,
+    automation_plan_rows,
+    build_automatic_launch_payload,
+    channel_copy_with_link,
+    dispatch_automatic_launch,
+    launch_action_for_channel,
+)
 from .channel_tracking import build_channel_links
 from .channels import CHANNELS, CHANNELS_BY_KEY
 from .dwelyx import tracking_app_base_url
@@ -22,7 +32,6 @@ from .storage import SupabaseSettings
 
 LAUNCH_BUCKET = "cfh-campaign-launches"
 LAUNCH_MAX_BYTES = 128 * 1024
-URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 
 
 class LaunchStoreError(RuntimeError):
@@ -35,6 +44,7 @@ class LaunchStatus(StrEnum):
     POSTED = "Posted"
     SCHEDULED = "Scheduled"
     PAUSED = "Paused"
+    FAILED = "Failed"
 
 
 class ChannelLaunchRecord(BaseModel):
@@ -66,7 +76,11 @@ def launch_object_path(property_id: UUID | str, campaign: str) -> str:
     return f"launches/{property_id}/{campaign_slug(campaign)}.json"
 
 
-def new_launch_state(property_id: UUID | str, campaign: str, now: datetime | None = None) -> CampaignLaunchState:
+def new_launch_state(
+    property_id: UUID | str,
+    campaign: str,
+    now: datetime | None = None,
+) -> CampaignLaunchState:
     timestamp = now or datetime.now(UTC)
     return CampaignLaunchState(
         property_id=str(property_id),
@@ -77,7 +91,11 @@ def new_launch_state(property_id: UUID | str, campaign: str, now: datetime | Non
 
 
 def ensure_all_channels(state: CampaignLaunchState) -> CampaignLaunchState:
-    channels = {key: value.model_copy(deep=True) for key, value in state.channels.items() if key in CHANNELS_BY_KEY}
+    channels = {
+        key: value.model_copy(deep=True)
+        for key, value in state.channels.items()
+        if key in CHANNELS_BY_KEY
+    }
     for channel in CHANNELS:
         channels.setdefault(channel.key, ChannelLaunchRecord())
     return state.model_copy(update={"channels": channels})
@@ -95,7 +113,10 @@ def set_channel_status(
     if channel_key not in CHANNELS_BY_KEY:
         raise ValueError(f"Unknown marketing channel: {channel_key}")
     timestamp = now or datetime.now(UTC)
-    channels = {key: value.model_copy(deep=True) for key, value in ensure_all_channels(state).channels.items()}
+    channels = {
+        key: value.model_copy(deep=True)
+        for key, value in ensure_all_channels(state).channels.items()
+    }
     channels[channel_key] = ChannelLaunchRecord(
         status=status,
         updated_at=timestamp,
@@ -131,6 +152,72 @@ def approve_all_channels(
     )
 
 
+def mark_automatic_launch_success(
+    state: CampaignLaunchState,
+    *,
+    updated_by: str,
+    now: datetime | None = None,
+) -> CampaignLaunchState:
+    timestamp = now or datetime.now(UTC)
+    updated = approve_all_channels(state, approved_by=updated_by, now=timestamp)
+
+    for channel in CHANNELS:
+        action = launch_action_for_channel(channel)
+        if action == LaunchAction.INTERNAL_LIVE:
+            status = LaunchStatus.POSTED
+            notes = "Live automatically in the Credit Friendly Homes Disposition OS."
+        elif action == LaunchAction.MANUAL_FINAL_POST:
+            status = LaunchStatus.READY
+            notes = (
+                "The complete package was delivered to the automation workflow. "
+                "This platform still requires a final human post."
+            )
+        else:
+            status = LaunchStatus.SCHEDULED
+            notes = "Sent to the connected automatic publishing workflow."
+        updated = set_channel_status(
+            updated,
+            channel.key,
+            status,
+            updated_by=updated_by,
+            notes=notes,
+            now=timestamp,
+        )
+    return updated
+
+
+def mark_automatic_launch_failure(
+    state: CampaignLaunchState,
+    *,
+    updated_by: str,
+    error_message: str,
+    now: datetime | None = None,
+) -> CampaignLaunchState:
+    timestamp = now or datetime.now(UTC)
+    updated = approve_all_channels(state, approved_by=updated_by, now=timestamp)
+
+    for channel in CHANNELS:
+        action = launch_action_for_channel(channel)
+        if action == LaunchAction.INTERNAL_LIVE:
+            status = LaunchStatus.POSTED
+            notes = "Live automatically in the Credit Friendly Homes Disposition OS."
+        elif action == LaunchAction.MANUAL_FINAL_POST:
+            status = LaunchStatus.READY
+            notes = "Package is ready in this app, but automatic delivery failed."
+        else:
+            status = LaunchStatus.FAILED
+            notes = error_message[:1000]
+        updated = set_channel_status(
+            updated,
+            channel.key,
+            status,
+            updated_by=updated_by,
+            notes=notes,
+            now=timestamp,
+        )
+    return updated
+
+
 def launch_rows(state: CampaignLaunchState) -> list[dict[str, str]]:
     state = ensure_all_channels(state)
     rows: list[dict[str, str]] = []
@@ -142,44 +229,23 @@ def launch_rows(state: CampaignLaunchState) -> list[dict[str, str]]:
                 "Mode": channel.mode.value,
                 "Status": record.status.value,
                 "Updated by": record.updated_by or "—",
-                "Last updated (UTC)": record.updated_at.strftime("%Y-%m-%d %H:%M") if record.updated_at else "—",
+                "Last updated (UTC)": (
+                    record.updated_at.strftime("%Y-%m-%d %H:%M")
+                    if record.updated_at
+                    else "—"
+                ),
                 "Notes": record.notes or "—",
             }
         )
     return rows
 
 
-def _copy_source(package: CampaignPackage, channel_key: str) -> str:
-    mapping = {
-        "property_page": package.short_description,
-        "blog": package.short_description,
-        "market_seo": package.short_description,
-        "email": f"Subject: {package.email_subject}\n\n{package.email_body}",
-        "sms": package.sms_message,
-        "reactivation": package.sms_message,
-        "marketplace": package.marketplace_description,
-        "facebook_groups": package.facebook_group_post,
-        "meta_ads": f"{package.headline}\n\n{package.short_description}",
-        "google_ads": f"{package.headline}\n\n{package.short_description}",
-        "instagram": package.social_caption,
-        "tiktok": package.video_script,
-        "youtube": package.video_script,
-        "classifieds": package.classified_ad,
-    }
-    try:
-        return mapping[channel_key]
-    except KeyError as exc:
-        raise ValueError(f"Unknown marketing channel: {channel_key}") from exc
-
-
-def campaign_copy_for_channel(package: CampaignPackage, channel_key: str, tracked_link: str) -> str:
-    source = _copy_source(package, channel_key).strip()
-    matches = URL_PATTERN.findall(source)
-    if matches:
-        source = URL_PATTERN.sub(tracked_link, source)
-    elif tracked_link not in source:
-        source = f"{source}\n\nBrowse on Dwelyx: {tracked_link}"
-    return source
+def campaign_copy_for_channel(
+    package: CampaignPackage,
+    channel_key: str,
+    tracked_link: str,
+) -> str:
+    return channel_copy_with_link(package, channel_key, tracked_link)
 
 
 class CampaignLaunchStore:
@@ -214,20 +280,30 @@ class CampaignLaunchStore:
                     },
                 )
             except Exception as exc:
-                raise LaunchStoreError("Could not automatically create the campaign-launch bucket.") from exc
+                raise LaunchStoreError(
+                    "Could not automatically create the campaign-launch bucket."
+                ) from exc
         self._bucket_ready = True
 
-    def load(self, property_id: UUID | str, campaign: str) -> CampaignLaunchState | None:
+    def load(
+        self,
+        property_id: UUID | str,
+        campaign: str,
+    ) -> CampaignLaunchState | None:
         self._ensure_bucket()
         try:
-            raw = self._client.storage.from_(LAUNCH_BUCKET).download(launch_object_path(property_id, campaign))
+            raw = self._client.storage.from_(LAUNCH_BUCKET).download(
+                launch_object_path(property_id, campaign)
+            )
         except Exception:
             return None
         try:
             payload = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else str(raw))
             return ensure_all_channels(CampaignLaunchState.model_validate(payload))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
-            raise LaunchStoreError("The saved campaign launch record could not be read.") from exc
+            raise LaunchStoreError(
+                "The saved campaign launch record could not be read."
+            ) from exc
 
     def save(self, state: CampaignLaunchState) -> None:
         self._ensure_bucket()
@@ -252,7 +328,11 @@ def _state_key(property_id: UUID | str, campaign: str) -> str:
     return f"campaign_launch::{property_id}::{campaign_slug(campaign)}"
 
 
-def _load_ui_state(store: CampaignLaunchStore | None, property_id: UUID | str, campaign: str) -> CampaignLaunchState:
+def _load_ui_state(
+    store: CampaignLaunchStore | None,
+    property_id: UUID | str,
+    campaign: str,
+) -> CampaignLaunchState:
     key = _state_key(property_id, campaign)
     cached = st.session_state.get(key)
     if cached:
@@ -263,10 +343,15 @@ def _load_ui_state(store: CampaignLaunchStore | None, property_id: UUID | str, c
     return state
 
 
-def _save_ui_state(store: CampaignLaunchStore | None, state: CampaignLaunchState) -> None:
+def _save_ui_state(
+    store: CampaignLaunchStore | None,
+    state: CampaignLaunchState,
+) -> None:
     if store:
         store.save(state)
-    st.session_state[_state_key(state.property_id, state.campaign)] = state.model_dump(mode="json")
+    st.session_state[_state_key(state.property_id, state.campaign)] = state.model_dump(
+        mode="json"
+    )
 
 
 def render_campaign_launch_center(
@@ -275,25 +360,45 @@ def render_campaign_launch_center(
     dwelyx_url: str,
 ) -> None:
     st.subheader("14-Channel Campaign Launch Center")
-    st.caption("Approve the campaign, copy the correct tracked package, and record exactly where each property was marketed.")
+    st.caption(
+        "Approve once, launch supported channels automatically, and track the few platforms "
+        "that still require a final human post."
+    )
 
     if not properties:
         st.info("Add and save a property before launching a campaign.")
         return
 
-    options = {item.display_address or str(item.property_id): item for item in properties}
-    selected_name = st.selectbox("Choose property", list(options), key="launch_center_property")
+    options = {
+        item.display_address or str(item.property_id): item
+        for item in properties
+    }
+    selected_name = st.selectbox(
+        "Choose property",
+        list(options),
+        key="launch_center_property",
+    )
     selected = options[selected_name]
     plan = build_launch_plan(selected)
     if not plan.can_launch:
-        st.error("This property is not launch ready. Fix the blocking items in Record Manager first.")
+        st.error(
+            "This property is not launch ready. Fix the blocking items in Record Manager first."
+        )
         for error in plan.validation.errors:
             st.write(f"- {error}")
         return
 
     left, right = st.columns(2)
-    campaign = left.text_input("Campaign name", value="owner_finance_homes", key="launch_center_campaign")
-    operator = right.text_input("Posted or approved by", value="Sabrina", key="launch_center_operator")
+    campaign = left.text_input(
+        "Campaign name",
+        value="owner_finance_homes",
+        key="launch_center_campaign",
+    )
+    operator = right.text_input(
+        "Approved by",
+        value="Sabrina",
+        key="launch_center_operator",
+    )
     campaign = campaign_slug(campaign)
 
     try:
@@ -316,36 +421,132 @@ def render_campaign_launch_center(
 
     campaign_key = f"campaign_package_{selected.property_id}"
     package_data = st.session_state.get(campaign_key)
-    package = CampaignPackage.model_validate(package_data) if package_data else build_fallback_campaign(selected, base_link)
-    campaign_source = "AI campaign generated in Campaign Readiness" if package_data else "Safe campaign template"
+    package = (
+        CampaignPackage.model_validate(package_data)
+        if package_data
+        else build_fallback_campaign(selected, base_link)
+    )
+    campaign_source = (
+        "AI campaign generated in Campaign Readiness"
+        if package_data
+        else "Safe campaign template"
+    )
     st.caption(f"Copy source: {campaign_source}")
 
     if selected.photo_urls:
         st.image(str(selected.photo_urls[0]), width=420)
 
+    st.write("### Automatic Launch Engine")
+    st.info(
+        "No property is published or synced to Dwelyx. Every channel sends buyers only to "
+        "the tracked Dwelyx buyer registration/login destination."
+    )
+    automation_settings = AutomationDispatchSettings.from_mapping(secrets)
+    if automation_settings.configured:
+        st.success("The automatic publishing workflow is connected.")
+    else:
+        st.warning(
+            "Automatic external publishing is not connected yet. Add AUTOMATION_WEBHOOK_URL "
+            "in Streamlit Secrets after creating the Make.com publishing workflow."
+        )
+
+    with st.expander("See what happens on all 14 channels"):
+        st.dataframe(
+            pd.DataFrame(automation_plan_rows()),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    launch_disabled = not automation_settings.configured
+    if st.button(
+        "Approve & Launch Supported Channels",
+        type="primary",
+        use_container_width=True,
+        disabled=launch_disabled,
+    ):
+        approved_at = datetime.now(UTC)
+        payload = build_automatic_launch_payload(
+            selected,
+            package,
+            links_by_key,
+            campaign=campaign,
+            approved_by=operator,
+            approved_at=approved_at,
+        )
+        try:
+            with st.spinner("Sending the approved campaign to the publishing workflow..."):
+                receipt = dispatch_automatic_launch(payload, automation_settings)
+            state = mark_automatic_launch_success(
+                state,
+                updated_by=operator,
+                now=receipt.sent_at,
+            )
+            _save_ui_state(store, state)
+            st.success(
+                "Campaign accepted by the automatic publishing workflow. The restricted "
+                "platforms remain marked Ready for their final human post."
+            )
+        except (AutomationLaunchError, LaunchStoreError) as exc:
+            state = mark_automatic_launch_failure(
+                state,
+                updated_by=operator,
+                error_message=str(exc),
+                now=approved_at,
+            )
+            try:
+                _save_ui_state(store, state)
+            except LaunchStoreError:
+                pass
+            st.error(str(exc))
+
     approve_left, approve_right = st.columns([1, 2])
-    if approve_left.button("Approve All 14 Channels as Ready", type="primary", use_container_width=True):
+    if approve_left.button(
+        "Approve Only — Do Not Launch",
+        use_container_width=True,
+    ):
         state = approve_all_channels(state, approved_by=operator)
         try:
             _save_ui_state(store, state)
-            st.success("All 14 channels are approved and marked Ready.")
+            st.success("All 14 channels are approved and marked Ready, but nothing was launched.")
         except LaunchStoreError as exc:
             st.error(str(exc))
     if state.approved_at:
         approve_right.info(
-            f"Approved by {state.approved_by or 'team'} on {state.approved_at.strftime('%Y-%m-%d %H:%M UTC')}."
+            f"Approved by {state.approved_by or 'team'} on "
+            f"{state.approved_at.strftime('%Y-%m-%d %H:%M UTC')}."
         )
     else:
-        approve_right.info("Approve the campaign after the property facts and generated copy have been reviewed.")
+        approve_right.info(
+            "Review the property facts and campaign copy before approval."
+        )
 
-    st.write("### Work one channel")
-    selected_channel_name = st.selectbox("Choose marketing channel", [channel.name for channel in CHANNELS], key="launch_center_channel")
-    channel = next(item for item in CHANNELS if item.name == selected_channel_name)
+    st.write("### Restricted channel or troubleshooting review")
+    st.caption(
+        "Use this section only for Facebook Marketplace, Facebook Groups, classifieds, "
+        "or troubleshooting an automatic channel."
+    )
+    selected_channel_name = st.selectbox(
+        "Choose marketing channel",
+        [channel.name for channel in CHANNELS],
+        key="launch_center_channel",
+    )
+    channel = next(
+        item for item in CHANNELS if item.name == selected_channel_name
+    )
     tracked_link = links_by_key[channel.key]["Tracked Dwelyx link"]
     copy_text = campaign_copy_for_channel(package, channel.key, tracked_link)
 
-    st.text_input("Tracked Dwelyx link for this channel", value=tracked_link, key=f"launch_link_{channel.key}")
-    st.text_area("Copy this complete marketing package", value=copy_text, height=320, key=f"launch_copy_{channel.key}")
+    st.text_input(
+        "Tracked Dwelyx buyer-account link for this channel",
+        value=tracked_link,
+        key=f"launch_link_{channel.key}",
+    )
+    st.text_area(
+        "Complete marketing package",
+        value=copy_text,
+        height=320,
+        key=f"launch_copy_{channel.key}",
+    )
     st.link_button("Test This Channel Link", tracked_link)
     st.caption(f"Posting mode: {channel.mode.value}. {channel.purpose}")
 
@@ -359,13 +560,19 @@ def render_campaign_launch_center(
         key=f"launch_status_{channel.key}",
     )
     notes = st.text_area(
-        "Posting location, group name, ad ID, refresh date, or notes",
+        "Posting location, group name, ad ID, refresh date, error, or notes",
         value=current.notes,
         height=100,
         key=f"launch_notes_{channel.key}",
     )
     if st.button("Save This Channel Status", type="primary"):
-        state = set_channel_status(state, channel.key, status, updated_by=operator, notes=notes)
+        state = set_channel_status(
+            state,
+            channel.key,
+            status,
+            updated_by=operator,
+            notes=notes,
+        )
         try:
             _save_ui_state(store, state)
             st.success(f"{channel.name} is saved as {status.value}.")
