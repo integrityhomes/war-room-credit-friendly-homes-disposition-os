@@ -18,3 +18,21 @@ def test_photo_warning_does_not_replace_required_photo_error() -> None:
     result = validate_property_for_launch(property_record)
     assert not result.can_launch
     assert any("photo" in error.lower() for error in result.errors)
+
+
+def test_move_in_ready_condition_claim_blocks_launch() -> None:
+    property_record = SAMPLE_PROPERTIES[0].model_copy(
+        update={"condition_summary": "This home is move-in ready and available now."}
+    )
+    result = validate_property_for_launch(property_record)
+    assert not result.can_launch
+    assert any("move-in ready" in error.lower() for error in result.errors)
+
+
+def test_move_in_ready_spacing_and_hyphen_variations_are_blocked() -> None:
+    for phrase in ["move in ready", "move-in-ready", "MOVE-IN READY"]:
+        property_record = SAMPLE_PROPERTIES[0].model_copy(
+            update={"public_disclosures": f"Property described as {phrase}."}
+        )
+        result = validate_property_for_launch(property_record)
+        assert not result.can_launch

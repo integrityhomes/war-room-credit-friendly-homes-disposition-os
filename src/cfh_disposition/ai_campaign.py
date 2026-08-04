@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .content import build_deterministic_campaign_draft
+from .marketing_claims import risky_condition_claim_errors
 from .models import OwnerFinanceProperty
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -157,6 +158,7 @@ def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str)
         "instructions": [
             "Use only these facts. Never invent amenities, financing terms, approval criteria, neighborhood claims, or repair details.",
             "Include the exact marketing_address in every output field, including the headline, email subject, SMS, and Dwelyx call to action.",
+            'Never use the phrase "move-in ready" or any hyphen/spacing variation. Describe only specific observable condition facts.',
             "Do not promise approval or use discriminatory/fair-housing-risk language.",
             "Every buyer call to action must direct the buyer to Dwelyx so they can browse all owner-finance inventory.",
             "Keep the tone practical, clear, and conversational.",
@@ -244,6 +246,8 @@ def validate_campaign_facts(
         if claim in lowered:
             errors.append(f"Prohibited claim detected: {claim}")
 
+    errors.extend(risky_condition_claim_errors(combined))
+
     allowed_money = _allowed_money_values(property_record)
     for match in MONEY_PATTERN.findall(combined):
         parsed_value = _parse_money_token(match)
@@ -295,6 +299,7 @@ def generate_ai_campaign(
     developer_prompt = (
         "You are the Credit Friendly Homes campaign writer. Produce accurate, compliant owner-finance marketing copy. "
         "Use only the supplied fact packet. Do not infer or embellish. Include the exact marketing address in every output field. "
+        'Never use "move-in ready" or any spacing or hyphen variation; describe only specific observable condition facts. '
         "Avoid protected-class targeting, neighborhood safety claims, credit approval promises, and pressure language. "
         "Every channel must direct buyers to Dwelyx, where they can browse all inventory. "
         "Stay within these hard character limits: headline 180, short_description 1000, marketplace_description 4000, "

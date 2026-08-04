@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .marketing_claims import risky_condition_claim_errors
 from .models import OwnerFinanceProperty, PropertyStatus
 
 
@@ -51,6 +52,17 @@ def validate_property_for_launch(property_record: OwnerFinanceProperty) -> Valid
     if property_record.down_payment is not None and property_record.total_price is not None:
         if property_record.down_payment > property_record.total_price:
             result.errors.append("Down payment cannot exceed the total price.")
+
+    marketing_condition_text = "\n".join(
+        value
+        for value in [
+            property_record.condition_summary,
+            property_record.repairs_needed,
+            property_record.public_disclosures,
+        ]
+        if value
+    )
+    result.errors.extend(risky_condition_claim_errors(marketing_condition_text))
 
     if not property_record.photo_urls:
         result.errors.append("At least one real property photo is required.")
