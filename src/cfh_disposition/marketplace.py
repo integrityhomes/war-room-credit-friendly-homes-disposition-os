@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -12,6 +13,8 @@ from .meta_marketplace_policy import (
     meta_marketplace_policy_warnings,
 )
 from .models import OwnerFinanceProperty
+
+URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", flags=re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +46,9 @@ def _marketing_address(property_record: OwnerFinanceProperty) -> str:
 
 def build_meta_safe_marketplace_package(
     property_record: OwnerFinanceProperty,
-    tracked_dwelyx_link: str,
+    tracked_dwelyx_link: str = "",
 ) -> MarketplacePackage:
-    """Build conservative property copy designed for manual Marketplace publication."""
+    """Build conservative Marketplace copy with no public external link."""
     address = _marketing_address(property_record)
     title = f"Owner-Finance Home — {address}" if address else "Owner-Finance Home Available"
     condition = property_record.condition_summary.strip() or "Condition details must be confirmed during review."
@@ -53,10 +56,6 @@ def build_meta_safe_marketplace_package(
         "No repairs statement was provided. Buyers should verify the property's condition during review."
     )
     disclosures = property_record.public_disclosures.strip() or "Property information and terms must be verified."
-    link_line = (
-        "Create or log in to a Dwelyx buyer account to review the full purchase terms and available owner-finance homes: "
-        f"{tracked_dwelyx_link}"
-    )
     description = (
         f"{address}\n\n"
         f"{property_record.bedrooms or '—'} bed / {property_record.bathrooms or '—'} bath\n"
@@ -67,7 +66,7 @@ def build_meta_safe_marketplace_package(
         f"Known repairs or work needed: {repairs}\n\n"
         f"Disclosures: {disclosures}\n\n"
         f"{marketplace_disclaimer()}\n\n"
-        f"{link_line}"
+        "Send us a Facebook Marketplace message for complete purchase terms, property questions, and next steps."
     )
     return MarketplacePackage(title=title, description=description)
 
@@ -96,6 +95,14 @@ def review_marketplace_copy(
     result.errors.extend(risky_condition_claim_errors(combined))
     result.warnings.extend(meta_marketplace_policy_warnings(combined))
 
+    if URL_PATTERN.search(combined):
+        result.errors.append(
+            "Remove all website links from the Facebook Marketplace title and description. "
+            "Keep the conversation inside Facebook Marketplace or Messenger first."
+        )
+    if tracked_dwelyx_link and tracked_dwelyx_link in combined:
+        result.errors.append("Do not place the tracked Dwelyx buyer link directly in Facebook Marketplace copy.")
+
     address = _marketing_address(property_record)
     if address and address.lower() not in combined.lower():
         result.errors.append("The complete property address must appear in the Marketplace package.")
@@ -115,12 +122,17 @@ def review_marketplace_copy(
     elif _money_is_present(description, property_record.total_price):
         result.errors.append(
             "Remove the total purchase price from the public Marketplace description. "
-            "Keep full purchase terms inside Dwelyx to reduce harassment and unqualified responses."
+            "Keep full purchase terms in the internal record and buyer follow-up."
         )
 
     if "not rent" not in description.lower():
         result.errors.append(
             'Marketplace copy must clearly state that the monthly owner-finance payment is "not rent."'
+        )
+
+    if "facebook marketplace message" not in description.lower():
+        result.errors.append(
+            "Marketplace copy must tell buyers to send a Facebook Marketplace message instead of directing them off-platform."
         )
 
     if property_record.condition_summary and property_record.condition_summary.lower() not in description.lower():
@@ -136,9 +148,6 @@ def review_marketplace_copy(
     for disclosure in REQUIRED_MARKETPLACE_DISCLOSURES:
         if disclosure.lower() not in description.lower():
             result.errors.append(f'Required Marketplace disclosure is missing: "{disclosure}"')
-
-    if tracked_dwelyx_link and tracked_dwelyx_link not in description:
-        result.errors.append("The approved tracked Dwelyx buyer-account link is missing.")
 
     if len(title.strip()) < 15:
         result.warnings.append("Marketplace title may be too short to explain the opportunity clearly.")
