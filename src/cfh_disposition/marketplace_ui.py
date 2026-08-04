@@ -80,8 +80,8 @@ def render_marketplace_guard(
     elif status.active_duplicate:
         st.error(status.message)
         st.info(
-            "Do not post the same house once under For Sale and again under For Rent. "
-            "Use the existing listing or close it before preparing another listing."
+            "This property already has an active Marketplace listing. Use, edit, renew, or close "
+            "that listing instead of creating a duplicate."
         )
     else:
         st.success(status.message)
@@ -103,12 +103,24 @@ def render_marketplace_guard(
             value=package.description,
             height=360,
         )
-        check = review_marketplace_copy(
-            selected,
-            title,
-            description,
-            listings_used_this_month=status.used,
-        )
+        try:
+            check = review_marketplace_copy(
+                selected,
+                str(title or ""),
+                str(description or ""),
+                int(status.used),
+            )
+        except (TypeError, ValueError) as exc:
+            st.error(
+                "Marketplace Guard could not validate this saved property record. "
+                "The listing was not counted and no Facebook ad was created."
+            )
+            st.info(
+                "Refresh saved records and reopen Marketplace Guard. This safety message replaces "
+                "the red application crash so the team knows the system is protecting the account."
+            )
+            st.caption(f"Validation detail: {exc}")
+            return
 
         if check.passed:
             st.success("Marketplace package passed the configured compliance checks.")
