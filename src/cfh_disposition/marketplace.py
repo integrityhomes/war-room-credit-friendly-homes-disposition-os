@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .marketing_claims import risky_condition_claim_errors
 from .models import OwnerFinanceProperty
 
 
@@ -48,6 +49,8 @@ def review_marketplace_copy(
     for pattern, message in {**GUARANTEE_PATTERNS, **FAIR_HOUSING_PATTERNS}.items():
         if re.search(pattern, combined, flags=re.IGNORECASE):
             result.errors.append(message)
+
+    result.errors.extend(risky_condition_claim_errors(combined))
 
     facts = {
         "total price": property_record.total_price,
