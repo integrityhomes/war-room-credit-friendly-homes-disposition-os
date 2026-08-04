@@ -48,6 +48,7 @@ def test_fact_packet_contains_full_marketing_address_and_dwelyx():
     assert packet["marketing_address"] == "101 Private Street, Bristol, VA 24201"
     assert item.address in str(packet)
     assert "dwelyx.com" in packet["dwelyx_url"]
+    assert "move-in ready" in str(packet["instructions"]).lower()
 
 
 def test_fallback_campaign_routes_everything_to_dwelyx_and_includes_address():
@@ -182,3 +183,15 @@ def test_fact_guard_blocks_missing_address_from_any_channel():
     )
     errors = validate_campaign_facts(incomplete, item, url)
     assert "Property address is missing from Dwelyx Call to Action." in errors
+
+
+def test_fact_guard_blocks_move_in_ready_variations() -> None:
+    item = sample_property()
+    url = "https://www.dwelyx.com"
+    address = marketing_address(item)
+    for phrase in ["move-in ready", "move in ready", "move-in-ready"]:
+        package = build_fallback_campaign(item, url).model_copy(
+            update={"headline": f"{phrase.title()} — {address}"}
+        )
+        errors = validate_campaign_facts(package, item, url)
+        assert any("move-in ready" in error.lower() for error in errors)
