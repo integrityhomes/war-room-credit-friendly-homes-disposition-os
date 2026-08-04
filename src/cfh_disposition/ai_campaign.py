@@ -26,6 +26,7 @@ DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_TIMEOUT_SECONDS = 90
 OPENAI_REQUEST_ATTEMPTS = 2
 MONEY_PATTERN = re.compile(r"\$((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)")
+FACEBOOK_URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", flags=re.IGNORECASE)
 
 CAMPAIGN_FIELD_LIMITS: dict[str, int] = {
     "headline": 180,
@@ -189,13 +190,17 @@ def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str)
                 "crime claims, school-quality claims, or preferred-buyer language."
             ),
             (
-                "Facebook Marketplace copy must include the exact price, down payment, monthly payment, "
-                "condition, known repairs, public disclosures, no-payment-through-Facebook statement, "
-                "approval disclaimer, Equal Housing Opportunity, and Dwelyx link."
+                "Facebook Marketplace and Facebook Group copy must not contain any website URL, Dwelyx link, "
+                "email address, phone number, or instruction to leave Facebook. Tell buyers to message through Facebook."
             ),
             (
-                "Every buyer call to action must direct the buyer to Dwelyx so buyers can create or log in "
-                "to a buyer account and review available inventory."
+                "Facebook Marketplace copy must include the exact down payment, monthly owner-finance payment, "
+                "condition, known repairs, public disclosures, no-payment-through-Facebook statement, "
+                "approval disclaimer, and Equal Housing Opportunity. Do not show the total purchase price."
+            ),
+            (
+                "All non-Facebook-organic buyer calls to action should direct buyers to Dwelyx so they can create or "
+                "log in to a buyer account and review available inventory."
             ),
             (
                 "Keep the tone practical, factual, calm, and conversational. Do not use pressure, "
@@ -209,13 +214,17 @@ def build_fallback_campaign(property_record: OwnerFinanceProperty, dwelyx_url: s
     base = build_deterministic_campaign_draft(property_record)
     address = marketing_address(property_record)
     cta = f"Create or log in to your Dwelyx buyer account to review available owner-finance homes: {dwelyx_url}"
-    marketplace = build_meta_safe_marketplace_package(property_record, dwelyx_url)
+    marketplace = build_meta_safe_marketplace_package(property_record)
+    facebook_group_post = marketplace.description.replace(
+        "Facebook Marketplace message",
+        "Facebook message",
+    )
     approval_note = "Approval, terms, and availability are subject to review and verification."
     return CampaignPackage(
         headline=base.headline,
         short_description=f"{base.short_description} {cta}",
         marketplace_description=marketplace.description,
-        facebook_group_post=f"{base.short_description}\n\n{approval_note}\n\n{cta}",
+        facebook_group_post=facebook_group_post,
         email_subject=base.email_subject,
         email_body=f"{base.marketplace_description}\n\n{approval_note}\n\n{cta}",
         sms_message=f"{base.sms_message} Review available homes through Dwelyx: {dwelyx_url}",
@@ -233,7 +242,7 @@ def normalize_campaign_payload(
     payload: Mapping[str, Any],
     fallback: CampaignPackage,
 ) -> dict[str, str]:
-    """Replace missing or overlong AI fields with the known-safe field only."""
+    """Replace missing or overlong AI fields and lock Facebook copy to safe templates."""
     fallback_data = fallback.model_dump()
     normalized: dict[str, str] = {}
 
@@ -244,6 +253,8 @@ def normalize_campaign_payload(
             value = str(fallback_data[field_name])
         normalized[field_name] = value
 
+    normalized["marketplace_description"] = str(fallback_data["marketplace_description"])
+    normalized["facebook_group_post"] = str(fallback_data["facebook_group_post"])
     return normalized
 
 
@@ -303,6 +314,9 @@ def validate_campaign_facts(
     )
     errors.extend(f"Facebook Marketplace: {message}" for message in marketplace_check.errors)
 
+    if FACEBOOK_URL_PATTERN.search(package.facebook_group_post):
+        errors.append("Facebook Groups: remove all website links and keep the first response inside Facebook.")
+
     allowed_money = _allowed_money_values(property_record)
     for match in MONEY_PATTERN.findall(combined):
         parsed_value = _parse_money_token(match)
@@ -310,7 +324,7 @@ def validate_campaign_facts(
             errors.append(f"Unapproved dollar amount detected: ${match}")
 
     if dwelyx_url.rstrip("/") not in combined:
-        errors.append("Dwelyx destination is missing from the campaign package.")
+        errors.append("Dwelyx destination is missing from the non-Facebook campaign package.")
 
     address = marketing_address(property_record)
     if address:
@@ -360,10 +374,12 @@ def generate_ai_campaign(
         "impersonation, discriminatory housing preferences, protected-class targeting, neighborhood safety claims, crime claims, "
         "school-quality claims, or preferred-buyer language. "
         'Never use "move-in ready" or any spacing or hyphen variation; describe only specific observable condition facts. '
-        "The Facebook Marketplace description must preserve the exact property facts and disclosures and include: Approval, terms, "
-        "and availability are subject to review and verification. No payment is requested through Facebook. "
-        "Equal Housing Opportunity. "
-        "Every channel must direct buyers to Dwelyx, where they can create or log in to a buyer account and review available inventory. "
+        "Facebook Marketplace and Facebook Group copy must contain no website URL, no Dwelyx link, no email address, no phone number, "
+        "and no instruction to leave Facebook. Their calls to action must tell buyers to message through Facebook. "
+        "The Facebook Marketplace description must preserve the exact allowed property facts and disclosures and include: Approval, "
+        "terms, and availability are subject to review and verification. No payment is requested through Facebook. "
+        "Equal Housing Opportunity. Do not show the total purchase price in Facebook Marketplace copy. "
+        "All other buyer-facing channels must direct buyers to Dwelyx, where they can create or log in to a buyer account. "
         "Use calm factual wording without urgency, spammy punctuation, or exaggerated claims. "
         "Stay within these hard character limits: headline 180, short_description 1000, marketplace_description 4000, "
         "facebook_group_post 3000, email_subject 180, email_body 5000, sms_message 480, classified_ad 3000, "
