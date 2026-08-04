@@ -45,8 +45,9 @@ def test_monthly_status_explains_reset_and_remaining_slots() -> None:
     assert status.reset_at.year == 2026
     assert status.reset_at.month == 9
     assert status.reset_at.day == 1
-    assert "5 of 5" not in status.message
-    assert "5 of 5" not in status.message
+    assert status.wait_days == 29
+    assert "5 of 5" in status.message
+    assert "slots remaining" in status.message
 
 
 def test_different_properties_must_alternate_sale_and_rent_categories() -> None:
