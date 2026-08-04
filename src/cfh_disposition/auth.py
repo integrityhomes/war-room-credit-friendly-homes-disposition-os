@@ -5,18 +5,31 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def _render_authenticated_shortcuts() -> None:
+def _configure_private_navigation() -> None:
+    """Hide private page names until login, then show authenticated shortcuts."""
     try:
         import streamlit as st
     except ImportError:
         return
-    if st.session_state.get("authenticated"):
-        st.sidebar.markdown("[🔗 14-Channel Link Center](?channel_center=1)")
-        st.sidebar.markdown("[📊 14-Channel Marketing Analytics](?analytics=1)")
+
+    if not st.session_state.get("authenticated"):
+        st.markdown(
+            """
+            <style>
+            [data-testid="stSidebar"] { display: none; }
+            [data-testid="collapsedControl"] { display: none; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.sidebar.markdown("[🔗 14-Channel Link Center](?channel_center=1)")
+    st.sidebar.markdown("[📊 14-Channel Marketing Analytics](?analytics=1)")
 
 
 def configured_password(secrets: Mapping[str, Any]) -> str:
-    _render_authenticated_shortcuts()
+    _configure_private_navigation()
     value = secrets.get("APP_PASSWORD", "")
     return str(value).strip()
 
