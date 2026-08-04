@@ -15,7 +15,7 @@ def safe_package():
     return build_meta_safe_marketplace_package(SAMPLE_PROPERTIES[0], TRACKED_LINK)
 
 
-def test_meta_safe_marketplace_package_passes() -> None:
+def test_meta_safe_marketplace_package_passes_without_external_link() -> None:
     package = safe_package()
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
@@ -30,6 +30,11 @@ def test_meta_safe_marketplace_package_passes() -> None:
     assert "No payment is requested through Facebook." in package.description
     assert "Equal Housing Opportunity." in package.description
     assert "not rent" in package.description.lower()
+    assert "Facebook Marketplace message" in package.description
+    assert "http://" not in package.description
+    assert "https://" not in package.description
+    assert "www." not in package.description
+    assert TRACKED_LINK not in package.description
     assert f"${SAMPLE_PROPERTIES[0].down_payment:,.0f}" in package.description
     assert f"${SAMPLE_PROPERTIES[0].monthly_payment:,.0f}" in package.description
     assert f"${SAMPLE_PROPERTIES[0].total_price:,.0f}" not in package.description
@@ -116,10 +121,9 @@ def test_fraud_categories_from_meta_policy_are_blocked() -> None:
         assert meta_marketplace_policy_errors(example), example
 
 
-def test_required_disclosures_and_tracked_link_are_blocking() -> None:
+def test_required_disclosure_is_blocking() -> None:
     package = safe_package()
     incomplete = package.description.replace("No payment is requested through Facebook.", "")
-    incomplete = incomplete.replace(TRACKED_LINK, "")
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
         package.title,
@@ -129,7 +133,20 @@ def test_required_disclosures_and_tracked_link_are_blocking() -> None:
     )
     assert not result.passed
     assert any("no payment" in error.lower() for error in result.errors)
-    assert any("dwelyx" in error.lower() for error in result.errors)
+
+
+def test_external_link_is_blocked() -> None:
+    package = safe_package()
+    description = f"{package.description}\n{TRACKED_LINK}"
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        package.title,
+        description,
+        listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
+    )
+    assert not result.passed
+    assert any("website links" in error.lower() or "dwelyx" in error.lower() for error in result.errors)
 
 
 def test_exact_public_financial_terms_are_required() -> None:
@@ -174,3 +191,20 @@ def test_not_rent_clarity_is_required() -> None:
     )
     assert not result.passed
     assert any("not rent" in error.lower() for error in result.errors)
+
+
+def test_facebook_message_call_to_action_is_required() -> None:
+    package = safe_package()
+    incomplete = package.description.replace(
+        "Send us a Facebook Marketplace message for complete purchase terms, property questions, and next steps.",
+        "Contact us for details.",
+    )
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        package.title,
+        incomplete,
+        listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
+    )
+    assert not result.passed
+    assert any("facebook marketplace message" in error.lower() for error in result.errors)

@@ -23,6 +23,7 @@ AUTOMATION_TIMEOUT_SECONDS = 30
 AUTOMATION_RESPONSE_LIMIT = 500
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds"}
+FACEBOOK_ON_PLATFORM_CHANNELS = {"marketplace", "facebook_groups"}
 INTERNAL_LIVE_CHANNELS = {"property_page"}
 
 
@@ -95,8 +96,24 @@ def _copy_source(package: CampaignPackage, channel_key: str) -> str:
         raise ValueError(f"Unknown marketing channel: {channel_key}") from exc
 
 
+def _facebook_on_platform_copy(source: str, channel_key: str) -> str:
+    without_urls = URL_PATTERN.sub("", source)
+    lines = [line for line in without_urls.splitlines() if "dwelyx" not in line.lower()]
+    cleaned = "\n".join(lines).strip()
+    cta = (
+        "Send us a Facebook Marketplace message for complete purchase terms, property questions, and next steps."
+        if channel_key == "marketplace"
+        else "Send us a Facebook message for complete purchase terms, property questions, and next steps."
+    )
+    if cta.lower() not in cleaned.lower():
+        cleaned = f"{cleaned}\n\n{cta}" if cleaned else cta
+    return cleaned
+
+
 def channel_copy_with_link(package: CampaignPackage, channel_key: str, tracked_link: str) -> str:
     source = _copy_source(package, channel_key).strip()
+    if channel_key in FACEBOOK_ON_PLATFORM_CHANNELS:
+        return _facebook_on_platform_copy(source, channel_key)
     if URL_PATTERN.search(source):
         return URL_PATTERN.sub(tracked_link, source)
     return f"{source}\n\nCreate or log in to a Dwelyx buyer account: {tracked_link}"
@@ -142,6 +159,7 @@ def build_automatic_launch_payload(
         row = links_by_key[channel.key]
         tracked_link = str(row["Tracked Dwelyx link"])
         action = launch_action_for_channel(channel)
+        keep_on_facebook = channel.key in FACEBOOK_ON_PLATFORM_CHANNELS
         channel_payloads.append(
             {
                 "channel_key": channel.key,
@@ -149,7 +167,8 @@ def build_automatic_launch_payload(
                 "channel_mode": channel.mode.value,
                 "launch_action": action.value,
                 "requires_manual_final_post": action == LaunchAction.MANUAL_FINAL_POST,
-                "tracked_buyer_link": tracked_link,
+                "public_external_link_allowed": not keep_on_facebook,
+                "tracked_buyer_link": None if keep_on_facebook else tracked_link,
                 "copy": channel_copy_with_link(package, channel.key, tracked_link),
             }
         )
@@ -165,6 +184,8 @@ def build_automatic_launch_payload(
             "purpose": "Dwelyx buyer registration or login only",
             "publish_property_to_dwelyx": False,
             "property_sync_to_dwelyx": False,
+            "facebook_marketplace_direct_link": False,
+            "facebook_groups_direct_link": False,
         },
         "channels": channel_payloads,
     }
@@ -233,6 +254,8 @@ def automation_plan_rows() -> list[dict[str, str]]:
         action = launch_action_for_channel(channel)
         if action == LaunchAction.INTERNAL_LIVE:
             result = "The property landing page is live in this app when the property passes validation."
+        elif channel.key in FACEBOOK_ON_PLATFORM_CHANNELS:
+            result = "A no-link package is prepared for a final human post; buyers are told to message through Facebook."
         elif action == LaunchAction.MANUAL_FINAL_POST:
             result = "The complete package is delivered automatically, but the platform requires a final human post."
         else:

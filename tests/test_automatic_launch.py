@@ -9,6 +9,7 @@ from cfh_disposition.automatic_launch import (
     LaunchAction,
     automation_plan_rows,
     build_automatic_launch_payload,
+    channel_copy_with_link,
     dispatch_automatic_launch,
     launch_action_for_channel,
     serialize_launch_payload,
@@ -39,7 +40,7 @@ def sample_property() -> OwnerFinanceProperty:
     )
 
 
-def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx() -> None:
+def launch_fixture():
     item = sample_property()
     links = build_channel_links(
         DEFAULT_DWELYX_URL,
@@ -52,6 +53,11 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
         item,
         links_by_key["property_page"]["Tracked Dwelyx link"],
     )
+    return item, links_by_key, package
+
+
+def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx() -> None:
+    item, links_by_key, package = launch_fixture()
     approved_at = datetime(2026, 8, 4, 2, 0, tzinfo=UTC)
 
     payload = build_automatic_launch_payload(
@@ -66,11 +72,55 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert payload["event"] == AUTOMATION_EVENT
     assert payload["buyer_destination"]["publish_property_to_dwelyx"] is False
     assert payload["buyer_destination"]["property_sync_to_dwelyx"] is False
+    assert payload["buyer_destination"]["facebook_marketplace_direct_link"] is False
+    assert payload["buyer_destination"]["facebook_groups_direct_link"] is False
     assert len(payload["channels"]) == len(CHANNELS) == 14
     assert all(DEFAULT_DWELYX_URL not in row["copy"] for row in payload["channels"])
-    assert all("tracking.example.com" in row["tracked_buyer_link"] for row in payload["channels"])
     assert payload["property"]["address"] == "101 Test Street"
     assert payload["property"]["photo_urls"] == ["https://example.com/front.jpg"]
+
+    rows = {row["channel_key"]: row for row in payload["channels"]}
+    for key in {"marketplace", "facebook_groups"}:
+        assert rows[key]["tracked_buyer_link"] is None
+        assert rows[key]["public_external_link_allowed"] is False
+        assert "https://" not in rows[key]["copy"]
+        assert "dwelyx" not in rows[key]["copy"].lower()
+        assert "facebook" in rows[key]["copy"].lower()
+
+    for key, row in rows.items():
+        if key not in {"marketplace", "facebook_groups"}:
+            assert "tracking.example.com" in row["tracked_buyer_link"]
+            assert row["public_external_link_allowed"] is True
+
+
+def test_facebook_copy_sanitizer_removes_existing_urls_and_dwelyx_lines() -> None:
+    _, links_by_key, package = launch_fixture()
+    dirty = package.model_copy(
+        update={
+            "marketplace_description": (
+                f"{package.marketplace_description}\nVisit Dwelyx here: https://example.com/register"
+            ),
+            "facebook_group_post": (
+                f"{package.facebook_group_post}\nCreate a Dwelyx account: https://example.com/register"
+            ),
+        }
+    )
+
+    marketplace_copy = channel_copy_with_link(
+        dirty,
+        "marketplace",
+        links_by_key["marketplace"]["Tracked Dwelyx link"],
+    )
+    group_copy = channel_copy_with_link(
+        dirty,
+        "facebook_groups",
+        links_by_key["facebook_groups"]["Tracked Dwelyx link"],
+    )
+
+    for copy in [marketplace_copy, group_copy]:
+        assert "https://" not in copy
+        assert "dwelyx" not in copy.lower()
+        assert "facebook" in copy.lower()
 
 
 def test_launch_actions_keep_restricted_platforms_manual() -> None:

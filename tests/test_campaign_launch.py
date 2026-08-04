@@ -64,7 +64,7 @@ def test_approve_all_and_update_one_channel():
     assert updated.channels["sms"].status == LaunchStatus.READY
 
 
-def test_channel_copy_uses_only_the_selected_tracked_link():
+def test_marketplace_copy_excludes_all_external_links():
     item = sample_property()
     original_link = "https://tracking.example.com/?go=dwelyx&medium=property_page"
     selected_link = "https://tracking.example.com/?go=dwelyx&medium=marketplace"
@@ -72,8 +72,27 @@ def test_channel_copy_uses_only_the_selected_tracked_link():
 
     copy = campaign_copy_for_channel(package, "marketplace", selected_link)
 
-    assert selected_link in copy
+    assert selected_link not in copy
     assert original_link not in copy
+    assert "https://" not in copy
+    assert "dwelyx" not in copy.lower()
+    assert "Facebook Marketplace message" in copy
+    assert item.address in copy
+
+
+def test_facebook_group_copy_excludes_all_external_links():
+    item = sample_property()
+    original_link = "https://tracking.example.com/?go=dwelyx&medium=property_page"
+    selected_link = "https://tracking.example.com/?go=dwelyx&medium=facebook_groups"
+    package = build_fallback_campaign(item, original_link)
+
+    copy = campaign_copy_for_channel(package, "facebook_groups", selected_link)
+
+    assert selected_link not in copy
+    assert original_link not in copy
+    assert "https://" not in copy
+    assert "dwelyx" not in copy.lower()
+    assert "Facebook message" in copy
     assert item.address in copy
 
 
