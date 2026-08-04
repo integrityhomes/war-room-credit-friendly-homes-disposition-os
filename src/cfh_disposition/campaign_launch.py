@@ -27,6 +27,11 @@ from .channel_tracking import build_channel_links
 from .channels import CHANNELS, CHANNELS_BY_KEY
 from .dwelyx import tracking_app_base_url
 from .launch_plan import build_launch_plan
+from .marketplace_calendar import (
+    MarketplaceCalendarError,
+    MarketplaceCalendarStore,
+    marketplace_month_status,
+)
 from .models import OwnerFinanceProperty
 from .storage import SupabaseSettings
 
@@ -152,29 +157,55 @@ def approve_all_channels(
     )
 
 
+def _apply_marketplace_lock(
+    state: CampaignLaunchState,
+    *,
+    blocked: bool,
+    reason: str,
+    updated_by: str,
+    now: datetime,
+) -> CampaignLaunchState:
+    if not blocked:
+        return state
+    return set_channel_status(
+        state,
+        "marketplace",
+        LaunchStatus.PAUSED,
+        updated_by=updated_by,
+        notes=reason,
+        now=now,
+    )
+
+
 def mark_automatic_launch_success(
     state: CampaignLaunchState,
     *,
     updated_by: str,
     now: datetime | None = None,
+    marketplace_blocked: bool = False,
+    marketplace_block_reason: str = "",
 ) -> CampaignLaunchState:
     timestamp = now or datetime.now(UTC)
     updated = approve_all_channels(state, approved_by=updated_by, now=timestamp)
 
     for channel in CHANNELS:
-        action = launch_action_for_channel(channel)
-        if action == LaunchAction.INTERNAL_LIVE:
-            status = LaunchStatus.POSTED
-            notes = "Live automatically in the Credit Friendly Homes Disposition OS."
-        elif action == LaunchAction.MANUAL_FINAL_POST:
-            status = LaunchStatus.READY
-            notes = (
-                "The complete package was delivered to the automation workflow. "
-                "This platform still requires a final human post."
-            )
+        if channel.key == "marketplace" and marketplace_blocked:
+            status = LaunchStatus.PAUSED
+            notes = marketplace_block_reason
         else:
-            status = LaunchStatus.SCHEDULED
-            notes = "Sent to the connected automatic publishing workflow."
+            action = launch_action_for_channel(channel)
+            if action == LaunchAction.INTERNAL_LIVE:
+                status = LaunchStatus.POSTED
+                notes = "Live automatically in the Credit Friendly Homes Disposition OS."
+            elif action == LaunchAction.MANUAL_FINAL_POST:
+                status = LaunchStatus.READY
+                notes = (
+                    "The complete package was delivered to the automation workflow. "
+                    "This platform still requires a final human post."
+                )
+            else:
+                status = LaunchStatus.SCHEDULED
+                notes = "Sent to the connected automatic publishing workflow."
         updated = set_channel_status(
             updated,
             channel.key,
@@ -192,21 +223,27 @@ def mark_automatic_launch_failure(
     updated_by: str,
     error_message: str,
     now: datetime | None = None,
+    marketplace_blocked: bool = False,
+    marketplace_block_reason: str = "",
 ) -> CampaignLaunchState:
     timestamp = now or datetime.now(UTC)
     updated = approve_all_channels(state, approved_by=updated_by, now=timestamp)
 
     for channel in CHANNELS:
-        action = launch_action_for_channel(channel)
-        if action == LaunchAction.INTERNAL_LIVE:
-            status = LaunchStatus.POSTED
-            notes = "Live automatically in the Credit Friendly Homes Disposition OS."
-        elif action == LaunchAction.MANUAL_FINAL_POST:
-            status = LaunchStatus.READY
-            notes = "Package is ready in this app, but automatic delivery failed."
+        if channel.key == "marketplace" and marketplace_blocked:
+            status = LaunchStatus.PAUSED
+            notes = marketplace_block_reason
         else:
-            status = LaunchStatus.FAILED
-            notes = error_message[:1000]
+            action = launch_action_for_channel(channel)
+            if action == LaunchAction.INTERNAL_LIVE:
+                status = LaunchStatus.POSTED
+                notes = "Live automatically in the Credit Friendly Homes Disposition OS."
+            elif action == LaunchAction.MANUAL_FINAL_POST:
+                status = LaunchStatus.READY
+                notes = "Package is ready in this app, but automatic delivery failed."
+            else:
+                status = LaunchStatus.FAILED
+                notes = error_message[:1000]
         updated = set_channel_status(
             updated,
             channel.key,
@@ -410,6 +447,33 @@ def render_campaign_launch_center(
         state = _load_ui_state(None, selected.property_id, campaign)
         st.warning(f"Campaign status is temporary for this browser session: {exc}")
 
+    try:
+        marketplace_store = MarketplaceCalendarStore(secrets)
+        marketplace_ledger = marketplace_store.load()
+        marketplace_status = marketplace_month_status(
+            marketplace_ledger,
+            property_id=selected.property_id,
+        )
+        marketplace_blocked = (
+            marketplace_status.blocked
+            or marketplace_status.active_duplicate is not None
+        )
+        marketplace_block_reason = marketplace_status.message if marketplace_blocked else ""
+        if marketplace_blocked:
+            st.warning(f"Facebook Marketplace is locked for this property: {marketplace_status.message}")
+        else:
+            st.info(
+                f"Facebook Marketplace safety counter: {marketplace_status.used} of 5 used; "
+                f"{marketplace_status.remaining} remaining."
+            )
+    except MarketplaceCalendarError as exc:
+        marketplace_blocked = True
+        marketplace_block_reason = (
+            "Facebook Marketplace is locked because the monthly safety counter could not be read: "
+            f"{exc}"
+        )
+        st.error(marketplace_block_reason)
+
     links = build_channel_links(
         dwelyx_url,
         campaign=campaign,
@@ -438,8 +502,8 @@ def render_campaign_launch_center(
 
     st.write("### Automatic Launch Engine")
     st.info(
-        "No property is published or synced to Dwelyx. Every channel sends buyers only to "
-        "the tracked Dwelyx buyer registration/login destination."
+        "No property is published or synced to Dwelyx. Facebook Marketplace has no direct link. "
+        "Facebook Groups and supported non-Marketplace channels may use the tracked Dwelyx buyer link."
     )
     automation_settings = AutomationDispatchSettings.from_mapping(secrets)
     if automation_settings.configured:
@@ -472,6 +536,8 @@ def render_campaign_launch_center(
             campaign=campaign,
             approved_by=operator,
             approved_at=approved_at,
+            marketplace_blocked=marketplace_blocked,
+            marketplace_block_reason=marketplace_block_reason,
         )
         try:
             with st.spinner("Sending the approved campaign to the publishing workflow..."):
@@ -480,11 +546,13 @@ def render_campaign_launch_center(
                 state,
                 updated_by=operator,
                 now=receipt.sent_at,
+                marketplace_blocked=marketplace_blocked,
+                marketplace_block_reason=marketplace_block_reason,
             )
             _save_ui_state(store, state)
             st.success(
-                "Campaign accepted by the automatic publishing workflow. The restricted "
-                "platforms remain marked Ready for their final human post."
+                "Campaign accepted by the automatic publishing workflow. Restricted platforms "
+                "remain ready for a final human post unless the Marketplace safety gate locked them."
             )
         except (AutomationLaunchError, LaunchStoreError) as exc:
             state = mark_automatic_launch_failure(
@@ -492,6 +560,8 @@ def render_campaign_launch_center(
                 updated_by=operator,
                 error_message=str(exc),
                 now=approved_at,
+                marketplace_blocked=marketplace_blocked,
+                marketplace_block_reason=marketplace_block_reason,
             )
             try:
                 _save_ui_state(store, state)
@@ -504,10 +574,18 @@ def render_campaign_launch_center(
         "Approve Only — Do Not Launch",
         use_container_width=True,
     ):
-        state = approve_all_channels(state, approved_by=operator)
+        approval_time = datetime.now(UTC)
+        state = approve_all_channels(state, approved_by=operator, now=approval_time)
+        state = _apply_marketplace_lock(
+            state,
+            blocked=marketplace_blocked,
+            reason=marketplace_block_reason,
+            updated_by=operator,
+            now=approval_time,
+        )
         try:
             _save_ui_state(store, state)
-            st.success("All 14 channels are approved and marked Ready, but nothing was launched.")
+            st.success("All available channels are approved and marked Ready, but nothing was launched.")
         except LaunchStoreError as exc:
             st.error(str(exc))
     if state.approved_at:
@@ -516,13 +594,11 @@ def render_campaign_launch_center(
             f"{state.approved_at.strftime('%Y-%m-%d %H:%M UTC')}."
         )
     else:
-        approve_right.info(
-            "Review the property facts and campaign copy before approval."
-        )
+        approve_right.info("Review the property facts and campaign copy before approval.")
 
     st.write("### Restricted channel or troubleshooting review")
     st.caption(
-        "Use this section only for Facebook Marketplace, Facebook Groups, classifieds, "
+        "Use this section for Facebook Marketplace, Facebook Groups, classifieds, "
         "or troubleshooting an automatic channel."
     )
     selected_channel_name = st.selectbox(
@@ -530,54 +606,68 @@ def render_campaign_launch_center(
         [channel.name for channel in CHANNELS],
         key="launch_center_channel",
     )
-    channel = next(
-        item for item in CHANNELS if item.name == selected_channel_name
-    )
+    channel = next(item for item in CHANNELS if item.name == selected_channel_name)
     tracked_link = links_by_key[channel.key]["Tracked Dwelyx link"]
-    copy_text = campaign_copy_for_channel(package, channel.key, tracked_link)
+    marketplace_channel_locked = channel.key == "marketplace" and marketplace_blocked
 
-    st.text_input(
-        "Tracked Dwelyx buyer-account link for this channel",
-        value=tracked_link,
-        key=f"launch_link_{channel.key}",
-    )
-    st.text_area(
-        "Complete marketing package",
-        value=copy_text,
-        height=320,
-        key=f"launch_copy_{channel.key}",
-    )
-    st.link_button("Test This Channel Link", tracked_link)
-    st.caption(f"Posting mode: {channel.mode.value}. {channel.purpose}")
-
-    current = ensure_all_channels(state).channels[channel.key]
-    status_values = list(LaunchStatus)
-    status = st.selectbox(
-        "Channel status",
-        status_values,
-        index=status_values.index(current.status),
-        format_func=lambda value: value.value,
-        key=f"launch_status_{channel.key}",
-    )
-    notes = st.text_area(
-        "Posting location, group name, ad ID, refresh date, error, or notes",
-        value=current.notes,
-        height=100,
-        key=f"launch_notes_{channel.key}",
-    )
-    if st.button("Save This Channel Status", type="primary"):
-        state = set_channel_status(
-            state,
-            channel.key,
-            status,
-            updated_by=operator,
-            notes=notes,
+    if marketplace_channel_locked:
+        st.error(marketplace_block_reason)
+        st.text_area(
+            "Marketplace package locked",
+            value=marketplace_block_reason,
+            height=150,
+            disabled=True,
         )
-        try:
-            _save_ui_state(store, state)
-            st.success(f"{channel.name} is saved as {status.value}.")
-        except LaunchStoreError as exc:
-            st.error(str(exc))
+    else:
+        copy_text = campaign_copy_for_channel(package, channel.key, tracked_link)
+        if channel.key == "marketplace":
+            st.info(
+                "Facebook Marketplace copy intentionally contains no website or Dwelyx link. "
+                "Buyers are instructed to message through Marketplace."
+            )
+        else:
+            st.text_input(
+                "Tracked Dwelyx buyer-account link for this channel",
+                value=tracked_link,
+                key=f"launch_link_{channel.key}",
+            )
+            st.link_button("Test This Channel Link", tracked_link)
+        st.text_area(
+            "Complete marketing package",
+            value=copy_text,
+            height=320,
+            key=f"launch_copy_{channel.key}",
+        )
+        st.caption(f"Posting mode: {channel.mode.value}. {channel.purpose}")
+
+        current = ensure_all_channels(state).channels[channel.key]
+        status_values = list(LaunchStatus)
+        status = st.selectbox(
+            "Channel status",
+            status_values,
+            index=status_values.index(current.status),
+            format_func=lambda value: value.value,
+            key=f"launch_status_{channel.key}",
+        )
+        notes = st.text_area(
+            "Posting location, group name, ad ID, refresh date, error, or notes",
+            value=current.notes,
+            height=100,
+            key=f"launch_notes_{channel.key}",
+        )
+        if st.button("Save This Channel Status", type="primary"):
+            state = set_channel_status(
+                state,
+                channel.key,
+                status,
+                updated_by=operator,
+                notes=notes,
+            )
+            try:
+                _save_ui_state(store, state)
+                st.success(f"{channel.name} is saved as {status.value}.")
+            except LaunchStoreError as exc:
+                st.error(str(exc))
 
     st.write("### Complete campaign status")
     table = pd.DataFrame(launch_rows(state))
