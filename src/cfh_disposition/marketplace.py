@@ -54,15 +54,15 @@ def build_meta_safe_marketplace_package(
     )
     disclosures = property_record.public_disclosures.strip() or "Property information and terms must be verified."
     link_line = (
-        "Create or log in to a Dwelyx buyer account to review available owner-finance homes: "
+        "Create or log in to a Dwelyx buyer account to review the full purchase terms and available owner-finance homes: "
         f"{tracked_dwelyx_link}"
     )
     description = (
         f"{address}\n\n"
         f"{property_record.bedrooms or '—'} bed / {property_record.bathrooms or '—'} bath\n"
-        f"Purchase price: {_money(property_record.total_price)}\n"
+        "Owner-finance opportunity. The monthly payment shown is not rent.\n"
         f"Down payment: {_money(property_record.down_payment)}\n"
-        f"Monthly payment: {_money(property_record.monthly_payment)}\n\n"
+        f"Monthly owner-finance payment: {_money(property_record.monthly_payment)}\n\n"
         f"Condition: {condition}\n\n"
         f"Known repairs or work needed: {repairs}\n\n"
         f"Disclosures: {disclosures}\n\n"
@@ -100,16 +100,28 @@ def review_marketplace_copy(
     if address and address.lower() not in combined.lower():
         result.errors.append("The complete property address must appear in the Marketplace package.")
 
-    facts = {
-        "total price": property_record.total_price,
+    required_public_terms = {
         "down payment": property_record.down_payment,
         "monthly payment": property_record.monthly_payment,
     }
-    for label, value in facts.items():
+    for label, value in required_public_terms.items():
         if value is None:
             result.errors.append(f"Property is missing {label}; Marketplace package cannot be prepared.")
         elif not _money_is_present(description, value):
             result.errors.append(f"The exact {label} must appear in the Marketplace description.")
+
+    if property_record.total_price is None:
+        result.errors.append("Property is missing total price in the internal record.")
+    elif _money_is_present(description, property_record.total_price):
+        result.errors.append(
+            "Remove the total purchase price from the public Marketplace description. "
+            "Keep full purchase terms inside Dwelyx to reduce harassment and unqualified responses."
+        )
+
+    if "not rent" not in description.lower():
+        result.errors.append(
+            'Marketplace copy must clearly state that the monthly owner-finance payment is "not rent."'
+        )
 
     if property_record.condition_summary and property_record.condition_summary.lower() not in description.lower():
         result.warnings.append("The saved condition summary is not quoted exactly. Confirm that no condition facts were changed.")
