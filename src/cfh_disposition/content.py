@@ -41,9 +41,9 @@ def build_deterministic_campaign_draft(property_record: OwnerFinanceProperty) ->
     marketplace = (
         f"{headline}\n\n"
         f"{facts}\n"
-        f"Purchase price: {price}\n"
+        "Owner-finance opportunity. The monthly payment shown is not rent.\n"
         f"Down payment: {down}\n"
-        f"Monthly payment: {payment}\n\n"
+        f"Monthly owner-finance payment: {payment}\n\n"
         f"Condition: {condition}\n\n"
         f"Known repairs or work needed: {repairs}\n\n"
         f"Disclosures: {disclosures}\n\n"
