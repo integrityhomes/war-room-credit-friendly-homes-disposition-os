@@ -14,6 +14,7 @@ from cfh_disposition.ai_campaign import (
     generate_ai_campaign,
 )
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.campaign_launch import render_campaign_launch_center
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.content import build_deterministic_campaign_draft
 from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
@@ -116,6 +117,7 @@ page = st.sidebar.radio(
         "Property Intake",
         "Record Manager",
         "Campaign Readiness",
+        "Campaign Launch Center",
         "Dwelyx Traffic Hub",
         "Marketplace Guard",
         "System Setup",
@@ -311,7 +313,10 @@ elif page == "Campaign Readiness":
     ]
     st.write("### Channel launch plan")
     st.dataframe(pd.DataFrame(launch_rows), use_container_width=True, hide_index=True)
-    st.button("Approve & Launch Everywhere", disabled=True, help="Enabled after publishing adapters and approval records are built.")
+    st.button("Approve & Launch Everywhere", disabled=True, help="Use Campaign Launch Center to approve, copy, and track each channel.")
+
+elif page == "Campaign Launch Center":
+    render_campaign_launch_center(st.session_state.properties, st.secrets, dwelyx_url)
 
 elif page == "Dwelyx Traffic Hub":
     st.subheader("Dwelyx Traffic Hub")
@@ -385,7 +390,7 @@ elif page == "System Setup":
     st.write("### Storage")
     if settings.configured:
         st.success("Supabase credentials are configured in Streamlit Secrets.")
-        st.write("Private records and public property photos are connected.")
+        st.write("Private records, public property photos, analytics, and campaign launch records are connected.")
     else:
         st.warning("Supabase is not connected. The app is using fictional demo data stored only in memory.")
 
@@ -426,6 +431,7 @@ else:
         "PR 12 — Email, SMS, referral, and buyer-reactivation traffic automation",
         "PR 13 — Marketplace/Facebook-group/classified assisted posting center",
         "PR 14 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
+        "PR 17 — Persistent 14-channel Campaign Launch Center with approval and posting records",
     ]
     for item in roadmap:
         st.write(item)
