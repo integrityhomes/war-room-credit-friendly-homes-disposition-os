@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 RISKY_CONDITION_PATTERNS: dict[str, str] = {
     r"\bmove[\s-]*in[\s-]+ready\b": (
         'Remove "move-in ready." Describe the specific completed work and current observable condition instead.'
