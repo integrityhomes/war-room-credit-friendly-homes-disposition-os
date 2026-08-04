@@ -1,7 +1,9 @@
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
+import cfh_disposition.storage as storage_module
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.models import BuyerProfile, OwnerFinanceProperty
 from cfh_disposition.storage import (
@@ -11,6 +13,7 @@ from cfh_disposition.storage import (
     SupabaseStorage,
     _photo_path_from_url,
     _public_photo_url,
+    normalized_photo_content_type,
     validate_photo_upload,
 )
 
@@ -88,9 +91,11 @@ def test_photo_public_url_round_trip():
     assert _photo_path_from_url(base_url, public_url) == "property-id/front%20porch.jpg"
 
 
-def test_photo_validation_accepts_supported_images():
+def test_photo_validation_accepts_supported_images_and_jpeg_aliases():
     validate_photo_upload("front.jpg", b"photo-bytes", "image/jpeg")
     validate_photo_upload("kitchen.webp", b"photo-bytes", "image/webp")
+    validate_photo_upload("porch.jpeg", b"photo-bytes", "image/jpg")
+    assert normalized_photo_content_type("image/pjpeg; charset=binary") == "image/jpeg"
 
 
 def test_photo_validation_rejects_private_documents():
@@ -101,3 +106,53 @@ def test_photo_validation_rejects_private_documents():
 def test_photo_validation_rejects_oversized_files():
     with pytest.raises(StorageError, match="larger than 10 MB"):
         validate_photo_upload("front.png", b"x" * (10 * 1024 * 1024 + 1), "image/png")
+
+
+def test_photo_upload_falls_back_to_direct_rest_when_sdk_upload_fails(monkeypatch):
+    class FakeBucket:
+        def upload(self, **kwargs):
+            raise RuntimeError("SDK upload failed")
+
+    class FakeStorageApi:
+        def get_bucket(self, bucket_name):
+            return {"name": bucket_name}
+
+        def from_(self, bucket_name):
+            return FakeBucket()
+
+    class FakeClient:
+        storage = FakeStorageApi()
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(storage_module, "urlopen", fake_urlopen)
+    storage = SupabaseStorage(
+        SupabaseSettings(url="https://demo.supabase.co", secret_key="sb_secret_test"),
+        client=FakeClient(),
+    )
+
+    urls = storage.upload_property_photos(
+        uuid4(),
+        [("front.jpeg", b"photo-bytes", "image/jpg")],
+    )
+
+    assert len(urls) == 1
+    assert "cfh-property-photos" in urls[0]
+    assert len(requests) == 1
+    request, timeout = requests[0]
+    assert timeout == 60
+    assert request.headers["Content-type"] == "image/jpeg"

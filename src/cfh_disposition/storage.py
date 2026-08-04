@@ -5,7 +5,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 from .models import BuyerProfile, OwnerFinanceProperty
@@ -13,7 +15,9 @@ from .models import BuyerProfile, OwnerFinanceProperty
 PHOTO_BUCKET = "cfh-property-photos"
 PHOTO_MAX_BYTES = 10 * 1024 * 1024
 PHOTO_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+PHOTO_MIME_ALIASES = {"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg"}
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+PHOTO_UPLOAD_TIMEOUT_SECONDS = 60
 PhotoUpload = tuple[str, bytes, str]
 
 
@@ -35,9 +39,15 @@ class Storage(Protocol):
     def delete_buyer(self, buyer_id: UUID) -> None: ...
 
 
+def normalized_photo_content_type(content_type: str) -> str:
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    return PHOTO_MIME_ALIASES.get(normalized, normalized)
+
+
 def validate_photo_upload(file_name: str, content: bytes, content_type: str) -> None:
     extension = Path(file_name).suffix.lower()
-    if extension not in PHOTO_EXTENSIONS or content_type not in PHOTO_MIME_TYPES:
+    normalized_type = normalized_photo_content_type(content_type)
+    if extension not in PHOTO_EXTENSIONS or normalized_type not in PHOTO_MIME_TYPES:
         raise StorageError("Only JPG, PNG, and WEBP property photos are allowed.")
     if not content:
         raise StorageError(f"{file_name} is empty.")
@@ -59,6 +69,12 @@ def _public_photo_url(base_url: str, object_path: str) -> str:
 def _photo_path_from_url(base_url: str, public_url: str) -> str | None:
     prefix = f"{base_url.rstrip('/')}/storage/v1/object/public/{PHOTO_BUCKET}/"
     return public_url[len(prefix) :] if public_url.startswith(prefix) else None
+
+
+def _safe_supabase_detail(detail: str, secret_key: str) -> str:
+    cleaned = detail.replace(secret_key, "[redacted]") if secret_key else detail
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:240]
 
 
 @dataclass(frozen=True)
@@ -195,25 +211,56 @@ class SupabaseStorage:
         except Exception as exc:
             raise StorageError("Could not save property to Supabase") from exc
 
+    def _upload_photo_via_rest(self, object_path: str, content: bytes, content_type: str) -> None:
+        encoded_path = quote(object_path, safe="/")
+        endpoint = f"{self._settings.url.rstrip('/')}/storage/v1/object/{PHOTO_BUCKET}/{encoded_path}"
+        request = Request(
+            endpoint,
+            data=content,
+            headers={
+                "Authorization": f"Bearer {self._settings.secret_key}",
+                "apikey": self._settings.secret_key,
+                "Content-Type": content_type,
+                "cache-control": "3600",
+                "x-upsert": "false",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=PHOTO_UPLOAD_TIMEOUT_SECONDS) as response:
+                response.read()
+        except HTTPError as exc:
+            detail = _safe_supabase_detail(exc.read().decode("utf-8", errors="replace"), self._settings.secret_key)
+            message = f"Supabase rejected the file (HTTP {exc.code})."
+            if detail:
+                message = f"{message} {detail}"
+            raise StorageError(message) from exc
+        except (URLError, TimeoutError) as exc:
+            raise StorageError("The photo upload connection timed out or was interrupted.") from exc
+
     def upload_property_photos(self, property_id: UUID, files: list[PhotoUpload]) -> list[str]:
         self._ensure_photo_bucket()
         uploaded_urls: list[str] = []
         bucket = self._client.storage.from_(PHOTO_BUCKET)
         for file_name, content, content_type in files:
-            validate_photo_upload(file_name, content, content_type)
+            normalized_type = normalized_photo_content_type(content_type)
+            validate_photo_upload(file_name, content, normalized_type)
             object_path = f"{property_id}/{_safe_photo_name(file_name)}"
             try:
                 bucket.upload(
                     path=object_path,
                     file=content,
                     file_options={
-                        "content-type": content_type,
+                        "content-type": normalized_type,
                         "cache-control": "3600",
                         "upsert": "false",
                     },
                 )
-            except Exception as exc:
-                raise StorageError("Could not upload property photos to Supabase.") from exc
+            except Exception as sdk_error:
+                try:
+                    self._upload_photo_via_rest(object_path, content, normalized_type)
+                except StorageError as rest_error:
+                    raise StorageError(f'Could not upload "{file_name}". {rest_error}') from sdk_error
             uploaded_urls.append(_public_photo_url(self._settings.url, object_path))
         return uploaded_urls
 
