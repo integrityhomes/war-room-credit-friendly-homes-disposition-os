@@ -47,3 +47,14 @@ def test_monthly_limit_is_configurable_and_enforced() -> None:
         monthly_limit=5,
     )
     assert not result.passed
+
+
+def test_move_in_ready_claim_is_blocked() -> None:
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        "Move-In Ready Owner-Financed Home",
+        "This move in ready property is available with owner-finance terms. Review all condition details, disclosures, and terms before proceeding.",
+        listings_used_this_month=0,
+    )
+    assert not result.passed
+    assert any("move-in ready" in error.lower() for error in result.errors)
