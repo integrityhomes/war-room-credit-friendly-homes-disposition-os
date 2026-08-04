@@ -9,6 +9,7 @@ DEFAULT_DWELYX_URL = "https://www.dwelyx.com/buyer/register"
 DEFAULT_TRACKING_APP_URL = (
     "https://war-room-credit-friendly-homes-disposition-os-a6eb96y5qwg7uvts.streamlit.app"
 )
+DEFAULT_SOURCE = "credit_friendly_homes"
 
 
 def dwelyx_base_url(values: Mapping[str, Any] | None = None) -> str:
@@ -66,17 +67,26 @@ def build_dwelyx_url(
     property_id: UUID | str | None = None,
     tracking_base_url: str = DEFAULT_TRACKING_APP_URL,
 ) -> str:
-    """Build a tracked redirect that sends buyers to Dwelyx registration/login."""
+    """Build a compact tracked redirect to Dwelyx buyer registration/login."""
     tracking_parts = urlsplit(tracking_app_base_url({"PUBLIC_APP_URL": tracking_base_url}))
+    destination = dwelyx_base_url({"DWELYX_BUYER_URL": base_url})
+    source_slug = _slug(source)
     query = {
         "go": "dwelyx",
-        "target": dwelyx_base_url({"DWELYX_BUYER_URL": base_url}),
-        "source": _slug(source),
         "medium": _slug(medium),
         "campaign": _slug(campaign),
     }
+
+    # The redirect page already defaults to the standard buyer-registration URL
+    # and Credit Friendly Homes source. Omitting those repeated values keeps SMS
+    # and other character-limited campaign fields below their hard limits.
+    if destination != DEFAULT_DWELYX_URL:
+        query["target"] = destination
+    if source_slug != DEFAULT_SOURCE:
+        query["source"] = source_slug
     if property_id:
         query["property_id"] = str(property_id)
+
     return urlunsplit(
         (
             tracking_parts.scheme,
