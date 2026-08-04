@@ -64,7 +64,10 @@ def render_marketplace_guard(
 
     status = marketplace_month_status(ledger, property_id=selected.property_id)
     metric_columns = st.columns(3)
-    metric_columns[0].metric("Used This Month", f"{status.used} / {MARKETPLACE_MONTHLY_LIMIT}")
+    metric_columns[0].metric(
+        "Used This Month",
+        f"{status.used} / {MARKETPLACE_MONTHLY_LIMIT}",
+    )
     metric_columns[1].metric("Remaining", status.remaining)
     metric_columns[2].metric("Next Reset", status.reset_at.strftime("%b %d, %Y"))
 
@@ -82,26 +85,16 @@ def render_marketplace_guard(
         )
     else:
         st.success(status.message)
-        if status.expected_listing_type:
-            listing_type = status.expected_listing_type
-            st.text_input(
-                "Required category for the next different property",
-                value=listing_type.value,
-                disabled=True,
-            )
-            st.caption(
-                "The system alternates different properties between For Sale and For Rent. "
-                "The ad itself still clearly states that the monthly owner-finance payment is not rent."
-            )
-        else:
-            listing_type = st.selectbox(
-                "Facebook category for the first recorded listing",
-                list(MarketplaceListingType),
-                format_func=lambda value: value.value,
-            )
-            st.caption(
-                "After the first listing, the system requires the opposite category for the next different property."
-            )
+        listing_type = MarketplaceListingType.FOR_SALE
+        st.text_input(
+            "Required Facebook category",
+            value=listing_type.value,
+            disabled=True,
+        )
+        st.caption(
+            "Owner-finance is a property sale. The system will not place it under For Rent because "
+            "that could confuse buyers or make the listing appear misleading."
+        )
 
         package = build_meta_safe_marketplace_package(selected)
         title = st.text_input("Marketplace title", value=package.title)
@@ -142,7 +135,7 @@ def render_marketplace_guard(
             height=80,
         )
         confirmed = st.checkbox(
-            "I confirm this listing was actually created on Facebook Marketplace. "
+            "I confirm this listing was actually created on Facebook Marketplace under For Sale. "
             "Recording it permanently uses one monthly slot even if the listing is later deleted.",
             key="marketplace_created_confirmation",
         )

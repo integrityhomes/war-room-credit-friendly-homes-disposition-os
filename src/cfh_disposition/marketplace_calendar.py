@@ -58,7 +58,7 @@ class MarketplaceMonthStatus:
     blocked: bool
     reset_at: datetime
     wait_days: int
-    expected_listing_type: MarketplaceListingType | None
+    required_listing_type: MarketplaceListingType
     active_duplicate: MarketplaceListingRecord | None
     message: str
 
@@ -105,17 +105,6 @@ def active_listing_for_property(
     return max(active, key=lambda item: item.created_at) if active else None
 
 
-def expected_next_listing_type(
-    ledger: MarketplaceLedger,
-) -> MarketplaceListingType | None:
-    if not ledger.listings:
-        return None
-    latest = max(ledger.listings, key=lambda item: item.created_at)
-    if latest.listing_type == MarketplaceListingType.FOR_SALE:
-        return MarketplaceListingType.FOR_RENT
-    return MarketplaceListingType.FOR_SALE
-
-
 def marketplace_month_status(
     ledger: MarketplaceLedger,
     *,
@@ -130,7 +119,7 @@ def marketplace_month_status(
     blocked = used >= monthly_limit
     wait_days = max((reset_at.date() - current.date()).days, 0)
     duplicate = active_listing_for_property(ledger, property_id) if property_id else None
-    expected = expected_next_listing_type(ledger)
+    required = MarketplaceListingType.FOR_SALE
 
     if blocked:
         message = (
@@ -140,14 +129,13 @@ def marketplace_month_status(
         )
     elif duplicate:
         message = (
-            "This property already has an active Facebook Marketplace listing. Do not create a second listing "
-            "under For Sale or For Rent. Edit, renew, or close the existing listing first."
+            "This property already has an active Facebook Marketplace listing. Do not create another listing "
+            "under either For Sale or For Rent. Edit, renew, or close the existing listing first."
         )
     else:
-        rotation = expected.value if expected else "For Sale or For Rent for the first recorded listing"
         message = (
             f"Marketplace has {remaining} of {monthly_limit} Homes for Sale or Rent listing slots remaining "
-            f"this month. Next rotation: {rotation}."
+            "this month. Owner-finance homes must be posted under For Sale because they are sales, not rentals."
         )
 
     return MarketplaceMonthStatus(
@@ -156,7 +144,7 @@ def marketplace_month_status(
         blocked=blocked,
         reset_at=reset_at,
         wait_days=wait_days,
-        expected_listing_type=expected,
+        required_listing_type=required,
         active_duplicate=duplicate,
         message=message,
     )
@@ -184,10 +172,10 @@ def record_marketplace_listing(
         raise MarketplaceCalendarError(status.message)
     if status.active_duplicate:
         raise MarketplaceCalendarError(status.message)
-    if status.expected_listing_type and listing_type != status.expected_listing_type:
+    if listing_type != MarketplaceListingType.FOR_SALE:
         raise MarketplaceCalendarError(
-            f"Category rotation requires the next different property to be posted as "
-            f"{status.expected_listing_type.value}."
+            "Owner-finance properties must be listed under For Sale. Do not use For Rent unless the property "
+            "is genuinely being offered under a rental lease with true rental terms."
         )
 
     record = MarketplaceListingRecord(

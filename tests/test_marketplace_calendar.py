@@ -46,11 +46,13 @@ def test_monthly_status_explains_reset_and_remaining_slots() -> None:
     assert status.reset_at.month == 9
     assert status.reset_at.day == 1
     assert status.wait_days == 29
+    assert status.required_listing_type == MarketplaceListingType.FOR_SALE
     assert "5 of 5" in status.message
     assert "slots remaining" in status.message
+    assert "sales, not rentals" in status.message
 
 
-def test_different_properties_must_alternate_sale_and_rent_categories() -> None:
+def test_different_owner_finance_properties_can_each_be_listed_for_sale() -> None:
     first = sample_property(1)
     second = sample_property(2)
     ledger = record_marketplace_listing(
@@ -62,31 +64,35 @@ def test_different_properties_must_alternate_sale_and_rent_categories() -> None:
         now=august_now(),
     )
 
-    status = marketplace_month_status(ledger, now=august_now())
-    assert status.expected_listing_type == MarketplaceListingType.FOR_RENT
-
-    with pytest.raises(MarketplaceCalendarError, match="rotation"):
-        record_marketplace_listing(
-            ledger,
-            property_id=second.property_id,
-            address=second.display_address,
-            listing_type=MarketplaceListingType.FOR_SALE,
-            created_by="Sabrina",
-            now=august_now(4),
-        )
-
     ledger = record_marketplace_listing(
         ledger,
         property_id=second.property_id,
         address=second.display_address,
-        listing_type=MarketplaceListingType.FOR_RENT,
+        listing_type=MarketplaceListingType.FOR_SALE,
         created_by="Sabrina",
         now=august_now(4),
     )
     assert len(current_month_listings(ledger, august_now())) == 2
+    assert all(
+        item.listing_type == MarketplaceListingType.FOR_SALE
+        for item in ledger.listings
+    )
 
 
-def test_same_active_property_cannot_be_posted_in_both_categories() -> None:
+def test_owner_finance_property_cannot_be_recorded_as_for_rent() -> None:
+    item = sample_property()
+    with pytest.raises(MarketplaceCalendarError, match="must be listed under For Sale"):
+        record_marketplace_listing(
+            MarketplaceLedger(),
+            property_id=item.property_id,
+            address=item.display_address,
+            listing_type=MarketplaceListingType.FOR_RENT,
+            created_by="Sabrina",
+            now=august_now(),
+        )
+
+
+def test_same_active_property_cannot_be_posted_twice() -> None:
     item = sample_property()
     ledger = record_marketplace_listing(
         MarketplaceLedger(),
@@ -109,7 +115,7 @@ def test_same_active_property_cannot_be_posted_in_both_categories() -> None:
             ledger,
             property_id=item.property_id,
             address=item.display_address,
-            listing_type=MarketplaceListingType.FOR_RENT,
+            listing_type=MarketplaceListingType.FOR_SALE,
             created_by="Sabrina",
             now=august_now(4),
         )
@@ -140,21 +146,15 @@ def test_closing_listing_does_not_restore_monthly_slot() -> None:
 
 def test_fifth_listing_locks_ad_creation_until_next_month() -> None:
     ledger = MarketplaceLedger()
-    listing_type = MarketplaceListingType.FOR_SALE
     for number in range(1, 6):
         item = sample_property(number)
         ledger = record_marketplace_listing(
             ledger,
             property_id=item.property_id,
             address=item.display_address,
-            listing_type=listing_type,
+            listing_type=MarketplaceListingType.FOR_SALE,
             created_by="Sabrina",
             now=august_now(number),
-        )
-        listing_type = (
-            MarketplaceListingType.FOR_RENT
-            if listing_type == MarketplaceListingType.FOR_SALE
-            else MarketplaceListingType.FOR_SALE
         )
 
     status = marketplace_month_status(ledger, now=august_now(6))
@@ -170,7 +170,7 @@ def test_fifth_listing_locks_ad_creation_until_next_month() -> None:
             ledger,
             property_id=extra.property_id,
             address=extra.display_address,
-            listing_type=listing_type,
+            listing_type=MarketplaceListingType.FOR_SALE,
             created_by="Sabrina",
             now=august_now(6),
         )
