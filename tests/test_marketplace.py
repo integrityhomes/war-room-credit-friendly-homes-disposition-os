@@ -208,3 +208,25 @@ def test_facebook_message_call_to_action_is_required() -> None:
     )
     assert not result.passed
     assert any("facebook marketplace message" in error.lower() for error in result.errors)
+
+
+def test_validator_handles_legacy_string_values_without_typeerror() -> None:
+    item = SAMPLE_PROPERTIES[0].model_copy(deep=True)
+    object.__setattr__(item, "total_price", "100000")
+    object.__setattr__(item, "down_payment", "5000")
+    object.__setattr__(item, "monthly_payment", "1200")
+    object.__setattr__(item, "condition_summary", None)
+    object.__setattr__(item, "repairs_needed", None)
+    object.__setattr__(item, "public_disclosures", None)
+
+    package = build_meta_safe_marketplace_package(item)
+    result = review_marketplace_copy(
+        item,
+        package.title,
+        package.description,
+        listings_used_this_month="0",
+        monthly_limit="5",
+    )
+
+    assert isinstance(result.errors, list)
+    assert any("public disclosures" in error.lower() for error in result.errors)
