@@ -13,6 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .content import build_deterministic_campaign_draft
 from .marketing_claims import risky_condition_claim_errors
+from .marketplace import build_meta_safe_marketplace_package, review_marketplace_copy
+from .meta_marketplace_policy import (
+    META_MARKETPLACE_POLICY_CHECKLIST,
+    META_MARKETPLACE_POLICY_VERSION,
+    meta_marketplace_policy_errors,
+)
 from .models import OwnerFinanceProperty
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -155,13 +161,18 @@ def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str)
         "known_repairs": property_record.repairs_needed or "No repair statement provided; tell buyers to verify condition.",
         "public_disclosures": property_record.public_disclosures,
         "dwelyx_url": dwelyx_url,
+        "meta_marketplace_policy_version": META_MARKETPLACE_POLICY_VERSION,
+        "meta_marketplace_policy_checklist": list(META_MARKETPLACE_POLICY_CHECKLIST),
         "instructions": [
             "Use only these facts. Never invent amenities, financing terms, approval criteria, neighborhood claims, or repair details.",
             "Include the exact marketing_address in every output field, including the headline, email subject, SMS, and Dwelyx call to action.",
             'Never use the phrase "move-in ready" or any hyphen/spacing variation. Describe only specific observable condition facts.',
-            "Do not promise approval or use discriminatory/fair-housing-risk language.",
-            "Every buyer call to action must direct the buyer to Dwelyx so they can browse all owner-finance inventory.",
-            "Keep the tone practical, clear, and conversational.",
+            "Do not promise approval, financing, no denial, no credit check, instant approval, investment returns, grants, debt relief, or credit repair.",
+            "Do not request fees, deposits, wire transfers, gift cards, crypto, bank details, Social Security numbers, card details, passwords, or login credentials through Facebook copy.",
+            "Do not use protected-class preferences, family-type targeting, neighborhood safety claims, crime claims, school-quality claims, or preferred-buyer language.",
+            "Facebook Marketplace copy must include the exact price, down payment, monthly payment, condition, known repairs, public disclosures, no-payment-through-Facebook statement, approval disclaimer, Equal Housing Opportunity, and Dwelyx link.",
+            "Every buyer call to action must direct the buyer to Dwelyx so buyers can create or log in to a buyer account and review available inventory.",
+            "Keep the tone practical, factual, calm, and conversational. Do not use pressure, spammy punctuation, or exaggerated claims.",
         ],
     }
 
@@ -169,19 +180,20 @@ def property_fact_packet(property_record: OwnerFinanceProperty, dwelyx_url: str)
 def build_fallback_campaign(property_record: OwnerFinanceProperty, dwelyx_url: str) -> CampaignPackage:
     base = build_deterministic_campaign_draft(property_record)
     address = marketing_address(property_record)
-    cta = f"Browse {address} and all available owner-finance homes on Dwelyx: {dwelyx_url}"
+    cta = f"Create or log in to your Dwelyx buyer account to review available owner-finance homes: {dwelyx_url}"
+    marketplace = build_meta_safe_marketplace_package(property_record, dwelyx_url)
     return CampaignPackage(
         headline=base.headline,
         short_description=f"{base.short_description} {cta}",
-        marketplace_description=f"{base.marketplace_description}\n\n{cta}",
-        facebook_group_post=f"{base.short_description}\n\n{cta}",
+        marketplace_description=marketplace.description,
+        facebook_group_post=f"{base.short_description}\n\nApproval, terms, and availability are subject to review and verification.\n\n{cta}",
         email_subject=base.email_subject,
-        email_body=f"{base.marketplace_description}\n\n{cta}",
-        sms_message=f"{base.sms_message} Browse all homes: {dwelyx_url}",
-        classified_ad=f"{base.marketplace_description}\n\n{cta}",
-        social_caption=f"{base.short_description}\n\n{cta}",
-        video_script=f"Here is an owner-finance opportunity at {address}. {base.short_description} {cta}",
-        dwelyx_call_to_action=cta,
+        email_body=f"{base.marketplace_description}\n\nApproval, terms, and availability are subject to review and verification.\n\n{cta}",
+        sms_message=f"{base.sms_message} Review available homes through Dwelyx: {dwelyx_url}",
+        classified_ad=f"{base.marketplace_description}\n\nApproval, terms, and availability are subject to review and verification.\n\n{cta}",
+        social_caption=f"{base.short_description}\n\nApproval, terms, and availability are subject to review and verification.\n\n{cta}",
+        video_script=f"Here is an owner-finance opportunity at {address}. {base.short_description} Approval, terms, and availability are subject to review and verification. {cta}",
+        dwelyx_call_to_action=f"{address}. {cta}",
     )
 
 
@@ -247,6 +259,17 @@ def validate_campaign_facts(
             errors.append(f"Prohibited claim detected: {claim}")
 
     errors.extend(risky_condition_claim_errors(combined))
+    errors.extend(meta_marketplace_policy_errors(combined))
+
+    marketplace_check = review_marketplace_copy(
+        property_record,
+        package.headline,
+        package.marketplace_description,
+        listings_used_this_month=0,
+        monthly_limit=999,
+        tracked_dwelyx_link=dwelyx_url,
+    )
+    errors.extend(f"Facebook Marketplace: {message}" for message in marketplace_check.errors)
 
     allowed_money = _allowed_money_values(property_record)
     for match in MONEY_PATTERN.findall(combined):
@@ -299,9 +322,11 @@ def generate_ai_campaign(
     developer_prompt = (
         "You are the Credit Friendly Homes campaign writer. Produce accurate, compliant owner-finance marketing copy. "
         "Use only the supplied fact packet. Do not infer or embellish. Include the exact marketing address in every output field. "
+        "Follow every Meta Marketplace rule in the supplied checklist. Never use approval guarantees, no-credit-check claims, advance-fee requests, unsafe payment methods, investment promises, government-grant claims, debt-relief or credit-repair promises, giveaways tied to registration or personal information, fake reviews, requests for sensitive information, impersonation, discriminatory housing preferences, protected-class targeting, neighborhood safety claims, crime claims, school-quality claims, or preferred-buyer language. "
         'Never use "move-in ready" or any spacing or hyphen variation; describe only specific observable condition facts. '
-        "Avoid protected-class targeting, neighborhood safety claims, credit approval promises, and pressure language. "
-        "Every channel must direct buyers to Dwelyx, where they can browse all inventory. "
+        "The Facebook Marketplace description must preserve the exact property facts and disclosures and include: Approval, terms, and availability are subject to review and verification. No payment is requested through Facebook. Equal Housing Opportunity. "
+        "Every channel must direct buyers to Dwelyx, where they can create or log in to a buyer account and review available inventory. "
+        "Use calm factual wording without urgency, spammy punctuation, or exaggerated claims. "
         "Stay within these hard character limits: headline 180, short_description 1000, marketplace_description 4000, "
         "facebook_group_post 3000, email_subject 180, email_body 5000, sms_message 480, classified_ad 3000, "
         "social_caption 1500, video_script 3000, and dwelyx_call_to_action 1200."
