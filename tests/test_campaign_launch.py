@@ -46,7 +46,11 @@ def test_new_launch_state_contains_all_14_channels():
 
 def test_approve_all_and_update_one_channel():
     now = datetime(2026, 8, 3, 20, 0, tzinfo=UTC)
-    state = approve_all_channels(new_launch_state("property-123", "summer", now=now), approved_by="Sabrina", now=now)
+    state = approve_all_channels(
+        new_launch_state("property-123", "summer", now=now),
+        approved_by="Sabrina",
+        now=now,
+    )
 
     assert all(record.status == LaunchStatus.READY for record in state.channels.values())
     assert state.approved_by == "Sabrina"
@@ -80,7 +84,7 @@ def test_marketplace_copy_excludes_all_external_links():
     assert item.address in copy
 
 
-def test_facebook_group_copy_excludes_all_external_links():
+def test_facebook_group_copy_uses_selected_dwelyx_link():
     item = sample_property()
     original_link = "https://tracking.example.com/?go=dwelyx&medium=property_page"
     selected_link = "https://tracking.example.com/?go=dwelyx&medium=facebook_groups"
@@ -88,17 +92,18 @@ def test_facebook_group_copy_excludes_all_external_links():
 
     copy = campaign_copy_for_channel(package, "facebook_groups", selected_link)
 
-    assert selected_link not in copy
+    assert selected_link in copy
     assert original_link not in copy
-    assert "https://" not in copy
-    assert "dwelyx" not in copy.lower()
-    assert "Facebook message" in copy
+    assert "dwelyx" in copy.lower()
     assert item.address in copy
 
 
 def test_email_package_keeps_subject_and_replaces_tracking_link():
     item = sample_property()
-    package = build_fallback_campaign(item, "https://tracking.example.com/?go=dwelyx&medium=property_page")
+    package = build_fallback_campaign(
+        item,
+        "https://tracking.example.com/?go=dwelyx&medium=property_page",
+    )
     selected_link = "https://tracking.example.com/?go=dwelyx&medium=email"
 
     copy = campaign_copy_for_channel(package, "email", selected_link)
@@ -110,4 +115,7 @@ def test_email_package_keeps_subject_and_replaces_tracking_link():
 
 def test_campaign_slug_and_storage_path_are_safe():
     assert campaign_slug(" August Bristol Homes!!! ") == "august_bristol_homes"
-    assert launch_object_path("property-123", " August Bristol Homes!!! ") == "launches/property-123/august_bristol_homes.json"
+    assert (
+        launch_object_path("property-123", " August Bristol Homes!!! ")
+        == "launches/property-123/august_bristol_homes.json"
+    )
