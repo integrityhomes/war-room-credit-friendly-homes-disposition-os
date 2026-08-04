@@ -18,12 +18,12 @@ from .channels import CHANNELS, MarketingChannel
 from .models import OwnerFinanceProperty
 
 AUTOMATION_EVENT = "credit_friendly_homes.campaign.approved"
-AUTOMATION_SCHEMA_VERSION = "1.0"
+AUTOMATION_SCHEMA_VERSION = "1.1"
 AUTOMATION_TIMEOUT_SECONDS = 30
 AUTOMATION_RESPONSE_LIMIT = 500
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds"}
-FACEBOOK_ON_PLATFORM_CHANNELS = {"marketplace", "facebook_groups"}
+FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace"}
 INTERNAL_LIVE_CHANNELS = {"property_page"}
 
 
@@ -96,14 +96,13 @@ def _copy_source(package: CampaignPackage, channel_key: str) -> str:
         raise ValueError(f"Unknown marketing channel: {channel_key}") from exc
 
 
-def _facebook_on_platform_copy(source: str, channel_key: str) -> str:
+def _marketplace_on_platform_copy(source: str) -> str:
     without_urls = URL_PATTERN.sub("", source)
     lines = [line for line in without_urls.splitlines() if "dwelyx" not in line.lower()]
     cleaned = "\n".join(lines).strip()
     cta = (
-        "Send us a Facebook Marketplace message for complete purchase terms, property questions, and next steps."
-        if channel_key == "marketplace"
-        else "Send us a Facebook message for complete purchase terms, property questions, and next steps."
+        "Send us a Facebook Marketplace message for complete purchase terms, "
+        "property questions, and next steps."
     )
     if cta.lower() not in cleaned.lower():
         cleaned = f"{cleaned}\n\n{cta}" if cleaned else cta
@@ -112,8 +111,8 @@ def _facebook_on_platform_copy(source: str, channel_key: str) -> str:
 
 def channel_copy_with_link(package: CampaignPackage, channel_key: str, tracked_link: str) -> str:
     source = _copy_source(package, channel_key).strip()
-    if channel_key in FACEBOOK_ON_PLATFORM_CHANNELS:
-        return _facebook_on_platform_copy(source, channel_key)
+    if channel_key in FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS:
+        return _marketplace_on_platform_copy(source)
     if URL_PATTERN.search(source):
         return URL_PATTERN.sub(tracked_link, source)
     return f"{source}\n\nCreate or log in to a Dwelyx buyer account: {tracked_link}"
@@ -151,6 +150,8 @@ def build_automatic_launch_payload(
     campaign: str,
     approved_by: str,
     approved_at: datetime | None = None,
+    marketplace_blocked: bool = False,
+    marketplace_block_reason: str = "",
 ) -> dict[str, Any]:
     timestamp = approved_at or datetime.now(UTC)
     channel_payloads: list[dict[str, Any]] = []
@@ -159,7 +160,8 @@ def build_automatic_launch_payload(
         row = links_by_key[channel.key]
         tracked_link = str(row["Tracked Dwelyx link"])
         action = launch_action_for_channel(channel)
-        keep_on_facebook = channel.key in FACEBOOK_ON_PLATFORM_CHANNELS
+        marketplace_no_link = channel.key in FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS
+        posting_blocked = channel.key == "marketplace" and marketplace_blocked
         channel_payloads.append(
             {
                 "channel_key": channel.key,
@@ -167,9 +169,15 @@ def build_automatic_launch_payload(
                 "channel_mode": channel.mode.value,
                 "launch_action": action.value,
                 "requires_manual_final_post": action == LaunchAction.MANUAL_FINAL_POST,
-                "public_external_link_allowed": not keep_on_facebook,
-                "tracked_buyer_link": None if keep_on_facebook else tracked_link,
-                "copy": channel_copy_with_link(package, channel.key, tracked_link),
+                "posting_blocked": posting_blocked,
+                "block_reason": marketplace_block_reason if posting_blocked else "",
+                "public_external_link_allowed": not marketplace_no_link,
+                "tracked_buyer_link": None if marketplace_no_link else tracked_link,
+                "copy": (
+                    ""
+                    if posting_blocked
+                    else channel_copy_with_link(package, channel.key, tracked_link)
+                ),
             }
         )
 
@@ -185,7 +193,11 @@ def build_automatic_launch_payload(
             "publish_property_to_dwelyx": False,
             "property_sync_to_dwelyx": False,
             "facebook_marketplace_direct_link": False,
-            "facebook_groups_direct_link": False,
+            "facebook_groups_direct_link": True,
+        },
+        "marketplace_monthly_gate": {
+            "blocked": marketplace_blocked,
+            "reason": marketplace_block_reason,
         },
         "channels": channel_payloads,
     }
@@ -254,10 +266,16 @@ def automation_plan_rows() -> list[dict[str, str]]:
         action = launch_action_for_channel(channel)
         if action == LaunchAction.INTERNAL_LIVE:
             result = "The property landing page is live in this app when the property passes validation."
-        elif channel.key in FACEBOOK_ON_PLATFORM_CHANNELS:
-            result = "A no-link package is prepared for a final human post; buyers are told to message through Facebook."
+        elif channel.key == "marketplace":
+            result = (
+                "A no-link package is prepared for a final human post, subject to the five-per-month "
+                "Homes for Sale or Rent safety gate."
+            )
         elif action == LaunchAction.MANUAL_FINAL_POST:
-            result = "The complete package is delivered automatically, but the platform requires a final human post."
+            result = (
+                "The complete package, including the tracked Dwelyx link where allowed, is delivered "
+                "for a final human post."
+            )
         else:
             result = "The approved package is sent to the connected publishing workflow."
         rows.append(

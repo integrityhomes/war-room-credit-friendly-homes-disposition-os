@@ -73,27 +73,31 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert payload["buyer_destination"]["publish_property_to_dwelyx"] is False
     assert payload["buyer_destination"]["property_sync_to_dwelyx"] is False
     assert payload["buyer_destination"]["facebook_marketplace_direct_link"] is False
-    assert payload["buyer_destination"]["facebook_groups_direct_link"] is False
+    assert payload["buyer_destination"]["facebook_groups_direct_link"] is True
     assert len(payload["channels"]) == len(CHANNELS) == 14
-    assert all(DEFAULT_DWELYX_URL not in row["copy"] for row in payload["channels"])
     assert payload["property"]["address"] == "101 Test Street"
     assert payload["property"]["photo_urls"] == ["https://example.com/front.jpg"]
 
     rows = {row["channel_key"]: row for row in payload["channels"]}
-    for key in {"marketplace", "facebook_groups"}:
-        assert rows[key]["tracked_buyer_link"] is None
-        assert rows[key]["public_external_link_allowed"] is False
-        assert "https://" not in rows[key]["copy"]
-        assert "dwelyx" not in rows[key]["copy"].lower()
-        assert "facebook" in rows[key]["copy"].lower()
+    marketplace = rows["marketplace"]
+    assert marketplace["tracked_buyer_link"] is None
+    assert marketplace["public_external_link_allowed"] is False
+    assert "https://" not in marketplace["copy"]
+    assert "dwelyx" not in marketplace["copy"].lower()
+    assert "facebook marketplace message" in marketplace["copy"].lower()
+
+    groups = rows["facebook_groups"]
+    assert "tracking.example.com" in groups["tracked_buyer_link"]
+    assert groups["public_external_link_allowed"] is True
+    assert "tracking.example.com" in groups["copy"]
 
     for key, row in rows.items():
-        if key not in {"marketplace", "facebook_groups"}:
+        if key != "marketplace":
             assert "tracking.example.com" in row["tracked_buyer_link"]
             assert row["public_external_link_allowed"] is True
 
 
-def test_facebook_copy_sanitizer_removes_existing_urls_and_dwelyx_lines() -> None:
+def test_marketplace_sanitizer_removes_existing_urls_but_groups_keep_tracked_link() -> None:
     _, links_by_key, package = launch_fixture()
     dirty = package.model_copy(
         update={
@@ -101,7 +105,7 @@ def test_facebook_copy_sanitizer_removes_existing_urls_and_dwelyx_lines() -> Non
                 f"{package.marketplace_description}\nVisit Dwelyx here: https://example.com/register"
             ),
             "facebook_group_post": (
-                f"{package.facebook_group_post}\nCreate a Dwelyx account: https://example.com/register"
+                f"{package.facebook_group_post}\nOld link: https://example.com/register"
             ),
         }
     )
@@ -117,10 +121,31 @@ def test_facebook_copy_sanitizer_removes_existing_urls_and_dwelyx_lines() -> Non
         links_by_key["facebook_groups"]["Tracked Dwelyx link"],
     )
 
-    for copy in [marketplace_copy, group_copy]:
-        assert "https://" not in copy
-        assert "dwelyx" not in copy.lower()
-        assert "facebook" in copy.lower()
+    assert "https://" not in marketplace_copy
+    assert "dwelyx" not in marketplace_copy.lower()
+    assert "facebook marketplace message" in marketplace_copy.lower()
+    assert "tracking.example.com" in group_copy
+    assert "example.com/register" not in group_copy
+
+
+def test_marketplace_monthly_block_removes_copy_from_automation_payload() -> None:
+    item, links_by_key, package = launch_fixture()
+    payload = build_automatic_launch_payload(
+        item,
+        package,
+        links_by_key,
+        campaign="august_bristol",
+        approved_by="Sabrina",
+        marketplace_blocked=True,
+        marketplace_block_reason="Five of five listings used until September 1.",
+    )
+    rows = {row["channel_key"]: row for row in payload["channels"]}
+    marketplace = rows["marketplace"]
+    assert marketplace["posting_blocked"] is True
+    assert marketplace["copy"] == ""
+    assert "Five of five" in marketplace["block_reason"]
+    assert rows["facebook_groups"]["posting_blocked"] is False
+    assert "tracking.example.com" in rows["facebook_groups"]["copy"]
 
 
 def test_launch_actions_keep_restricted_platforms_manual() -> None:
