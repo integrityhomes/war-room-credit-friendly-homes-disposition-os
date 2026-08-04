@@ -49,16 +49,24 @@ def test_fact_packet_contains_full_marketing_address_and_dwelyx():
     assert item.address in str(packet)
     assert "dwelyx.com" in packet["dwelyx_url"]
     assert "move-in ready" in str(packet["instructions"]).lower()
+    assert "must not contain any website url" in str(packet["instructions"]).lower()
 
 
-def test_fallback_campaign_routes_everything_to_dwelyx_and_includes_address():
+def test_fallback_campaign_keeps_facebook_on_platform_and_other_channels_on_dwelyx():
     item = sample_property()
     url = "https://www.dwelyx.com/?utm_source=credit_friendly_homes"
     package = build_fallback_campaign(item, url)
     address = marketing_address(item)
+
     assert url in package.dwelyx_call_to_action
-    assert url in package.marketplace_description
     assert url in package.sms_message
+    assert url not in package.marketplace_description
+    assert url not in package.facebook_group_post
+    assert "Facebook Marketplace message" in package.marketplace_description
+    assert "Facebook message" in package.facebook_group_post
+    assert "dwelyx" not in package.marketplace_description.lower()
+    assert "dwelyx" not in package.facebook_group_post.lower()
+
     for _, text in package.channel_rows():
         assert address in text
     assert validate_campaign_facts(package, item, url) == []
@@ -83,6 +91,8 @@ def test_overlong_ai_fields_are_replaced_individually_with_safe_fallbacks():
     payload["headline"] = f"AI headline — {marketing_address(item)}"
     payload["sms_message"] = "x" * 900
     payload["short_description"] = "y" * 1500
+    payload["marketplace_description"] = f"Unsafe AI Marketplace link: {url}"
+    payload["facebook_group_post"] = f"Unsafe AI Facebook Group link: {url}"
 
     normalized = normalize_campaign_payload(payload, fallback)
     package = CampaignPackage.model_validate(normalized)
@@ -90,6 +100,8 @@ def test_overlong_ai_fields_are_replaced_individually_with_safe_fallbacks():
     assert package.headline == payload["headline"]
     assert package.sms_message == fallback.sms_message
     assert package.short_description == fallback.short_description
+    assert package.marketplace_description == fallback.marketplace_description
+    assert package.facebook_group_post == fallback.facebook_group_post
     assert validate_campaign_facts(package, item, url) == []
 
 
@@ -162,6 +174,8 @@ def test_fact_guard_blocks_unapproved_money_and_claims():
     errors = validate_campaign_facts(unsafe, item, url)
     assert any("Prohibited claim" in error for error in errors)
     assert any("$999" in error for error in errors)
+    assert any("Facebook Marketplace" in error for error in errors)
+    assert any("Facebook Groups" in error for error in errors)
 
 
 def test_fact_guard_blocks_missing_address_from_any_channel():
