@@ -1,60 +1,142 @@
-from cfh_disposition.marketplace import review_marketplace_copy
+from cfh_disposition.marketplace import (
+    build_meta_safe_marketplace_package,
+    review_marketplace_copy,
+)
+from cfh_disposition.meta_marketplace_policy import (
+    META_MARKETPLACE_POLICY_CHECKLIST,
+    meta_marketplace_policy_errors,
+)
 from cfh_disposition.sample_data import SAMPLE_PROPERTIES
 
+TRACKED_LINK = "https://tracking.example.com/?go=dwelyx&medium=marketplace"
 
-def test_compliant_marketplace_copy_passes() -> None:
+
+def safe_package():
+    return build_meta_safe_marketplace_package(SAMPLE_PROPERTIES[0], TRACKED_LINK)
+
+
+def test_meta_safe_marketplace_package_passes() -> None:
+    package = safe_package()
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
-        "Owner-Financed Home Available in Saltville",
-        "Owner-finance opportunity with accurate property terms and condition details. "
-        "Please review the complete property page and request a callback for next steps. "
-        "Approval and terms are subject to review.",
+        package.title,
+        package.description,
         listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
     )
     assert result.passed
+    assert result.errors == []
+    assert len(META_MARKETPLACE_POLICY_CHECKLIST) >= 12
+    assert "No payment is requested through Facebook." in package.description
+    assert "Equal Housing Opportunity." in package.description
 
 
 def test_approval_guarantee_is_blocked() -> None:
+    package = safe_package()
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
-        "Owner-Financed Home",
-        "Everyone approved. This description is otherwise long enough to pass the minimum-length warning requirement. "
-        "Contact us today for property details and a showing appointment.",
+        package.title,
+        f"Everyone approved. {package.description}",
         listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
     )
     assert not result.passed
-    assert any("guarantee" in error.lower() for error in result.errors)
+    assert any("approved" in error.lower() for error in result.errors)
 
 
 def test_fair_housing_preference_is_blocked() -> None:
+    package = safe_package()
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
-        "Home for Sale",
-        "Perfect for a young couple with no children. This description is extended to ensure length is not the reason for failure.",
+        package.title,
+        f"Perfect for a young couple with no children. {package.description}",
         listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
     )
     assert not result.passed
-    assert len(result.errors) >= 1
+    assert any("housing" in error.lower() or "buyer-type" in error.lower() for error in result.errors)
 
 
 def test_monthly_limit_is_configurable_and_enforced() -> None:
+    package = safe_package()
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
-        "Owner-Financed Home in Saltville",
-        "Accurate owner-finance property information with condition, terms, and disclosures available for review. "
-        "Request a callback to learn more.",
+        package.title,
+        package.description,
         listings_used_this_month=5,
         monthly_limit=5,
+        tracked_dwelyx_link=TRACKED_LINK,
     )
     assert not result.passed
+    assert any("posting-safety limit" in error.lower() for error in result.errors)
 
 
 def test_move_in_ready_claim_is_blocked() -> None:
+    package = safe_package()
     result = review_marketplace_copy(
         SAMPLE_PROPERTIES[0],
-        "Move-In Ready Owner-Financed Home",
-        "This move in ready property is available with owner-finance terms. Review all condition details, disclosures, and terms before proceeding.",
+        "Move-In Ready Owner-Finance Home",
+        f"This move in ready property is available. {package.description}",
         listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
     )
     assert not result.passed
     assert any("move-in ready" in error.lower() for error in result.errors)
+
+
+def test_advance_fee_and_unsafe_payment_requests_are_blocked() -> None:
+    text = (
+        "Pay a processing fee to get approved. Send the deposit by Zelle today before viewing. "
+        "Guaranteed financing is available."
+    )
+    errors = meta_marketplace_policy_errors(text)
+    assert any("advance-fee" in error.lower() or "fee" in error.lower() for error in errors)
+    assert any("payment" in error.lower() or "zelle" in error.lower() for error in errors)
+    assert any("approval" in error.lower() or "financing" in error.lower() for error in errors)
+
+
+def test_fraud_categories_from_meta_policy_are_blocked() -> None:
+    examples = [
+        "Double your money with this cash flip.",
+        "Free government grant money is guaranteed.",
+        "We erase bad credit and create a new credit identity.",
+        "Get a cash reward when you register and send your SSN.",
+        "Buy five-star reviews and ratings.",
+        "Send your bank account and routing number by DM.",
+        "Meta-approved offer for subscription login credentials.",
+        "Use your bank account to transfer money for us.",
+        "Guaranteed winning and match fixing tips.",
+        "Spy camera and phone tracker available.",
+    ]
+    for example in examples:
+        assert meta_marketplace_policy_errors(example), example
+
+
+def test_required_disclosures_and_tracked_link_are_blocking() -> None:
+    package = safe_package()
+    incomplete = package.description.replace("No payment is requested through Facebook.", "")
+    incomplete = incomplete.replace(TRACKED_LINK, "")
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        package.title,
+        incomplete,
+        listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
+    )
+    assert not result.passed
+    assert any("no payment" in error.lower() for error in result.errors)
+    assert any("dwelyx" in error.lower() for error in result.errors)
+
+
+def test_exact_financial_terms_are_required() -> None:
+    package = safe_package()
+    incomplete = package.description.replace(f"${SAMPLE_PROPERTIES[0].down_payment:,.0f}", "$1")
+    result = review_marketplace_copy(
+        SAMPLE_PROPERTIES[0],
+        package.title,
+        incomplete,
+        listings_used_this_month=0,
+        tracked_dwelyx_link=TRACKED_LINK,
+    )
+    assert not result.passed
+    assert any("exact down payment" in error.lower() for error in result.errors)
