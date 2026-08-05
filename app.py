@@ -14,7 +14,11 @@ from cfh_disposition.ai_campaign import (
     generate_ai_campaign,
 )
 from cfh_disposition.auth import configured_password, password_matches
-from cfh_disposition.campaign_launch import render_campaign_launch_center
+from cfh_disposition.campaign_launch import (
+    CampaignLaunchStore,
+    LaunchStoreError,
+    render_campaign_launch_center,
+)
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
 from cfh_disposition.launch_plan import build_launch_plan
@@ -27,6 +31,12 @@ from cfh_disposition.public_pages import (
 )
 from cfh_disposition.record_manager import render_record_manager
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
+from cfh_disposition.simple_flow import (
+    MORE_TOOL_OPTIONS,
+    PRIMARY_NAVIGATION,
+    SimpleFlowStatus,
+    build_simple_marketing_flow,
+)
 from cfh_disposition.storage import StorageError, SupabaseSettings, build_storage
 
 st.set_page_config(
@@ -98,123 +108,107 @@ def save_property(record: OwnerFinanceProperty) -> None:
     st.session_state.properties = list(current.values())
 
 
-storage = get_storage()
-if render_public_request(storage):
-    st.stop()
-
-require_password()
-load_records()
-
-st.title("Credit Friendly Homes Disposition OS")
-st.caption(
-    "Owner-finance marketing, Dwelyx traffic, landing pages, compliance, and launch automation."
-)
-
-storage = get_storage()
-settings = SupabaseSettings.from_mapping(st.secrets)
-dwelyx_url = dwelyx_base_url(st.secrets)
-campaign_settings = CampaignFactorySettings.from_mapping(st.secrets)
-st.sidebar.success(f"Storage: {storage.mode}")
-if st.sidebar.button("Refresh saved records"):
-    load_records(force=True)
-    st.rerun()
-if st.sidebar.button("Log out"):
-    st.session_state.authenticated = False
+def navigate(page_name: str, *, property_label: str = "") -> None:
+    if page_name == "More Tools":
+        st.session_state.advanced_tool = "Record Manager"
+    if property_label and page_name == "Campaign Readiness":
+        st.session_state.campaign_readiness_property = property_label
+    if property_label and page_name == "Campaign Launch Center":
+        st.session_state.launch_center_property = property_label
+    st.session_state.main_navigation = page_name
     st.rerun()
 
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "Executive War Room",
-        "Property Intake",
-        "Record Manager",
-        "Campaign Readiness",
-        "Campaign Launch Center",
-        "Dwelyx Traffic Hub",
-        "Marketplace Guard",
-        "System Setup",
-        "Build Roadmap",
-    ],
-)
-st.sidebar.info(
-    "Public repository mode: credentials and real records belong only in Streamlit Secrets and Supabase."
-)
 
-if st.session_state.get("storage_error"):
-    st.error(st.session_state.storage_error)
-    st.warning("Open System Setup and confirm the Supabase connection before entering records.")
+def load_launch_state(property_id: str):
+    try:
+        store = CampaignLaunchStore(st.secrets)
+        return store.load(property_id, "owner_finance_homes"), ""
+    except LaunchStoreError as exc:
+        return None, str(exc)
 
-if page == "Executive War Room":
-    properties = st.session_state.properties
-    launch_ready = sum(item.status == PropertyStatus.READY for item in properties)
-    marketing_live = sum(item.status == PropertyStatus.LIVE for item in properties)
-    needs_information = sum(
-        item.status == PropertyStatus.NEEDS_INFORMATION for item in properties
+
+def render_flow_step(step, column) -> None:
+    with column.container(border=True):
+        st.write(f"### {step.number}. {step.title}")
+        if step.status == SimpleFlowStatus.COMPLETE:
+            st.success(step.status.value)
+        elif step.status == SimpleFlowStatus.ACTION_REQUIRED:
+            st.warning(step.status.value)
+        else:
+            st.error(step.status.value)
+        st.write(step.detail)
+
+
+def render_simple_marketing_flow() -> None:
+    st.subheader(f"Simple {len(CHANNELS)}-Channel Marketing Flow")
+    st.caption("Choose the property, prepare the campaign, and launch the marketing. That is the full operating path.")
+
+    options = property_options()
+    if not options:
+        flow = build_simple_marketing_flow([])
+        columns = st.columns(3)
+        for step, column in zip(flow.steps, columns, strict=True):
+            render_flow_step(step, column)
+        st.info("Next action: add the first property.")
+        if st.button("Add Property", type="primary"):
+            navigate("Property Intake")
+        return
+
+    selected_label = st.selectbox(
+        "Property",
+        list(options),
+        key="simple_flow_property",
+    )
+    selected = options[selected_label]
+    st.session_state.active_marketing_property_id = str(selected.property_id)
+
+    launch_state, launch_error = load_launch_state(str(selected.property_id))
+    flow = build_simple_marketing_flow(
+        st.session_state.properties,
+        selected_property_id=str(selected.property_id),
+        launch_state=launch_state,
     )
 
-    columns = st.columns(4)
-    values = [
-        ("Properties", len(properties)),
-        ("Launch Ready", launch_ready),
-        ("Marketing Live", marketing_live),
-        ("Needs Information", needs_information),
-    ]
-    for column, (label, value) in zip(columns, values, strict=True):
-        column.metric(label, value)
+    terms = st.columns(4)
+    terms[0].metric("Property", selected.display_address)
+    terms[1].metric("Down Payment", money(selected.down_payment))
+    terms[2].metric("Monthly Payment", money(selected.monthly_payment))
+    terms[3].metric("Channels Launched", f"{flow.launched_channels} of {flow.total_channels}")
 
-    st.link_button(
-        "Open Dwelyx — Full Owner-Finance Marketplace",
-        build_dwelyx_url(
-            dwelyx_url,
-            source="credit_friendly_homes",
-            medium="executive_war_room",
-        ),
-        type="primary",
-    )
-    st.markdown(f"[Open featured-homes landing portal]({public_portal_path()})")
+    columns = st.columns(3)
+    for step, column in zip(flow.steps, columns, strict=True):
+        render_flow_step(step, column)
 
-    rows = []
-    for item in properties:
-        plan = build_launch_plan(item)
-        rows.append(
-            {
-                "Property": item.display_address,
-                "Status": item.status,
-                "Price": money(item.total_price),
-                "Down": money(item.down_payment),
-                "Monthly": money(item.monthly_payment),
-                "Launch Ready": "Yes" if plan.can_launch else "No",
-                "Blocking Issues": len(plan.validation.errors),
-            }
-        )
-    st.subheader("Property Disposition Board")
-    if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    if flow.complete:
+        st.success("The property, campaign, and all 15 marketing channels are in place.")
     else:
-        st.info("No properties saved yet. Add the first one in Property Intake.")
+        st.info(f"Next action: {flow.next_step.detail}")
 
-    st.subheader(f"{len(CHANNELS)}-Channel Growth Plan")
-    channel_rows = [
-        {
-            "Channel": item.name,
-            "Mode": item.mode,
-            "Purpose": item.purpose,
-        }
-        for item in CHANNELS
-    ]
-    st.dataframe(
-        pd.DataFrame(channel_rows),
-        use_container_width=True,
-        hide_index=True,
-        height=max(420, len(CHANNELS) * 35 + 45),
-    )
+    if st.button(flow.next_step.button_label, type="primary"):
+        navigate(flow.next_step.destination, property_label=selected_label)
 
-elif page == "Property Intake":
-    st.subheader("Add an Owner-Finance Property")
-    if not settings.configured:
-        st.warning(
-            "Demo mode is active. Connect Supabase before entering real property information."
+    if launch_error:
+        st.caption("Detailed launch records could not be read. Open System Setup only if the launch count looks incorrect.")
+
+    with st.expander("Detailed marketing tools"):
+        st.page_link(
+            "pages/24_15_Channel_Campaign_Cadence_Refresh.py",
+            label="Open 15-Channel Refresh Center",
         )
+        st.page_link(
+            "pages/19_Dwelyx_Results_Attribution.py",
+            label="Open Dwelyx Results",
+        )
+        st.page_link(
+            "pages/23_Daily_Executive_Disposition_Command.py",
+            label="Open Executive Command Center",
+        )
+
+
+def render_property_intake(settings: SupabaseSettings) -> None:
+    st.subheader("Step 1 — Add an Owner-Finance Property")
+    if not settings.configured:
+        st.warning("Demo mode is active. Connect Supabase before entering real property information.")
 
     with st.form("property_intake", clear_on_submit=False):
         left, middle, right = st.columns(3)
@@ -223,12 +217,7 @@ elif page == "Property Intake":
         state = right.text_input("State abbreviation*", max_chars=2)
         zip_code = left.text_input("ZIP code*")
         county = middle.text_input("County")
-        bedrooms = right.number_input(
-            "Bedrooms*",
-            min_value=0,
-            max_value=20,
-            value=3,
-        )
+        bedrooms = right.number_input("Bedrooms*", min_value=0, max_value=20, value=3)
         bathrooms = left.number_input(
             "Bathrooms*",
             min_value=0.0,
@@ -245,79 +234,80 @@ elif page == "Property Intake":
         disclosures = st.text_area("Public disclosures*")
         photo_text = st.text_area("Photo URLs* — one per line")
         application_url = st.text_input("Dwelyx property listing URL — optional")
-        submitted = st.form_submit_button(
-            "Validate and Save Property",
-            type="primary",
+        submitted = st.form_submit_button("Validate and Save Property", type="primary")
+
+    if not submitted:
+        return
+
+    try:
+        record = OwnerFinanceProperty(
+            status=PropertyStatus.DRAFT,
+            address=address,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            county=county,
+            bedrooms=bedrooms,
+            bathrooms=Decimal(str(bathrooms)),
+            total_price=Decimal(total_price.replace(",", "").replace("$", "")),
+            down_payment=Decimal(down_payment.replace(",", "").replace("$", "")),
+            monthly_payment=Decimal(monthly_payment.replace(",", "").replace("$", "")),
+            condition_summary=condition,
+            repairs_needed=repairs,
+            showing_instructions=showing,
+            public_disclosures=disclosures,
+            photo_urls=[line.strip() for line in photo_text.splitlines() if line.strip()],
+            application_url=application_url or None,
         )
+        plan = build_launch_plan(record)
+        record.status = PropertyStatus.READY if plan.can_launch else PropertyStatus.NEEDS_INFORMATION
+        save_property(record)
+        st.session_state.simple_flow_property = record.display_address
+        if plan.can_launch:
+            st.success("Property saved and ready for campaign preparation.")
+            if st.button("Continue to Campaign", type="primary"):
+                navigate("Campaign Readiness", property_label=record.display_address)
+        else:
+            st.warning("Property saved, but the blocking items must be fixed before marketing.")
+            for error in plan.validation.errors:
+                st.write(f"- {error}")
+    except (ValidationError, InvalidOperation, StorageError) as exc:
+        st.error(f"Property could not be saved: {exc}")
 
-    if submitted:
-        try:
-            record = OwnerFinanceProperty(
-                status=PropertyStatus.DRAFT,
-                address=address,
-                city=city,
-                state=state,
-                zip_code=zip_code,
-                county=county,
-                bedrooms=bedrooms,
-                bathrooms=Decimal(str(bathrooms)),
-                total_price=Decimal(
-                    total_price.replace(",", "").replace("$", "")
-                ),
-                down_payment=Decimal(
-                    down_payment.replace(",", "").replace("$", "")
-                ),
-                monthly_payment=Decimal(
-                    monthly_payment.replace(",", "").replace("$", "")
-                ),
-                condition_summary=condition,
-                repairs_needed=repairs,
-                showing_instructions=showing,
-                public_disclosures=disclosures,
-                photo_urls=[
-                    line.strip()
-                    for line in photo_text.splitlines()
-                    if line.strip()
-                ],
-                application_url=application_url or None,
-            )
-            plan = build_launch_plan(record)
-            record.status = (
-                PropertyStatus.READY
-                if plan.can_launch
-                else PropertyStatus.NEEDS_INFORMATION
-            )
-            save_property(record)
-            if plan.can_launch:
-                st.success("Property saved and ready for campaign generation.")
-            else:
-                st.warning(
-                    "Property saved, but launch is blocked until the listed issues are fixed."
-                )
-                for error in plan.validation.errors:
-                    st.write(f"- {error}")
-        except (ValidationError, InvalidOperation, StorageError) as exc:
-            st.error(f"Property could not be saved: {exc}")
 
-elif page == "Record Manager":
-    render_record_manager(storage)
-
-elif page == "Campaign Readiness":
-    st.subheader("Approve & Launch Everywhere — Readiness Preview")
+def render_campaign_readiness(
+    dwelyx_url: str,
+    campaign_settings: CampaignFactorySettings,
+) -> None:
+    st.subheader("Step 2 — Prepare the Marketing Campaign")
     options = property_options()
     if not options:
-        st.info("Add a property before building a campaign.")
-        st.stop()
-    selected_name = st.selectbox("Choose property", list(options))
+        st.info("Add a property before preparing a campaign.")
+        if st.button("Add Property", type="primary"):
+            navigate("Property Intake")
+        return
+
+    saved_selection = st.session_state.get("campaign_readiness_property")
+    if saved_selection not in options:
+        st.session_state.campaign_readiness_property = next(iter(options))
+    selected_name = st.selectbox(
+        "Property",
+        list(options),
+        key="campaign_readiness_property",
+    )
     selected = options[selected_name]
     plan = build_launch_plan(selected)
 
     if plan.can_launch:
-        st.success("Property facts passed the launch gate.")
+        st.success("Property facts passed the marketing readiness check.")
     else:
-        st.error("Launch blocked. Fix these items first:")
+        st.error("Marketing is blocked. Fix these items in More Tools → Record Manager:")
         for error in plan.validation.errors:
             st.write(f"- {error}")
+        if st.button("Open Record Manager", type="primary"):
+            navigate("More Tools")
+        return
+
     for warning in plan.validation.warnings:
         st.warning(warning)
 
@@ -328,112 +318,63 @@ elif page == "Campaign Readiness":
         campaign="owner_finance_home",
         property_id=selected.property_id,
     )
-    st.write("### Buyer destination links")
-    st.text_input(
-        "Tracked Dwelyx buyer link for supported channels",
-        value=tracked_dwelyx_link,
-    )
-    st.link_button("Open Dwelyx Buyer Registration", tracked_dwelyx_link, type="primary")
-    st.markdown(
-        f"[Open this property's featured landing page]({public_property_path(selected.property_id)})"
-    )
-    st.markdown(f"[Open the featured-homes portal]({public_portal_path()})")
-    st.caption(
-        "Facebook Marketplace contains no external link. Facebook Groups and supported non-Marketplace channels may use the tracked Dwelyx buyer link."
-    )
-
     campaign_key = f"campaign_package_{selected.property_id}"
     campaign_mode_key = f"campaign_mode_{selected.property_id}"
     fallback_package = build_fallback_campaign(selected, tracked_dwelyx_link)
 
-    st.write("### AI Campaign Factory")
     if campaign_settings.configured:
-        st.success(f"OpenAI is connected. Campaign model: {campaign_settings.model}")
+        st.info(f"AI campaign writer is connected using {campaign_settings.model}.")
+        if st.button("Generate Fresh Campaign Package", type="primary"):
+            try:
+                with st.spinner("Creating and checking the 15-channel campaign..."):
+                    package = generate_ai_campaign(selected, tracked_dwelyx_link, campaign_settings)
+                st.session_state[campaign_key] = package.model_dump(mode="json")
+                st.session_state[campaign_mode_key] = "AI generated — fact guard passed"
+                st.success("Campaign generated and passed the fact guard.")
+            except CampaignFactoryError as exc:
+                st.error(str(exc))
+                st.warning("The safe campaign template remains available.")
     else:
-        st.info(
-            "Safe template mode is active until OPENAI_API_KEY is added in Streamlit Secrets."
-        )
-
-    generate_disabled = not plan.can_launch or not campaign_settings.configured
-    if st.button(
-        "Generate Complete AI Campaign Package",
-        type="primary",
-        disabled=generate_disabled,
-        help=(
-            "Uses strict structured output and blocks invented facts, unapproved dollar amounts, "
-            "prohibited claims, and unsafe Marketplace copy."
-        ),
-    ):
-        try:
-            with st.spinner("Generating and checking every campaign channel..."):
-                package = generate_ai_campaign(
-                    selected,
-                    tracked_dwelyx_link,
-                    campaign_settings,
-                )
-            st.session_state[campaign_key] = package.model_dump(mode="json")
-            st.session_state[campaign_mode_key] = "AI generated — fact guard passed"
-            st.success("AI campaign generated and approved by the fact guard.")
-        except CampaignFactoryError as exc:
-            st.error(str(exc))
-            st.warning(
-                "The unsafe or failed AI draft was not used. Safe template copy remains available below."
-            )
+        st.info("The safe campaign template is ready. OpenAI is optional.")
 
     package_data = st.session_state.get(campaign_key)
-    package = (
-        CampaignPackage.model_validate(package_data)
-        if package_data
-        else fallback_package
-    )
-    mode = st.session_state.get(campaign_mode_key, "Safe template fallback")
-    st.caption(f"Campaign source: {mode}")
+    package = CampaignPackage.model_validate(package_data) if package_data else fallback_package
+    mode = st.session_state.get(campaign_mode_key, "Safe template")
+    st.success(f"Campaign package ready: {mode}")
 
-    for index, (label, text) in enumerate(package.channel_rows()):
-        height = (
-            90
-            if label in {"Headline", "Email Subject", "SMS", "Dwelyx Call to Action"}
-            else 180
-        )
-        st.text_area(
-            label,
-            value=text,
-            height=height,
-            key=f"campaign_{selected.property_id}_{index}",
-        )
+    with st.expander("Review detailed campaign copy"):
+        for index, (label, text) in enumerate(package.channel_rows()):
+            height = 90 if label in {"Headline", "Email Subject", "SMS", "Dwelyx Call to Action"} else 180
+            st.text_area(
+                label,
+                value=text,
+                height=height,
+                key=f"campaign_{selected.property_id}_{index}",
+            )
 
-    launch_rows = [
-        {
-            "Channel": item.channel.name,
-            "Mode": item.channel.mode,
-            "State": item.state,
-            "Reason": item.reason,
-        }
-        for item in plan.items
-    ]
-    st.write("### Channel launch plan")
-    st.dataframe(pd.DataFrame(launch_rows), use_container_width=True, hide_index=True)
-    st.button(
-        "Approve & Launch Everywhere",
-        disabled=True,
-        help="Use Campaign Launch Center to approve, launch, and track each channel.",
-    )
+    with st.expander("Review buyer links and channel plan"):
+        st.text_input("Tracked Dwelyx buyer link", value=tracked_dwelyx_link)
+        st.link_button("Open Dwelyx Buyer Registration", tracked_dwelyx_link)
+        st.markdown(f"[Open property landing page]({public_property_path(selected.property_id)})")
+        st.markdown(f"[Open all featured homes]({public_portal_path()})")
+        launch_rows = [
+            {
+                "Channel": item.channel.name,
+                "Mode": item.channel.mode,
+                "State": item.state,
+                "Reason": item.reason,
+            }
+            for item in plan.items
+        ]
+        st.dataframe(pd.DataFrame(launch_rows), use_container_width=True, hide_index=True)
 
-elif page == "Campaign Launch Center":
-    render_campaign_launch_center(
-        st.session_state.properties,
-        st.secrets,
-        dwelyx_url,
-    )
+    if st.button(f"Continue to {len(CHANNELS)}-Channel Launch", type="primary"):
+        navigate("Campaign Launch Center", property_label=selected_name)
 
-elif page == "Dwelyx Traffic Hub":
-    st.subheader("Dwelyx Traffic Hub")
-    st.success(
-        "Supported buyer traffic is directed to Dwelyx, where buyers can create an account and browse owner-finance inventory."
-    )
+
+def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
+    st.write("### Dwelyx Traffic Hub")
     st.link_button("Open Dwelyx", dwelyx_url, type="primary")
-
-    st.write("### Build a tracked marketing link")
     left, right = st.columns(2)
     source = left.selectbox(
         "Lead source",
@@ -450,95 +391,122 @@ elif page == "Dwelyx Traffic Hub":
         ],
     )
     campaign = right.text_input("Campaign name", value="owner_finance_homes")
-
     options = {"All Dwelyx inventory": None, **property_options()}
-    selected_name = st.selectbox(
-        "Property that generated the interest — optional",
-        list(options),
-    )
+    selected_name = st.selectbox("Property that generated the interest — optional", list(options))
     selected_property = options[selected_name]
     tracked_url = build_dwelyx_url(
         dwelyx_url,
         source="credit_friendly_homes",
         medium=source,
         campaign=campaign,
-        property_id=(
-            selected_property.property_id
-            if selected_property
-            else None
-        ),
+        property_id=selected_property.property_id if selected_property else None,
     )
     st.text_input("Copy this tracked Dwelyx link", value=tracked_url)
-    st.link_button("Test This Dwelyx Link", tracked_url)
-    st.caption(
-        "Use this link in allowed channels. Do not paste it into Facebook Marketplace listings."
-    )
+    st.caption("Do not paste direct external links into Facebook Marketplace listings.")
 
-elif page == "Marketplace Guard":
-    render_marketplace_guard(st.session_state.properties, st.secrets)
 
-elif page == "System Setup":
-    st.subheader("System Setup")
-    st.write("### Security")
-    st.success("App password is configured.")
-    st.write("### Storage")
-    if settings.configured:
-        st.success("Supabase credentials are configured in Streamlit Secrets.")
-        st.write(
-            "Private records, public property photos, analytics, campaign launch records, and the Marketplace monthly counter are connected."
-        )
+def render_more_tools(storage, dwelyx_url: str) -> None:
+    st.subheader("More Tools")
+    tool = st.selectbox("Choose a tool", MORE_TOOL_OPTIONS, key="advanced_tool")
+    if tool == "Record Manager":
+        render_record_manager(storage)
+    elif tool == "Dwelyx Traffic Hub":
+        render_dwelyx_traffic_hub(dwelyx_url)
     else:
-        st.warning(
-            "Supabase is not connected. The app is using fictional demo data stored only in memory."
+        render_marketplace_guard(st.session_state.properties, st.secrets)
+
+    st.divider()
+    st.write("### Detailed dashboards")
+    links = st.columns(3)
+    with links[0]:
+        st.page_link(
+            "pages/24_15_Channel_Campaign_Cadence_Refresh.py",
+            label="15-Channel Refresh",
+        )
+    with links[1]:
+        st.page_link(
+            "pages/19_Dwelyx_Results_Attribution.py",
+            label="Dwelyx Results",
+        )
+    with links[2]:
+        st.page_link(
+            "pages/23_Daily_Executive_Disposition_Command.py",
+            label="Executive Command",
         )
 
-    st.write("### Dwelyx buyer destination")
-    st.success(f"Supported buyer traffic points to {dwelyx_url}")
-    st.caption(
-        "Facebook Marketplace stays on-platform with no direct link. Facebook Groups may use the tracked Dwelyx buyer link."
-    )
 
-    st.write("### AI Campaign Factory")
+def render_system_setup(
+    settings: SupabaseSettings,
+    campaign_settings: CampaignFactorySettings,
+    dwelyx_url: str,
+) -> None:
+    st.subheader("System Setup")
+    st.success("App password is configured.")
+    if settings.configured:
+        st.success("Supabase storage is connected.")
+    else:
+        st.warning("Supabase is not connected. The app is using fictional demo data in memory.")
+    st.success(f"Supported buyer traffic points to {dwelyx_url}")
     if campaign_settings.configured:
         st.success(f"OpenAI is connected using {campaign_settings.model}.")
     else:
-        st.warning(
-            "OPENAI_API_KEY is not configured. Campaigns use safe template mode."
+        st.info("OpenAI is optional. Campaigns currently use safe template mode.")
+    with st.expander("Streamlit Secrets"):
+        st.code(
+            'APP_PASSWORD = "your-private-password"\n'
+            'SUPABASE_URL = "https://your-project.supabase.co"\n'
+            'SUPABASE_SECRET_KEY = "sb_secret_..."\n'
+            'OPENAI_API_KEY = "sk-..."\n'
+            'OPENAI_MODEL = "gpt-5-mini"  # optional'
         )
+        st.warning("Never paste secrets into GitHub, screenshots, property notes, or public pages.")
 
-    st.write("### Required Streamlit Secrets")
-    st.code(
-        'APP_PASSWORD = "your-private-password"\n'
-        'SUPABASE_URL = "https://your-project.supabase.co"\n'
-        'SUPABASE_SECRET_KEY = "sb_secret_..."\n'
-        'OPENAI_API_KEY = "sk-..."\n'
-        'OPENAI_MODEL = "gpt-5-mini"  # optional'
-    )
-    st.info(
-        "Never paste these values into GitHub, chat screenshots, property notes, or public pages."
-    )
 
+storage = get_storage()
+if render_public_request(storage):
+    st.stop()
+
+require_password()
+load_records()
+
+st.title("Credit Friendly Homes Disposition OS")
+st.caption("Simple property marketing across 15 channels, with every supported buyer path leading to Dwelyx.")
+
+storage = get_storage()
+settings = SupabaseSettings.from_mapping(st.secrets)
+dwelyx_url = dwelyx_base_url(st.secrets)
+campaign_settings = CampaignFactorySettings.from_mapping(st.secrets)
+
+st.sidebar.success(f"Storage: {storage.mode}")
+if st.sidebar.button("Refresh saved records"):
+    load_records(force=True)
+    st.rerun()
+if st.sidebar.button("Log out"):
+    st.session_state.authenticated = False
+    st.rerun()
+
+if st.session_state.get("main_navigation") not in PRIMARY_NAVIGATION:
+    st.session_state.main_navigation = PRIMARY_NAVIGATION[0]
+page = st.sidebar.radio(
+    "Marketing Workflow",
+    PRIMARY_NAVIGATION,
+    key="main_navigation",
+)
+st.sidebar.caption("Use the first four screens for normal daily work. More Tools is optional.")
+
+if st.session_state.get("storage_error"):
+    st.error(st.session_state.storage_error)
+    st.warning("Open System Setup and confirm the Supabase connection before entering records.")
+
+if page == "Simple Marketing Flow":
+    render_simple_marketing_flow()
+elif page == "Property Intake":
+    render_property_intake(settings)
+elif page == "Campaign Readiness":
+    render_campaign_readiness(dwelyx_url, campaign_settings)
+elif page == "Campaign Launch Center":
+    render_campaign_launch_center(st.session_state.properties, st.secrets, dwelyx_url)
+elif page == "More Tools":
+    render_more_tools(storage, dwelyx_url)
 else:
-    st.subheader("Build Roadmap")
-    roadmap = [
-        "PR 1 — Foundation, property intake, launch validation, original channel registry, buyer matching, Marketplace Guard",
-        "PR 2 — Streamlit deployment package fix",
-        "PR 3 — Password gate and Supabase property/buyer storage",
-        "PR 4 — Edit and delete property/buyer records",
-        "PR 5 — Direct property photo upload and storage",
-        "PR 6 — Automatic Supabase photo-bucket setup",
-        "PR 7 — Public property landing pages and featured-homes portal",
-        "PR 8 — Dwelyx buyer routing and tracked traffic-link hub",
-        "PR 9 — OpenAI campaign factory with strict structured output and fact guard",
-        "PR 10 — Dwelyx click analytics and source reporting",
-        "PR 11 — Blog bot: 3 useful posts weekly, review mode, SEO linking, duplicate protection",
-        "PR 12 — Email, SMS, referral, and buyer-reactivation traffic automation",
-        "PR 13 — Marketplace/Facebook-group/classified assisted posting center",
-        "PR 14 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
-        "PR 17 — Persistent multi-channel Campaign Launch Center with approval and posting records",
-        "PR 25 — No direct external links in Facebook Marketplace copy",
-        "PR 26 — Five-per-month Marketplace counter, duplicate-property block, and category rotation",
-        "PR 42 — Nextdoor added as Channel 15 with organic and paid packages",
-    ]
-    for item in roadmap:
-        st.write(item)
+    render_system_setup(settings, campaign_settings, dwelyx_url)
