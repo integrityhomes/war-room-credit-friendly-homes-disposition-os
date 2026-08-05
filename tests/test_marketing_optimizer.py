@@ -213,8 +213,8 @@ def test_fallback_plan_preserves_properties_and_avoids_prohibited_claims() -> No
     combined = plan.model_dump_json().lower()
 
     assert errors == []
-    assert first.display_address in combined
-    assert second.display_address in combined
+    assert first.display_address.lower() in combined
+    assert second.display_address.lower() in combined
     assert "guaranteed approval" not in combined
     assert "safe neighborhood" not in combined
     assert len(plan.channel_decisions) == 14
