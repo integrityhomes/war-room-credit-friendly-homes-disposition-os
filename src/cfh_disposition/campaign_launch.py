@@ -335,8 +335,12 @@ class CampaignLaunchStore:
         except Exception:
             return None
         try:
-            payload = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else str(raw))
-            return ensure_all_channels(CampaignLaunchState.model_validate(payload))
+            payload = json.loads(
+                raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+            )
+            return ensure_all_channels(
+                CampaignLaunchState.model_validate(payload)
+            )
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             raise LaunchStoreError(
                 "The saved campaign launch record could not be read."
@@ -396,7 +400,8 @@ def render_campaign_launch_center(
     secrets: Mapping[str, Any],
     dwelyx_url: str,
 ) -> None:
-    st.subheader("14-Channel Campaign Launch Center")
+    channel_count = len(CHANNELS)
+    st.subheader(f"{channel_count}-Channel Campaign Launch Center")
     st.caption(
         "Approve once, launch supported channels automatically, and track the few platforms "
         "that still require a final human post."
@@ -458,9 +463,14 @@ def render_campaign_launch_center(
             marketplace_status.blocked
             or marketplace_status.active_duplicate is not None
         )
-        marketplace_block_reason = marketplace_status.message if marketplace_blocked else ""
+        marketplace_block_reason = (
+            marketplace_status.message if marketplace_blocked else ""
+        )
         if marketplace_blocked:
-            st.warning(f"Facebook Marketplace is locked for this property: {marketplace_status.message}")
+            st.warning(
+                "Facebook Marketplace is locked for this property: "
+                f"{marketplace_status.message}"
+            )
         else:
             st.info(
                 f"Facebook Marketplace safety counter: {marketplace_status.used} of 5 used; "
@@ -514,11 +524,12 @@ def render_campaign_launch_center(
             "in Streamlit Secrets after creating the Make.com publishing workflow."
         )
 
-    with st.expander("See what happens on all 14 channels"):
+    with st.expander(f"See what happens on all {channel_count} channels"):
         st.dataframe(
             pd.DataFrame(automation_plan_rows()),
             use_container_width=True,
             hide_index=True,
+            height=max(420, channel_count * 35 + 45),
         )
 
     launch_disabled = not automation_settings.configured
@@ -540,8 +551,13 @@ def render_campaign_launch_center(
             marketplace_block_reason=marketplace_block_reason,
         )
         try:
-            with st.spinner("Sending the approved campaign to the publishing workflow..."):
-                receipt = dispatch_automatic_launch(payload, automation_settings)
+            with st.spinner(
+                "Sending the approved campaign to the publishing workflow..."
+            ):
+                receipt = dispatch_automatic_launch(
+                    payload,
+                    automation_settings,
+                )
             state = mark_automatic_launch_success(
                 state,
                 updated_by=operator,
@@ -575,7 +591,11 @@ def render_campaign_launch_center(
         use_container_width=True,
     ):
         approval_time = datetime.now(UTC)
-        state = approve_all_channels(state, approved_by=operator, now=approval_time)
+        state = approve_all_channels(
+            state,
+            approved_by=operator,
+            now=approval_time,
+        )
         state = _apply_marketplace_lock(
             state,
             blocked=marketplace_blocked,
@@ -585,7 +605,9 @@ def render_campaign_launch_center(
         )
         try:
             _save_ui_state(store, state)
-            st.success("All available channels are approved and marked Ready, but nothing was launched.")
+            st.success(
+                "All available channels are approved and marked Ready, but nothing was launched."
+            )
         except LaunchStoreError as exc:
             st.error(str(exc))
     if state.approved_at:
@@ -598,7 +620,7 @@ def render_campaign_launch_center(
 
     st.write("### Restricted channel or troubleshooting review")
     st.caption(
-        "Use this section for Facebook Marketplace, Facebook Groups, classifieds, "
+        "Use this section for Facebook Marketplace, Facebook Groups, classifieds, Nextdoor, "
         "or troubleshooting an automatic channel."
     )
     selected_channel_name = st.selectbox(
@@ -606,9 +628,13 @@ def render_campaign_launch_center(
         [channel.name for channel in CHANNELS],
         key="launch_center_channel",
     )
-    channel = next(item for item in CHANNELS if item.name == selected_channel_name)
+    channel = next(
+        item for item in CHANNELS if item.name == selected_channel_name
+    )
     tracked_link = links_by_key[channel.key]["Tracked Dwelyx link"]
-    marketplace_channel_locked = channel.key == "marketplace" and marketplace_blocked
+    marketplace_channel_locked = (
+        channel.key == "marketplace" and marketplace_blocked
+    )
 
     if marketplace_channel_locked:
         st.error(marketplace_block_reason)
@@ -619,7 +645,11 @@ def render_campaign_launch_center(
             disabled=True,
         )
     else:
-        copy_text = campaign_copy_for_channel(package, channel.key, tracked_link)
+        copy_text = campaign_copy_for_channel(
+            package,
+            channel.key,
+            tracked_link,
+        )
         if channel.key == "marketplace":
             st.info(
                 "Facebook Marketplace copy intentionally contains no website or Dwelyx link. "
@@ -671,12 +701,21 @@ def render_campaign_launch_center(
 
     st.write("### Complete campaign status")
     table = pd.DataFrame(launch_rows(state))
-    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.dataframe(
+        table,
+        use_container_width=True,
+        hide_index=True,
+        height=max(420, channel_count * 35 + 45),
+    )
     st.download_button(
         "Download Campaign Launch Sheet (CSV)",
         data=table.to_csv(index=False).encode("utf-8"),
         file_name=f"cfh_campaign_launch_{campaign}.csv",
         mime="text/csv",
     )
-    st.markdown("[Open the 14-Channel Marketing Analytics dashboard](?analytics=1)")
-    st.markdown("[Open the 14-Channel Link Center](?channel_center=1)")
+    st.markdown(
+        f"[Open the {channel_count}-Channel Marketing Analytics dashboard](?analytics=1)"
+    )
+    st.markdown(
+        f"[Open the {channel_count}-Channel Link Center](?channel_center=1)"
+    )
