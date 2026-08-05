@@ -74,7 +74,8 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert payload["buyer_destination"]["property_sync_to_dwelyx"] is False
     assert payload["buyer_destination"]["facebook_marketplace_direct_link"] is False
     assert payload["buyer_destination"]["facebook_groups_direct_link"] is True
-    assert len(payload["channels"]) == len(CHANNELS) == 14
+    assert payload["buyer_destination"]["nextdoor_direct_link"] is True
+    assert len(payload["channels"]) == len(CHANNELS) == 15
     assert payload["property"]["address"] == "101 Test Street"
     assert payload["property"]["photo_urls"] == ["https://example.com/front.jpg"]
 
@@ -90,6 +91,13 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert "tracking.example.com" in groups["tracked_buyer_link"]
     assert groups["public_external_link_allowed"] is True
     assert "tracking.example.com" in groups["copy"]
+
+    nextdoor = rows["nextdoor"]
+    assert nextdoor["requires_manual_final_post"] is True
+    assert nextdoor["public_external_link_allowed"] is True
+    assert "tracking.example.com" in nextdoor["tracked_buyer_link"]
+    assert "tracking.example.com" in nextdoor["copy"]
+    assert item.address in nextdoor["copy"]
 
     for key, row in rows.items():
         if key != "marketplace":
@@ -146,6 +154,8 @@ def test_marketplace_monthly_block_removes_copy_from_automation_payload() -> Non
     assert "Five of five" in marketplace["block_reason"]
     assert rows["facebook_groups"]["posting_blocked"] is False
     assert "tracking.example.com" in rows["facebook_groups"]["copy"]
+    assert rows["nextdoor"]["posting_blocked"] is False
+    assert "tracking.example.com" in rows["nextdoor"]["copy"]
 
 
 def test_launch_actions_keep_restricted_platforms_manual() -> None:
@@ -154,7 +164,11 @@ def test_launch_actions_keep_restricted_platforms_manual() -> None:
     assert launch_action_for_channel(CHANNELS_BY_KEY["marketplace"]) == LaunchAction.MANUAL_FINAL_POST
     assert launch_action_for_channel(CHANNELS_BY_KEY["facebook_groups"]) == LaunchAction.MANUAL_FINAL_POST
     assert launch_action_for_channel(CHANNELS_BY_KEY["classifieds"]) == LaunchAction.MANUAL_FINAL_POST
-    assert len(automation_plan_rows()) == 14
+    assert launch_action_for_channel(CHANNELS_BY_KEY["nextdoor"]) == LaunchAction.MANUAL_FINAL_POST
+    assert len(automation_plan_rows()) == 15
+    nextdoor_row = next(row for row in automation_plan_rows() if row["Channel"] == CHANNELS_BY_KEY["nextdoor"].name)
+    assert "Business Page verification" in nextdoor_row["What happens"]
+    assert "ad spending" in nextdoor_row["What happens"]
 
 
 def test_settings_accept_make_aliases_and_require_a_real_url() -> None:

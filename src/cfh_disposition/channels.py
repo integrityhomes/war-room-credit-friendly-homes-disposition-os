@@ -33,6 +33,12 @@ CHANNELS: tuple[MarketingChannel, ...] = (
     MarketingChannel("tiktok", "TikTok", ChannelMode.APPROVAL_REQUIRED, "Publishes or creates ready-to-post short property videos."),
     MarketingChannel("youtube", "YouTube Shorts", ChannelMode.APPROVAL_REQUIRED, "Builds searchable short-form property video inventory."),
     MarketingChannel("classifieds", "Craigslist & Local Classifieds", ChannelMode.ASSISTED, "Creates compliant classified packages and refresh reminders."),
+    MarketingChannel(
+        "nextdoor",
+        "Nextdoor Business Posts & Housing Ads",
+        ChannelMode.ASSISTED,
+        "Prepares verified Business Page posts and paid housing-ad packages with a tracked Dwelyx link; final publication and ad spending remain manual and approval-controlled.",
+    ),
 )
 
 CHANNELS_BY_KEY = {channel.key: channel for channel in CHANNELS}
