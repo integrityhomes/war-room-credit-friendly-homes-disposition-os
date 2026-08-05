@@ -72,10 +72,17 @@ def _available_properties(storage: Storage) -> list[OwnerFinanceProperty]:
 
 def _render_header() -> None:
     st.title("Credit Friendly Homes")
-    st.caption("Owner-financing opportunities with clear terms and straightforward property information.")
+    st.caption(
+        "Owner-financing opportunities with clear terms and straightforward property information."
+    )
 
 
-def _browse_dwelyx_url(*, medium: str, property_id: UUID | None = None, target: str | None = None) -> str:
+def _browse_dwelyx_url(
+    *,
+    medium: str,
+    property_id: UUID | None = None,
+    target: str | None = None,
+) -> str:
     return build_dwelyx_url(
         target or dwelyx_base_url(st.secrets),
         source="credit_friendly_homes",
@@ -93,11 +100,15 @@ def _render_portal(storage: Storage) -> None:
         type="primary",
         use_container_width=True,
     )
-    st.caption("Dwelyx is the main marketplace. Buyers can browse every available owner-finance home there.")
+    st.caption(
+        "Dwelyx is the main marketplace. Buyers can browse every available owner-finance home there."
+    )
     st.subheader("Featured Owner-Finance Homes")
     properties = _available_properties(storage)
     if not properties:
-        st.info("No featured homes are available here right now. Browse Dwelyx for the full inventory.")
+        st.info(
+            "No featured homes are available here right now. Browse Dwelyx for the full inventory."
+        )
         st.caption("Equal Housing Opportunity")
         return
 
@@ -111,21 +122,31 @@ def _render_portal(storage: Storage) -> None:
             st.write(f"Price: **{money(item.total_price)}**")
             st.write(f"Down payment: **{money(item.down_payment)}**")
             st.write(f"Monthly payment: **{money(item.monthly_payment)}**")
-            st.markdown(f"[View featured-home details]({public_property_path(item.property_id)})")
+            st.markdown(
+                f"[View featured-home details]({public_property_path(item.property_id)})"
+            )
             st.link_button(
                 "Browse All Homes on Dwelyx",
-                _browse_dwelyx_url(medium="property_page", property_id=item.property_id),
+                _browse_dwelyx_url(
+                    medium="property_page",
+                    property_id=item.property_id,
+                ),
                 use_container_width=True,
             )
             st.divider()
 
-    st.caption("Availability and terms are subject to verification. Equal Housing Opportunity.")
+    st.caption(
+        "Availability and terms are subject to verification. Equal Housing Opportunity."
+    )
 
 
 def _render_property_detail(storage: Storage, property_id: str) -> None:
     _render_header()
     properties = _available_properties(storage)
-    selected = next((item for item in properties if str(item.property_id) == property_id), None)
+    selected = next(
+        (item for item in properties if str(item.property_id) == property_id),
+        None,
+    )
     if selected is None:
         st.warning("This featured property is not currently available.")
         st.link_button(
@@ -142,14 +163,22 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
 
     st.link_button(
         "Browse All Owner-Finance Homes on Dwelyx",
-        _browse_dwelyx_url(medium="property_page", property_id=selected.property_id),
+        _browse_dwelyx_url(
+            medium="property_page",
+            property_id=selected.property_id,
+        ),
         type="primary",
         use_container_width=True,
     )
-    st.caption("This home may not be the right fit. Dwelyx shows the full owner-finance inventory.")
+    st.caption(
+        "This home may not be the right fit. Dwelyx shows the full owner-finance inventory."
+    )
 
     if selected.photo_urls:
-        st.image([str(item) for item in selected.photo_urls], use_container_width=True)
+        st.image(
+            [str(item) for item in selected.photo_urls],
+            use_container_width=True,
+        )
 
     price, down, monthly = st.columns(3)
     price.metric("Purchase price", money(selected.total_price))
@@ -157,10 +186,22 @@ def _render_property_detail(storage: Storage, property_id: str) -> None:
     monthly.metric("Monthly payment", money(selected.monthly_payment))
 
     details = st.columns(4)
-    details[0].metric("Bedrooms", selected.bedrooms if selected.bedrooms is not None else "—")
-    details[1].metric("Bathrooms", selected.bathrooms if selected.bathrooms is not None else "—")
-    details[2].metric("Square feet", f"{selected.square_feet:,}" if selected.square_feet else "—")
-    details[3].metric("Acreage", selected.acreage if selected.acreage is not None else "—")
+    details[0].metric(
+        "Bedrooms",
+        selected.bedrooms if selected.bedrooms is not None else "—",
+    )
+    details[1].metric(
+        "Bathrooms",
+        selected.bathrooms if selected.bathrooms is not None else "—",
+    )
+    details[2].metric(
+        "Square feet",
+        f"{selected.square_feet:,}" if selected.square_feet else "—",
+    )
+    details[3].metric(
+        "Acreage",
+        selected.acreage if selected.acreage is not None else "—",
+    )
 
     st.subheader("Property condition")
     st.write(selected.condition_summary)
@@ -197,7 +238,11 @@ def _query_value(name: str, default: str = "") -> str:
 def _render_dwelyx_redirect() -> None:
     configured_target = dwelyx_base_url(st.secrets)
     requested_target = _query_value("target", configured_target)
-    target = requested_target if _is_dwelyx_listing(requested_target) else configured_target
+    target = (
+        requested_target
+        if _is_dwelyx_listing(requested_target)
+        else configured_target
+    )
     source = _query_value("source", "credit_friendly_homes")
     medium = _query_value("medium", "unknown")
     campaign = _query_value("campaign", "owner_finance_homes")
@@ -231,7 +276,12 @@ def _render_dwelyx_redirect() -> None:
 
     st.title("Opening Dwelyx")
     st.write("You are being sent to the full owner-finance marketplace.")
-    st.link_button("Continue to Dwelyx", destination, type="primary", use_container_width=True)
+    st.link_button(
+        "Continue to Dwelyx",
+        destination,
+        type="primary",
+        use_container_width=True,
+    )
     safe_destination = escape(destination, quote=True)
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url={safe_destination}">',
@@ -240,56 +290,92 @@ def _render_dwelyx_redirect() -> None:
 
 
 def _render_channel_center(storage: Storage) -> None:
-    st.title("14-Channel Link Center")
+    channel_count = len(CHANNELS)
+    st.title(f"{channel_count}-Channel Link Center")
     st.caption(
         "Create a separate tracked Dwelyx link for every marketing channel so the dashboard can show what is producing traffic."
     )
 
     properties = _available_properties(storage)
-    property_options: dict[str, OwnerFinanceProperty | None] = {"All Dwelyx inventory": None}
-    property_options.update({item.display_address: item for item in properties})
+    property_options: dict[str, OwnerFinanceProperty | None] = {
+        "All Dwelyx inventory": None
+    }
+    property_options.update(
+        {item.display_address: item for item in properties}
+    )
 
     left, right = st.columns(2)
     campaign = left.text_input("Campaign name", value="owner_finance_homes")
-    selected_property_name = right.selectbox("Property — optional", list(property_options))
+    selected_property_name = right.selectbox(
+        "Property — optional",
+        list(property_options),
+    )
     selected_property = property_options[selected_property_name]
 
     links = build_channel_links(
         dwelyx_base_url(st.secrets),
         campaign=campaign,
-        property_id=selected_property.property_id if selected_property else None,
+        property_id=(
+            selected_property.property_id if selected_property else None
+        ),
         tracking_base_url=tracking_app_base_url(st.secrets),
     )
 
     st.success(f"{len(links)} separate channel links are ready.")
-    selected_channel_name = st.selectbox("Choose a channel to copy or test", [row["Channel"] for row in links])
-    selected_row = next(row for row in links if row["Channel"] == selected_channel_name)
-    st.text_input("Copy this channel's tracked Dwelyx link", value=selected_row["Tracked Dwelyx link"])
+    selected_channel_name = st.selectbox(
+        "Choose a channel to copy or test",
+        [row["Channel"] for row in links],
+    )
+    selected_row = next(
+        row for row in links if row["Channel"] == selected_channel_name
+    )
+    st.text_input(
+        "Copy this channel's tracked Dwelyx link",
+        value=selected_row["Tracked Dwelyx link"],
+    )
     st.link_button(
         "Test This Channel Link — records one click",
         selected_row["Tracked Dwelyx link"],
         type="primary",
     )
 
-    st.subheader("Complete 14-channel link sheet")
+    st.subheader(f"Complete {channel_count}-channel link sheet")
     link_table = pd.DataFrame(links)
-    st.dataframe(link_table, use_container_width=True, hide_index=True)
+    st.dataframe(
+        link_table,
+        use_container_width=True,
+        hide_index=True,
+        height=max(420, channel_count * 35 + 45),
+    )
     st.download_button(
-        "Download 14-channel link sheet (CSV)",
+        f"Download {channel_count}-channel link sheet (CSV)",
         data=link_table.to_csv(index=False).encode("utf-8"),
-        file_name=f"cfh_14_channel_links_{campaign.strip() or 'campaign'}.csv",
+        file_name=(
+            f"cfh_{channel_count}_channel_links_"
+            f"{campaign.strip() or 'campaign'}.csv"
+        ),
         mime="text/csv",
     )
     st.info(
         "Use the matching link in each channel. For a sign or QR-code campaign, use the Property Landing Page link and give the campaign a specific name such as saltville_signs_august_2026."
     )
-    st.markdown("[Open the 14-Channel Marketing Analytics dashboard](?analytics=1)")
+    st.markdown(
+        f"[Open the {channel_count}-Channel Marketing Analytics dashboard](?analytics=1)"
+    )
 
 
 def _render_click_analytics(storage: Storage) -> None:
-    st.title("14-Channel Marketing Analytics")
-    st.caption("See which of the 14 channels, campaigns, and properties send buyers into Dwelyx.")
-    days = st.selectbox("Reporting window", [7, 30, 90], index=1, format_func=lambda value: f"Last {value} days")
+    channel_count = len(CHANNELS)
+    st.title(f"{channel_count}-Channel Marketing Analytics")
+    st.caption(
+        f"See which of the {channel_count} channels, campaigns, and properties send buyers into Dwelyx."
+    )
+    days = st.selectbox(
+        "Reporting window",
+        [7, 30, 90],
+        index=1,
+        format_func=lambda value: f"Last {value} days",
+    )
 
     try:
         events = ClickAnalyticsStore(st.secrets).list_recent(days)
@@ -306,56 +392,104 @@ def _render_click_analytics(storage: Storage) -> None:
 
     columns = st.columns(4)
     columns[0].metric("Tracked clicks", mapped_clicks)
-    columns[1].metric("Active channels", f"{active_channels} of {len(CHANNELS)}")
+    columns[1].metric(
+        "Active channels",
+        f"{active_channels} of {channel_count}",
+    )
     columns[2].metric("Channels with zero traffic", zero_channels)
     columns[3].metric("Top channel", top_channel)
 
-    st.subheader("All 14 channels")
+    st.subheader(f"All {channel_count} channels")
     score_rows = [row.as_row() for row in scorecard]
-    st.dataframe(pd.DataFrame(score_rows), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(score_rows),
+        use_container_width=True,
+        hide_index=True,
+        height=max(420, channel_count * 35 + 45),
+    )
 
     if not events:
-        st.info("No tracked Dwelyx clicks have been recorded in this reporting window yet.")
-        st.caption("Use links from the 14-Channel Link Center. Each buyer click is recorded before Dwelyx opens.")
-        st.markdown("[Open the 14-Channel Link Center](?channel_center=1)")
+        st.info(
+            "No tracked Dwelyx clicks have been recorded in this reporting window yet."
+        )
+        st.caption(
+            f"Use links from the {channel_count}-Channel Link Center. Each buyer click is recorded before Dwelyx opens."
+        )
+        st.markdown(
+            f"[Open the {channel_count}-Channel Link Center](?channel_center=1)"
+        )
         return
 
     summary = click_summary(events)
     now = datetime.now(UTC)
-    seven_day_clicks = sum(event.occurred_at >= now - timedelta(days=7) for event in events)
+    seven_day_clicks = sum(
+        event.occurred_at >= now - timedelta(days=7)
+        for event in events
+    )
     st.caption(f"Clicks recorded in the last 7 days: {seven_day_clicks}")
 
     campaign_rows = [
-        {"Campaign": campaign.replace("_", " ").title(), "Clicks": clicks}
+        {
+            "Campaign": campaign.replace("_", " ").title(),
+            "Clicks": clicks,
+        }
         for campaign, clicks in summary["campaigns"].items()
     ]
     st.subheader("Clicks by campaign")
-    st.dataframe(pd.DataFrame(campaign_rows), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(campaign_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    properties = {str(item.property_id): item.display_address for item in _available_properties(storage)}
-    property_counts = Counter(event.property_id or "all_inventory" for event in events if canonical_channel_key(event.medium))
+    properties = {
+        str(item.property_id): item.display_address
+        for item in _available_properties(storage)
+    }
+    property_counts = Counter(
+        event.property_id or "all_inventory"
+        for event in events
+        if canonical_channel_key(event.medium)
+    )
     property_rows = [
         {
-            "Property": "All Dwelyx inventory" if property_id == "all_inventory" else properties.get(property_id, property_id),
+            "Property": (
+                "All Dwelyx inventory"
+                if property_id == "all_inventory"
+                else properties.get(property_id, property_id)
+            ),
             "Clicks": clicks,
         }
         for property_id, clicks in property_counts.most_common()
     ]
     st.subheader("Clicks by property")
-    st.dataframe(pd.DataFrame(property_rows), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(property_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     recent_rows = []
     for event in events[:250]:
         recent_rows.append(
             {
-                "Date and time (UTC)": event.occurred_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "Date and time (UTC)": event.occurred_at.strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
                 "Channel": channel_name(event.medium),
                 "Campaign": event.campaign.replace("_", " ").title(),
-                "Property": properties.get(event.property_id or "", event.property_id or "All Dwelyx inventory"),
+                "Property": properties.get(
+                    event.property_id or "",
+                    event.property_id or "All Dwelyx inventory",
+                ),
             }
         )
     st.subheader("Recent tracked clicks")
-    st.dataframe(pd.DataFrame(recent_rows), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(recent_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     other_events = unmapped_clicks(events)
     if other_events:
@@ -365,12 +499,18 @@ def _render_click_analytics(storage: Storage) -> None:
             {"Source": channel_name(medium), "Clicks": clicks}
             for medium, clicks in other_counts.most_common()
         ]
-        st.dataframe(pd.DataFrame(other_rows), use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(other_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.caption(
         "Click events contain marketing attribution only. No buyer names, emails, phone numbers, or private application data are stored here."
     )
-    st.markdown("[Open the 14-Channel Link Center](?channel_center=1)")
+    st.markdown(
+        f"[Open the {channel_count}-Channel Link Center](?channel_center=1)"
+    )
 
 
 def render_public_request(storage: Storage) -> bool:
@@ -384,10 +524,16 @@ def render_public_request(storage: Storage) -> bool:
     if go == "dwelyx":
         _render_dwelyx_redirect()
         return True
-    if channel_center in {"1", "true", "yes"} and st.session_state.get("authenticated"):
+    if (
+        channel_center in {"1", "true", "yes"}
+        and st.session_state.get("authenticated")
+    ):
         _render_channel_center(storage)
         return True
-    if analytics in {"1", "true", "yes"} and st.session_state.get("authenticated"):
+    if (
+        analytics in {"1", "true", "yes"}
+        and st.session_state.get("authenticated")
+    ):
         _render_click_analytics(storage)
         return True
     if property_id:
