@@ -378,7 +378,14 @@ def assess_property(signals: PropertySignals) -> PropertyVelocityAssessment:
     level = _level_for_score(score)
     supporting: list[str] = []
 
-    if signals.active_channels == 0:
+    if signals.contracts > 0:
+        bottleneck = FunnelBottleneck.CONTRACT_IN_PROGRESS
+        intervention = InterventionType.IMPROVE_APPLICATION_FOLLOW_UP
+        diagnosis = "A signed contract result exists. Protecting and completing that buyer file is now the highest priority."
+        action = "Confirm signatures, funds, documents, move-in steps, and property shutdown timing before refreshing marketing."
+        due_hours = 12
+        manager_required = False
+    elif signals.active_channels == 0:
         bottleneck = FunnelBottleneck.NOT_LIVE
         intervention = InterventionType.ACTIVATE_CHANNELS
         diagnosis = "No marketing channel is recorded as Posted or Scheduled for this vacant home."
@@ -437,13 +444,6 @@ def assess_property(signals: PropertySignals) -> PropertyVelocityAssessment:
         action = "Management must review buyer objections, condition, total price, down payment, and monthly payment before the next campaign cycle."
         due_hours = 24
         manager_required = True
-    elif signals.contracts > 0:
-        bottleneck = FunnelBottleneck.CONTRACT_IN_PROGRESS
-        intervention = InterventionType.IMPROVE_APPLICATION_FOLLOW_UP
-        diagnosis = "A contract result exists. The priority is protecting the pending buyer and completing the file."
-        action = "Confirm signatures, funds, documents, move-in steps, and property shutdown timing."
-        due_hours = 12
-        manager_required = False
     else:
         bottleneck = FunnelBottleneck.HEALTHY
         intervention = InterventionType.HOLD_COURSE
@@ -529,7 +529,7 @@ def suggested_task(
     current = _current(now)
     assigned = owner.strip() or "Sabrina"
     recommendation = (
-        "Management review only. Do not change price, down payment, monthly payment, or advertising spend without approval."
+        "Management review only. This task does not authorize any change to price, down payment, monthly payment, or advertising spend."
         if assessment.manager_approval_required
         else ""
     )
