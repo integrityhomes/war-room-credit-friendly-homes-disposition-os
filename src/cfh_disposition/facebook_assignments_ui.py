@@ -112,7 +112,7 @@ def render_facebook_assignment_dashboard(
         )
         return
 
-    today = business_now().date()
+    today: date = business_now().date()
     properties_by_name = _property_options(properties)
     properties_by_id = {
         str(property_record.property_id): property_record
