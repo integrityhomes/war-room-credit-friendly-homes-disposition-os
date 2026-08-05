@@ -11,7 +11,7 @@ from .channels import CHANNELS, CHANNELS_BY_KEY, MarketingChannel
 from .dwelyx import DEFAULT_TRACKING_APP_URL, build_dwelyx_url
 
 # Earlier builds and manually created links used a few human-readable or generic
-# medium values. Keep those clicks inside the correct 14-channel scorecard.
+# medium values. Keep those clicks inside the correct 15-channel scorecard.
 CHANNEL_ALIASES: dict[str, str] = {
     "available_homes_portal": "property_page",
     "featured_home_card": "property_page",
@@ -30,6 +30,11 @@ CHANNEL_ALIASES: dict[str, str] = {
     "youtube_shorts": "youtube",
     "craigslist_local_classifieds": "classifieds",
     "referral_reactivation": "reactivation",
+    "nextdoor_business": "nextdoor",
+    "nextdoor_business_post": "nextdoor",
+    "nextdoor_business_posts": "nextdoor",
+    "nextdoor_ads": "nextdoor",
+    "nextdoor_housing_ads": "nextdoor",
 }
 
 
