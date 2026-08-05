@@ -14,6 +14,7 @@ class PropertyStatus(StrEnum):
     READY = "Ready to Launch"
     LIVE = "Marketing Live"
     PENDING = "Pending"
+    FILLED = "Filled"
     SOLD = "Sold"
     PAUSED = "Paused"
 
