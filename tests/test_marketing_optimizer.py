@@ -217,7 +217,8 @@ def test_fallback_plan_preserves_properties_and_avoids_prohibited_claims() -> No
     assert second.display_address.lower() in combined
     assert "guaranteed approval" not in combined
     assert "safe neighborhood" not in combined
-    assert len(plan.channel_decisions) == 14
+    assert len(plan.channel_decisions) == 15
+    assert any(decision.channel_key == "nextdoor" for decision in plan.channel_decisions)
     assert len(plan.creative_tests) >= 1
 
 
