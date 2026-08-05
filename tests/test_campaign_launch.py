@@ -34,14 +34,15 @@ def sample_property() -> OwnerFinanceProperty:
     )
 
 
-def test_new_launch_state_contains_all_14_channels():
+def test_new_launch_state_contains_all_15_channels():
     now = datetime(2026, 8, 3, 20, 0, tzinfo=UTC)
     state = new_launch_state("property-123", "August Bristol Homes", now=now)
 
     assert state.campaign == "august_bristol_homes"
-    assert len(state.channels) == len(CHANNELS) == 14
+    assert len(state.channels) == len(CHANNELS) == 15
     assert all(record.status == LaunchStatus.NOT_STARTED for record in state.channels.values())
-    assert len(launch_rows(state)) == 14
+    assert len(launch_rows(state)) == 15
+    assert "nextdoor" in state.channels
 
 
 def test_approve_all_and_update_one_channel():
@@ -66,6 +67,7 @@ def test_approve_all_and_update_one_channel():
     assert updated.channels["marketplace"].status == LaunchStatus.POSTED
     assert updated.channels["marketplace"].notes == "Posted to Marketplace listing 123."
     assert updated.channels["sms"].status == LaunchStatus.READY
+    assert updated.channels["nextdoor"].status == LaunchStatus.READY
 
 
 def test_marketplace_copy_excludes_all_external_links():
@@ -96,6 +98,22 @@ def test_facebook_group_copy_uses_selected_dwelyx_link():
     assert original_link not in copy
     assert "dwelyx" in copy.lower()
     assert item.address in copy
+
+
+def test_nextdoor_copy_uses_selected_dwelyx_link_and_property_facts():
+    item = sample_property()
+    original_link = "https://tracking.example.com/?go=dwelyx&medium=property_page"
+    selected_link = "https://tracking.example.com/?go=dwelyx&medium=nextdoor"
+    package = build_fallback_campaign(item, original_link)
+
+    copy = campaign_copy_for_channel(package, "nextdoor", selected_link)
+
+    assert selected_link in copy
+    assert original_link not in copy
+    assert item.address in copy
+    assert "$5,000" in copy
+    assert "$1,200" in copy
+    assert "subject to review and verification" in copy.lower()
 
 
 def test_email_package_keeps_subject_and_replaces_tracking_link():
