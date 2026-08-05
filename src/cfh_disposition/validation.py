@@ -26,12 +26,21 @@ REQUIRED_TEXT_FIELDS = {
     "public_disclosures": "Public disclosures",
 }
 
+INACTIVE_MARKETING_STATUSES = {
+    PropertyStatus.PENDING,
+    PropertyStatus.FILLED,
+    PropertyStatus.SOLD,
+    PropertyStatus.PAUSED,
+}
+
 
 def validate_property_for_launch(property_record: OwnerFinanceProperty) -> ValidationResult:
     result = ValidationResult()
 
-    if property_record.status in {PropertyStatus.SOLD, PropertyStatus.PENDING}:
-        result.errors.append(f"Property status is {property_record.status}; active marketing cannot launch.")
+    if property_record.status in INACTIVE_MARKETING_STATUSES:
+        result.errors.append(
+            f"Property status is {property_record.status.value}; active marketing cannot launch."
+        )
 
     for field_name, label in REQUIRED_TEXT_FIELDS.items():
         if not getattr(property_record, field_name):
@@ -70,12 +79,18 @@ def validate_property_for_launch(property_record: OwnerFinanceProperty) -> Valid
         result.warnings.append("Fewer than 8 photos may reduce buyer response.")
 
     if not property_record.application_url:
-        result.warnings.append("No application URL is connected; application follow-up will be limited.")
+        result.warnings.append(
+            "No application URL is connected; application follow-up will be limited."
+        )
 
     if not property_record.video_url:
-        result.warnings.append("No video is attached; video channels will use a photo slideshow.")
+        result.warnings.append(
+            "No video is attached; video channels will use a photo slideshow."
+        )
 
     if not property_record.repairs_needed:
-        result.warnings.append("Repairs-needed field is blank. Confirm that this accurately means no known repairs.")
+        result.warnings.append(
+            "Repairs-needed field is blank. Confirm that this accurately means no known repairs."
+        )
 
     return result
