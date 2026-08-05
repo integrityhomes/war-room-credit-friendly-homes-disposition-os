@@ -193,7 +193,7 @@ if page == "Executive War Room":
     else:
         st.info("No properties saved yet. Add the first one in Property Intake.")
 
-    st.subheader("14-Channel Growth Plan")
+    st.subheader(f"{len(CHANNELS)}-Channel Growth Plan")
     channel_rows = [
         {
             "Channel": item.name,
@@ -202,7 +202,12 @@ if page == "Executive War Room":
         }
         for item in CHANNELS
     ]
-    st.dataframe(pd.DataFrame(channel_rows), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(channel_rows),
+        use_container_width=True,
+        hide_index=True,
+        height=max(420, len(CHANNELS) * 35 + 45),
+    )
 
 elif page == "Property Intake":
     st.subheader("Add an Owner-Finance Property")
@@ -434,6 +439,7 @@ elif page == "Dwelyx Traffic Hub":
         "Lead source",
         [
             "Facebook Groups",
+            "Nextdoor",
             "Google",
             "Signs and QR Codes",
             "Email",
@@ -515,7 +521,7 @@ elif page == "System Setup":
 else:
     st.subheader("Build Roadmap")
     roadmap = [
-        "PR 1 — Foundation, property intake, launch validation, 14-channel registry, buyer matching, Marketplace Guard",
+        "PR 1 — Foundation, property intake, launch validation, original channel registry, buyer matching, Marketplace Guard",
         "PR 2 — Streamlit deployment package fix",
         "PR 3 — Password gate and Supabase property/buyer storage",
         "PR 4 — Edit and delete property/buyer records",
@@ -529,9 +535,10 @@ else:
         "PR 12 — Email, SMS, referral, and buyer-reactivation traffic automation",
         "PR 13 — Marketplace/Facebook-group/classified assisted posting center",
         "PR 14 — Social, paid ads, analytics, shutdown controls, permissions, and audit logs",
-        "PR 17 — Persistent 14-channel Campaign Launch Center with approval and posting records",
+        "PR 17 — Persistent multi-channel Campaign Launch Center with approval and posting records",
         "PR 25 — No direct external links in Facebook Marketplace copy",
         "PR 26 — Five-per-month Marketplace counter, duplicate-property block, and category rotation",
+        "PR 42 — Nextdoor added as Channel 15 with organic and paid packages",
     ]
     for item in roadmap:
         st.write(item)
