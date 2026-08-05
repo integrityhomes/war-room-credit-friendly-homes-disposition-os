@@ -2,7 +2,6 @@ from pathlib import Path
 
 from cfh_disposition.channels import CHANNELS
 
-
 UI_FILES = (
     Path("app.py"),
     Path("src/cfh_disposition/auth.py"),
