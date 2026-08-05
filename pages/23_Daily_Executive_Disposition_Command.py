@@ -14,11 +14,18 @@ from cfh_disposition.buyer_conversion import (
     BuyerConversionStore,
     build_conversion_queue,
 )
+from cfh_disposition.campaign_cadence import (
+    CampaignCadenceError,
+    CampaignCadenceLedger,
+    CampaignCadenceStore,
+    build_cadence_queue,
+)
 from cfh_disposition.campaign_launch import CampaignLaunchStore, LaunchStoreError
 from cfh_disposition.dwelyx_attribution import (
     DwelyxAttributionError,
     DwelyxAttributionStore,
 )
+from cfh_disposition.executive_cadence import cadence_action_items
 from cfh_disposition.executive_command import (
     ExecutiveLane,
     ExecutivePriority,
@@ -68,6 +75,7 @@ st.set_page_config(
 )
 
 PAGE_PATHS = {
+    "15-Channel Campaign Cadence & Refresh Center": "pages/24_15_Channel_Campaign_Cadence_Refresh.py",
     "Vacant Home Disposition Escalation Center": "pages/20_Vacant_Home_Disposition_Escalation.py",
     "AI Buyer Conversion & Follow-Up Command Center": "pages/16_AI_Buyer_Conversion_Command_Center.py",
     "Showing-to-Contract Conversion Center": "pages/22_Showing_to_Contract_Conversion.py",
@@ -115,7 +123,15 @@ def render_action_cards(items, *, maximum: int = 8) -> None:
     for item in items[:maximum]:
         context = " · ".join(value for value in (item.property_address, item.buyer_name) if value)
         heading = f"{item.priority.value} — {item.title}"
-        with st.expander(heading, expanded=item.priority in {ExecutivePriority.BLOCKED, ExecutivePriority.CRITICAL, ExecutivePriority.URGENT}):
+        with st.expander(
+            heading,
+            expanded=item.priority
+            in {
+                ExecutivePriority.BLOCKED,
+                ExecutivePriority.CRITICAL,
+                ExecutivePriority.URGENT,
+            },
+        ):
             if context:
                 st.caption(context)
             columns = st.columns(4)
@@ -123,7 +139,9 @@ def render_action_cards(items, *, maximum: int = 8) -> None:
             columns[1].metric("Owner", item.owner)
             columns[2].metric(
                 "Due",
-                item.due_at.astimezone().strftime("%b %d, %I:%M %p") if item.due_at else "Not scheduled",
+                item.due_at.astimezone().strftime("%b %d, %I:%M %p")
+                if item.due_at
+                else "Not scheduled",
             )
             columns[3].metric("Source", item.source)
             st.write("**Required action**")
@@ -137,12 +155,13 @@ require_password()
 now = datetime.now(UTC)
 st.title("Daily Executive Disposition Command Center")
 st.caption(
-    "One read-only command screen for management decisions, team execution, buyer follow-up, "
-    "showings, property escalation, terms tests, shutdown work, and connection problems."
+    "One read-only command screen for 15-channel marketing cadence, management decisions, "
+    "team execution, buyer follow-up, showings, property escalation, terms tests, shutdown work, "
+    "and connection problems."
 )
 st.info(
     "This page does not create another task database or change any property, buyer, showing, "
-    "campaign, or terms record. Complete each action inside its source operating center."
+    "campaign, channel, or terms record. Complete each action inside its source operating center."
 )
 
 system_errors: dict[str, str] = {}
@@ -151,7 +170,9 @@ try:
     properties = storage.list_properties()
     buyers = storage.list_buyers()
 except StorageError as exc:
-    st.error(f"The Executive Command Center cannot load the core property and buyer records: {exc}")
+    st.error(
+        f"The Executive Command Center cannot load the core property and buyer records: {exc}"
+    )
     st.stop()
 
 try:
@@ -179,7 +200,10 @@ try:
     launch_store = CampaignLaunchStore(st.secrets)
     for property_record in properties:
         property_id = str(property_record.property_id)
-        launch_states[property_id] = launch_store.load(property_id, "owner_finance_homes")
+        launch_states[property_id] = launch_store.load(
+            property_id,
+            "owner_finance_homes",
+        )
 except LaunchStoreError as exc:
     launch_states = {}
     system_errors["Campaign Launch Records"] = str(exc)
@@ -191,6 +215,20 @@ assessments = build_velocity_queue(
     attribution_events=attribution_events,
     launch_states=launch_states,
     attribution_connected=attribution_connected,
+    now=now,
+)
+
+try:
+    cadence_ledger = CampaignCadenceStore(st.secrets).load()
+except CampaignCadenceError as exc:
+    cadence_ledger = CampaignCadenceLedger()
+    system_errors["15-Channel Campaign Cadence"] = str(exc)
+cadence_queue = build_cadence_queue(
+    properties,
+    ledger=cadence_ledger,
+    launch_states=launch_states,
+    click_events=click_events,
+    attribution_events=attribution_events,
     now=now,
 )
 
@@ -249,6 +287,7 @@ except PropertyControlError as exc:
 
 all_items = deduplicate_and_sort(
     [
+        *cadence_action_items(cadence_queue, cadence_ledger, now=now),
         *inventory_action_items(assessments, velocity_ledger, now=now),
         *conversion_action_items(conversion_queue, now=now),
         *showing_action_items(showing_queue, now=now),
@@ -273,7 +312,9 @@ metrics[3].metric("Management Decisions", snapshot.management_decisions)
 metrics[4].metric("Team Actions", snapshot.team_actions)
 metrics[5].metric(
     "Holding Exposure",
-    f"${snapshot.estimated_holding_exposure:,.0f}" if snapshot.estimated_holding_exposure > Decimal("0") else "Not entered",
+    f"${snapshot.estimated_holding_exposure:,.0f}"
+    if snapshot.estimated_holding_exposure > Decimal("0")
+    else "Not entered",
 )
 
 secondary = st.columns(4)
@@ -283,11 +324,14 @@ secondary[2].metric("Contract Pending Buyers", snapshot.contract_pending_records
 secondary[3].metric("Showing Contract Handoffs", snapshot.showing_contract_handoffs)
 
 if attribution_connected:
-    st.success(f"Dwelyx results connected: {len(real_attribution_events)} live result events available.")
+    st.success(
+        f"Dwelyx results connected: {len(real_attribution_events)} live result events available."
+    )
 else:
     st.warning(
         "Live Dwelyx results are not connected yet. The command center still uses property, buyer, "
-        "showing, campaign, and task records, but registration-to-contract diagnosis remains limited."
+        "showing, campaign, channel-cadence, and task records, but registration-to-contract diagnosis "
+        "remains limited."
     )
 
 owners = sorted({item.owner for item in all_items if item.owner})
@@ -347,7 +391,11 @@ with today_tab:
         )
 
 with management_tab:
-    management_items = [item for item in filtered_items if item.manager_only or item.lane == ExecutiveLane.MANAGEMENT]
+    management_items = [
+        item
+        for item in filtered_items
+        if item.manager_only or item.lane == ExecutiveLane.MANAGEMENT
+    ]
     st.write("### Decisions only Shawn or Sabrina should make")
     render_action_cards(management_items, maximum=12)
     if management_items:
@@ -358,7 +406,11 @@ with management_tab:
         )
 
 with team_tab:
-    team_items = [item for item in filtered_items if item.lane in {ExecutiveLane.TEAM, ExecutiveLane.COMPLIANCE}]
+    team_items = [
+        item
+        for item in filtered_items
+        if item.lane in {ExecutiveLane.TEAM, ExecutiveLane.COMPLIANCE}
+    ]
     st.write("### Work the team can execute without changing approved business terms")
     render_action_cards(team_items, maximum=12)
     if team_items:
@@ -392,21 +444,78 @@ with health_tab:
     if not system_errors:
         st.success("Every required ledger loaded successfully.")
     else:
-        st.error(f"{len(system_errors)} data source or connection problems require review.")
+        st.error(
+            f"{len(system_errors)} data source or connection problems require review."
+        )
         for source, detail in system_errors.items():
             st.write(f"**{source}**")
             st.write(detail)
     health_rows = [
-        {"Source": "Core Property & Buyer Storage", "Status": "Connected", "Detail": storage.mode},
-        {"Source": "Tracked Clicks", "Status": "Connected" if not system_errors.get("Click Analytics") else "Problem", "Detail": f"{len(click_events)} events loaded"},
-        {"Source": "Dwelyx Results", "Status": "Connected" if attribution_connected else "Waiting", "Detail": f"{len(real_attribution_events)} live events loaded"},
-        {"Source": "Vacant Home Escalation", "Status": "Connected" if not system_errors.get("Vacant Home Escalation") else "Problem", "Detail": f"{len(velocity_ledger.tasks)} tasks loaded"},
-        {"Source": "Buyer Conversion", "Status": "Connected" if not system_errors.get("Buyer Conversion Records") else "Problem", "Detail": f"{len(conversion_ledger.records)} records loaded"},
-        {"Source": "Showing Conversion", "Status": "Connected" if not system_errors.get("Showing Conversion Records") else "Problem", "Detail": f"{len(showing_ledger.appointments)} appointments loaded"},
-        {"Source": "Terms Testing", "Status": "Connected" if not system_errors.get("Property Terms Testing") else "Problem", "Detail": f"{len(terms_ledger.experiments)} experiments loaded"},
-        {"Source": "Property Shutdown", "Status": "Connected" if not system_errors.get("Property Shutdown Records") else "Problem", "Detail": f"{len(property_control_ledger.events)} events loaded"},
+        {
+            "Source": "Core Property & Buyer Storage",
+            "Status": "Connected",
+            "Detail": storage.mode,
+        },
+        {
+            "Source": "Tracked Clicks",
+            "Status": "Connected"
+            if not system_errors.get("Click Analytics")
+            else "Problem",
+            "Detail": f"{len(click_events)} events loaded",
+        },
+        {
+            "Source": "Dwelyx Results",
+            "Status": "Connected" if attribution_connected else "Waiting",
+            "Detail": f"{len(real_attribution_events)} live events loaded",
+        },
+        {
+            "Source": "15-Channel Campaign Cadence",
+            "Status": "Connected"
+            if not system_errors.get("15-Channel Campaign Cadence")
+            else "Problem",
+            "Detail": f"{len(cadence_ledger.tasks)} refresh tasks loaded",
+        },
+        {
+            "Source": "Vacant Home Escalation",
+            "Status": "Connected"
+            if not system_errors.get("Vacant Home Escalation")
+            else "Problem",
+            "Detail": f"{len(velocity_ledger.tasks)} tasks loaded",
+        },
+        {
+            "Source": "Buyer Conversion",
+            "Status": "Connected"
+            if not system_errors.get("Buyer Conversion Records")
+            else "Problem",
+            "Detail": f"{len(conversion_ledger.records)} records loaded",
+        },
+        {
+            "Source": "Showing Conversion",
+            "Status": "Connected"
+            if not system_errors.get("Showing Conversion Records")
+            else "Problem",
+            "Detail": f"{len(showing_ledger.appointments)} appointments loaded",
+        },
+        {
+            "Source": "Terms Testing",
+            "Status": "Connected"
+            if not system_errors.get("Property Terms Testing")
+            else "Problem",
+            "Detail": f"{len(terms_ledger.experiments)} experiments loaded",
+        },
+        {
+            "Source": "Property Shutdown",
+            "Status": "Connected"
+            if not system_errors.get("Property Shutdown Records")
+            else "Problem",
+            "Detail": f"{len(property_control_ledger.events)} events loaded",
+        },
     ]
-    st.dataframe(pd.DataFrame(health_rows), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(health_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 with brief_tab:
     st.write("### Copy-ready daily leadership brief")
