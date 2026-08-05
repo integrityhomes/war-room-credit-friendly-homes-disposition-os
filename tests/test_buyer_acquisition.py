@@ -102,11 +102,11 @@ def test_protected_or_deceptive_audience_targeting_is_blocked() -> None:
 
 
 def test_duplicate_active_source_and_scope_is_blocked() -> None:
-    campaign = build_campaign()
+    campaign = build_campaign(property_specific=False)
     ledger = create_campaign(BuyerAcquisitionLedger(), campaign)
 
     with pytest.raises(BuyerAcquisitionError, match="already exists"):
-        create_campaign(ledger, build_campaign())
+        create_campaign(ledger, build_campaign(property_specific=False))
 
 
 def test_campaign_requires_manager_approval_before_live() -> None:
