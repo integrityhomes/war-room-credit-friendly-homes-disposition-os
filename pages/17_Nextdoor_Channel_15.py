@@ -55,7 +55,8 @@ st.caption(
     "Creates fact-safe Nextdoor Business Posts and paid housing-ad packages that send buyers to Dwelyx."
 )
 st.info(
-    "The app prepares and tracks the package. A team member must complete Business Page verification, final publication, targeting review, and any paid-ad budget approval inside Nextdoor."
+    "The app prepares and tracks the package. A team member must complete Business Page verification, "
+    "final publication, targeting review, and any paid-ad budget approval inside Nextdoor."
 )
 
 try:
@@ -101,7 +102,9 @@ except NextdoorPackageError as exc:
 if selected.photo_urls:
     st.image(str(selected.photo_urls[0]), width=480)
 else:
-    st.warning("This property has no saved marketing photo. Add clear property photos before publishing on Nextdoor.")
+    st.warning(
+        "This property has no saved marketing photo. Add clear property photos before publishing on Nextdoor."
+    )
 
 metrics = st.columns(5)
 metrics[0].metric("Channel", "15")
@@ -119,7 +122,8 @@ metrics[4].metric("Final Publication", "Manual")
 st.text_input("Tracked Nextdoor → Dwelyx link", value=tracked_link)
 st.link_button("Test Nextdoor Dwelyx Link", tracked_link, type="primary")
 st.caption(
-    "Testing the link records one Nextdoor-attributed click before opening Dwelyx. This app does not create a second buyer database."
+    "Testing the link records one Nextdoor-attributed click before opening Dwelyx. "
+    "This app does not create a second buyer database."
 )
 
 business_tab, paid_tab, setup_tab = st.tabs(
@@ -137,12 +141,16 @@ with business_tab:
         value=package.business_post_body,
         height=420,
     )
-    st.success("Use this post from a claimed and verified Nextdoor Business Page. Final publication remains manual.")
+    st.success(
+        "Use this post from a claimed and verified Nextdoor Business Page. "
+        "Final publication remains manual."
+    )
 
 with paid_tab:
     st.write("### Nextdoor Paid Housing Ad")
     st.warning(
-        "Do not spend money until a manager approves the campaign budget, audience settings, final creative, destination, and reporting plan."
+        "Do not spend money until a manager approves the campaign budget, audience settings, "
+        "final creative, destination, and reporting plan."
     )
     st.text_input(
         f"Ad headline — {len(package.paid_ad_headline)} of {NEXTDOOR_HEADLINE_LIMIT} characters",
@@ -159,7 +167,9 @@ with paid_tab:
     )
     st.write(f"**Recommended image specifications:** {NEXTDOOR_IMAGE_SPECS}")
     st.info(
-        "The paid-ad package uses the same tracked Dwelyx destination as the organic post so clicks can be attributed to Nextdoor. Record organic and paid results separately in the AI Marketing Optimizer notes."
+        "The paid-ad package uses the same tracked Dwelyx destination as the organic post, "
+        "so clicks can be attributed to Nextdoor. Record organic and paid results separately "
+        "in the AI Marketing Optimizer notes."
     )
 
 with setup_tab:
@@ -172,13 +182,16 @@ with setup_tab:
 
     st.write("### Before the first post")
     st.write(
-        "Claim and verify the Credit Friendly Homes Nextdoor Business Page, confirm the business identity and service area, upload approved branding, and review current housing-ad rules inside the platform."
+        "Claim and verify the Credit Friendly Homes Nextdoor Business Page, confirm the business identity "
+        "and service area, upload approved branding, and review current housing-ad rules inside the platform."
     )
     st.write("### Never automate")
     st.write(
-        "Do not use browser bots, fake neighbor accounts, account sharing, policy evasion, or unsupported bulk neighborhood posting. The team must confirm each post or ad actually went live before marking it Posted."
+        "Do not use browser bots, fake neighbor accounts, account sharing, policy evasion, or unsupported "
+        "bulk neighborhood posting. The team must confirm each post or ad actually went live before marking it Posted."
     )
     st.write("### Reporting")
     st.write(
-        "Track impressions, platform clicks, tracked Dwelyx clicks, inquiries, applications, contracts, and spend. Nextdoor now appears as its own row in the 15-channel analytics and marketing optimizer."
+        "Track impressions, platform clicks, tracked Dwelyx clicks, inquiries, applications, contracts, "
+        "and spend. Nextdoor now appears as its own row in the 15-channel analytics and marketing optimizer."
     )
