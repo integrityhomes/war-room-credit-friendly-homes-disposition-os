@@ -18,6 +18,7 @@ class FacebookGroupQueueItem:
     group_name: str
     group_url: str
     cooldown_days: int
+    notes: str
     eligible: bool
     next_eligible_at: datetime | None
     wait_days: int
@@ -44,6 +45,7 @@ def build_facebook_group_queue(
                 group_name=group.name,
                 group_url=group.group_url,
                 cooldown_days=group.cooldown_days,
+                notes=group.notes,
                 eligible=status.eligible,
                 next_eligible_at=status.next_eligible_at,
                 wait_days=status.wait_days,
@@ -69,6 +71,7 @@ def queue_summary_rows(
                     if item.next_eligible_at
                     else "Now"
                 ),
+                "Group Rules / Notes": item.notes or "—",
                 "Status": item.message,
             }
         )
@@ -79,3 +82,25 @@ def eligible_queue_items(
     queue: list[FacebookGroupQueueItem],
 ) -> list[FacebookGroupQueueItem]:
     return [item for item in queue if item.eligible]
+
+
+def operator_current_item(
+    queue: list[FacebookGroupQueueItem],
+    cursor: int,
+) -> FacebookGroupQueueItem | None:
+    """Return the current eligible group while safely wrapping the operator cursor."""
+    eligible = eligible_queue_items(queue)
+    if not eligible:
+        return None
+    return eligible[max(cursor, 0) % len(eligible)]
+
+
+def operator_progress(
+    queue: list[FacebookGroupQueueItem],
+    cursor: int,
+) -> tuple[int, int]:
+    """Return a one-based current position and total eligible groups."""
+    eligible = eligible_queue_items(queue)
+    if not eligible:
+        return 0, 0
+    return (max(cursor, 0) % len(eligible)) + 1, len(eligible)

@@ -4,6 +4,8 @@ from decimal import Decimal
 from cfh_disposition.facebook_group_queue import (
     build_facebook_group_queue,
     eligible_queue_items,
+    operator_current_item,
+    operator_progress,
     queue_summary_rows,
 )
 from cfh_disposition.facebook_groups import (
@@ -39,6 +41,7 @@ def build_ledger() -> FacebookGroupLedger:
         name="Owner Financing Homes for Sale",
         group_url="https://www.facebook.com/groups/1305510733671893",
         cooldown_days=7,
+        notes="Owner-financing properties only. No rentals.",
         now=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
     )
     return upsert_group(
@@ -46,6 +49,7 @@ def build_ledger() -> FacebookGroupLedger:
         name="Illinois Owner Finance Homes",
         group_url="https://www.facebook.com/groups/123456789",
         cooldown_days=3,
+        notes="One post per property every three days.",
         now=datetime(2026, 8, 1, 12, 1, tzinfo=UTC),
     )
 
@@ -62,7 +66,10 @@ def test_queue_starts_with_every_active_group_ready() -> None:
     assert len(eligible_queue_items(queue)) == 2
     assert all(row.eligible for row in queue)
     assert all(row.next_eligible_at is None for row in queue)
-    assert len(queue_summary_rows(queue)) == 2
+    assert all(row.notes for row in queue)
+    summary = queue_summary_rows(queue)
+    assert len(summary) == 2
+    assert all(row["Group Rules / Notes"] != "—" for row in summary)
 
 
 def test_queue_blocks_only_the_group_that_received_the_property() -> None:
@@ -139,3 +146,46 @@ def test_inactive_groups_do_not_appear_in_queue() -> None:
 
     assert len(queue) == 1
     assert queue[0].group_name != inactive.name
+
+
+def test_operator_mode_wraps_cursor_and_reports_progress() -> None:
+    item = sample_property()
+    queue = build_facebook_group_queue(
+        build_ledger(),
+        property_id=item.property_id,
+        now=datetime(2026, 8, 4, 12, 0, tzinfo=UTC),
+    )
+
+    first = operator_current_item(queue, 0)
+    wrapped = operator_current_item(queue, 2)
+    assert first is not None
+    assert wrapped is not None
+    assert wrapped.group_id == first.group_id
+    assert operator_progress(queue, 0) == (1, 2)
+    assert operator_progress(queue, 1) == (2, 2)
+    assert operator_progress(queue, 2) == (1, 2)
+
+
+def test_operator_mode_returns_empty_state_when_no_groups_are_ready() -> None:
+    item = sample_property()
+    ledger = build_ledger()
+    posted_at = datetime(2026, 8, 4, 12, 0, tzinfo=UTC)
+    for group in ledger.groups:
+        ledger = record_facebook_group_post(
+            ledger,
+            property_id=item.property_id,
+            property_address=item.display_address,
+            group_id=group.group_id,
+            posted_by="Sabrina",
+            campaign="owner_finance_homes",
+            tracked_link=f"https://tracking.example.com/{group.group_id}",
+            now=posted_at,
+        )
+
+    queue = build_facebook_group_queue(
+        ledger,
+        property_id=item.property_id,
+        now=posted_at + timedelta(hours=1),
+    )
+    assert operator_current_item(queue, 0) is None
+    assert operator_progress(queue, 0) == (0, 0)

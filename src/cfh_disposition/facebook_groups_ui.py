@@ -13,6 +13,8 @@ from .dwelyx import build_dwelyx_url
 from .facebook_group_queue import (
     build_facebook_group_queue,
     eligible_queue_items,
+    operator_current_item,
+    operator_progress,
     queue_summary_rows,
 )
 from .facebook_groups import (
@@ -50,6 +52,42 @@ def _campaign_package(
     return build_fallback_campaign(selected, tracked_link)
 
 
+def _tracked_group_link(
+    dwelyx_url: str,
+    selected: OwnerFinanceProperty,
+    campaign: str,
+    group_id: str,
+) -> str:
+    return build_dwelyx_url(
+        dwelyx_url,
+        source="credit_friendly_homes",
+        medium="facebook_groups",
+        campaign=f"{campaign}_{group_id[:8]}",
+        property_id=selected.property_id,
+    )
+
+
+def _operator_cursor_key(selected: OwnerFinanceProperty) -> str:
+    return f"facebook_group_operator_cursor_{selected.property_id}"
+
+
+def _render_property_photos(selected: OwnerFinanceProperty) -> None:
+    st.write("### 3. Add the property photos")
+    if not selected.photo_urls:
+        st.warning(
+            "No property photos are saved. Add photos in Record Manager before posting."
+        )
+        return
+
+    column_count = min(4, len(selected.photo_urls))
+    columns = st.columns(column_count)
+    for index, photo_url in enumerate(selected.photo_urls):
+        column = columns[index % column_count]
+        url = str(photo_url)
+        column.image(url, use_container_width=True)
+        column.link_button(f"Open Photo {index + 1}", url)
+
+
 def render_facebook_group_posting_center(
     properties: Sequence[OwnerFinanceProperty],
     secrets: Mapping[str, Any],
@@ -57,8 +95,8 @@ def render_facebook_group_posting_center(
 ) -> None:
     st.subheader("Facebook Group Posting Center")
     st.caption(
-        "Build tracked Facebook Group posts, prevent accidental duplicate posting, and keep a "
-        "per-group cooldown history. Final publication remains manual."
+        "Prepare tracked Facebook Group posts, move through groups quickly, prevent duplicate "
+        "posting, and keep a per-group cooldown history. Final publication remains manual."
     )
 
     try:
@@ -72,8 +110,9 @@ def render_facebook_group_posting_center(
         )
         return
 
-    post_tab, queue_tab, directory_tab, history_tab = st.tabs(
+    operator_tab, post_tab, queue_tab, directory_tab, history_tab = st.tabs(
         [
+            "Fast Operator Mode",
             "Post to One Group",
             "Multi-Group Queue",
             "Group Directory",
@@ -145,6 +184,165 @@ def render_facebook_group_posting_center(
         else:
             st.info("No Facebook Groups are saved yet. Add the first group above.")
 
+    with operator_tab:
+        options = _property_options(properties)
+        groups = active_groups(ledger)
+        if not options:
+            st.info("Add a property before starting Fast Operator Mode.")
+        elif not groups:
+            st.info(
+                "Add Facebook Groups in the Group Directory before starting Fast Operator Mode."
+            )
+        else:
+            selected_name = st.selectbox(
+                "Choose property to post",
+                list(options),
+                key="facebook_group_operator_property",
+            )
+            selected = options[selected_name]
+            left, right = st.columns(2)
+            campaign = left.text_input(
+                "Operator campaign name",
+                value="owner_finance_homes",
+                key="facebook_group_operator_campaign",
+            )
+            operator = right.text_input(
+                "Operator name",
+                value="Sabrina",
+                key="facebook_group_operator_name",
+            )
+
+            queue = build_facebook_group_queue(
+                ledger,
+                property_id=selected.property_id,
+            )
+            eligible = eligible_queue_items(queue)
+            cooling_down = len(queue) - len(eligible)
+            cursor_key = _operator_cursor_key(selected)
+            cursor = int(st.session_state.get(cursor_key, 0))
+            current = operator_current_item(queue, cursor)
+            position, total = operator_progress(queue, cursor)
+
+            metrics = st.columns(3)
+            metrics[0].metric("Ready Groups", len(eligible))
+            metrics[1].metric(
+                "Current Position",
+                f"{position} of {total}" if total else "Complete",
+            )
+            metrics[2].metric("Cooling Down", cooling_down)
+
+            if current is None:
+                st.success(
+                    "There are no eligible Facebook Groups left for this property right now. "
+                    "The cooldown table shows when each group opens again."
+                )
+                st.dataframe(
+                    pd.DataFrame(queue_summary_rows(queue)),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.write(f"## Current Group: {current.group_name}")
+                if current.notes:
+                    st.info(f"Group rules or notes: {current.notes}")
+                else:
+                    st.caption(
+                        "No special group rules are saved. Add them in Group Directory when known."
+                    )
+
+                tracked_link = _tracked_group_link(
+                    dwelyx_url,
+                    selected,
+                    campaign,
+                    current.group_id,
+                )
+                package = _campaign_package(selected, tracked_link)
+                copy_text = channel_copy_with_link(
+                    package,
+                    "facebook_groups",
+                    tracked_link,
+                )
+
+                st.write("### 1. Open the current Facebook Group")
+                if current.group_url:
+                    st.link_button(
+                        f"Open {current.group_name}",
+                        current.group_url,
+                        type="primary",
+                        use_container_width=True,
+                    )
+                else:
+                    st.error(
+                        "This group has no saved Facebook URL. Add it in Group Directory before posting."
+                    )
+
+                st.write("### 2. Copy the prepared post")
+                st.code(copy_text, language=None)
+                st.caption(
+                    "Use the copy control in the post box. This Facebook Group version includes "
+                    "the tracked Dwelyx buyer-registration link."
+                )
+
+                _render_property_photos(selected)
+
+                st.write("### 4. Confirm the post and load the next group")
+                notes_key = (
+                    f"facebook_group_operator_notes_{selected.property_id}_{current.group_id}"
+                )
+                confirm_key = (
+                    f"facebook_group_operator_confirm_{selected.property_id}_{current.group_id}"
+                )
+                post_notes = st.text_area(
+                    "Optional Facebook post URL, approval note, or posting notes",
+                    height=80,
+                    key=notes_key,
+                )
+                confirmed = st.checkbox(
+                    "I confirm this post is already live in the current Facebook Group.",
+                    key=confirm_key,
+                )
+
+                skip_column, reset_column, posted_column = st.columns([1, 1, 2])
+                if skip_column.button(
+                    "Skip & Load Next",
+                    use_container_width=True,
+                ):
+                    st.session_state[cursor_key] = cursor + 1
+                    st.rerun()
+                if reset_column.button(
+                    "Return to First",
+                    use_container_width=True,
+                ):
+                    st.session_state[cursor_key] = 0
+                    st.rerun()
+                if posted_column.button(
+                    "Record Posted & Load Next",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not confirmed or not current.group_url,
+                ):
+                    try:
+                        ledger = record_facebook_group_post(
+                            ledger,
+                            property_id=selected.property_id,
+                            property_address=selected.display_address,
+                            group_id=current.group_id,
+                            posted_by=operator,
+                            campaign=campaign,
+                            tracked_link=tracked_link,
+                            notes=post_notes,
+                        )
+                        store.save(ledger)
+                        st.session_state[cursor_key] = 0
+                        st.session_state.pop(confirm_key, None)
+                        st.session_state.pop(notes_key, None)
+                        st.success(
+                            f"{current.group_name} was recorded. Loading the next eligible group."
+                        )
+                        st.rerun()
+                    except FacebookGroupError as exc:
+                        st.error(str(exc))
+
     with post_tab:
         options = _property_options(properties)
         groups = active_groups(ledger)
@@ -194,12 +392,11 @@ def render_facebook_group_posting_center(
                 )
 
             if status.eligible:
-                tracked_link = build_dwelyx_url(
+                tracked_link = _tracked_group_link(
                     dwelyx_url,
-                    source="credit_friendly_homes",
-                    medium="facebook_groups",
-                    campaign=f"{campaign}_{group.group_id[:8]}",
-                    property_id=selected.property_id,
+                    selected,
+                    campaign,
+                    group.group_id,
                 )
                 package = _campaign_package(selected, tracked_link)
                 copy_text = channel_copy_with_link(
@@ -335,12 +532,11 @@ def render_facebook_group_posting_center(
 
                 for group_name in selected_group_names:
                     item = eligible_by_name[group_name]
-                    tracked_link = build_dwelyx_url(
+                    tracked_link = _tracked_group_link(
                         dwelyx_url,
-                        source="credit_friendly_homes",
-                        medium="facebook_groups",
-                        campaign=f"{campaign}_{item.group_id[:8]}",
-                        property_id=selected.property_id,
+                        selected,
+                        campaign,
+                        item.group_id,
                     )
                     package = _campaign_package(selected, tracked_link)
                     copy_text = channel_copy_with_link(
@@ -357,6 +553,8 @@ def render_facebook_group_posting_center(
                     notes_keys[item.group_id] = notes_key
 
                     with st.expander(f"{item.group_name} — ready to post"):
+                        if item.notes:
+                            st.info(f"Group rules or notes: {item.notes}")
                         if item.group_url:
                             st.link_button(
                                 f"Open {item.group_name}",
