@@ -158,7 +158,7 @@ class AIMarketingPlan(BaseModel):
 
     executive_summary: str = Field(min_length=20, max_length=1600)
     immediate_actions: list[str] = Field(min_length=1, max_length=8)
-    channel_decisions: list[MarketingChannelDecision] = Field(min_length=1, max_length=14)
+    channel_decisions: list[MarketingChannelDecision] = Field(min_length=1, max_length=15)
     property_priorities: list[MarketingPropertyPriority] = Field(default_factory=list, max_length=12)
     creative_tests: list[MarketingCreativeTest] = Field(min_length=1, max_length=10)
     measurement_gaps: list[str] = Field(default_factory=list, max_length=10)
@@ -189,7 +189,7 @@ MARKETING_PLAN_SCHEMA: dict[str, Any] = {
                 "required": ["channel_key", "action", "reason", "seven_day_test"],
             },
             "minItems": 1,
-            "maxItems": 14,
+            "maxItems": 15,
         },
         "property_priorities": {
             "type": "array",
@@ -639,7 +639,8 @@ def optimizer_context(
             "Do not promise approval, a credit outcome, financing, or acceptance.",
             "Do not recommend deceptive engagement, fake accounts, browser bots, spam, or policy evasion.",
             "Do not recommend automatic posting to member-only Facebook Groups.",
-            "Keep Facebook Marketplace and Facebook Group final publishing manual.",
+            "Keep Facebook Marketplace, Facebook Group, classifieds, and Nextdoor final publishing manual.",
+            "Treat Nextdoor paid housing advertising as approval-controlled spending and do not recommend protected-class, hardship, or ZIP-code targeting.",
             "Use tracked Dwelyx links where the platform allows external links.",
             "Recommend one-variable tests with a clear primary metric and stop rule.",
         ],
@@ -774,9 +775,10 @@ def generate_ai_marketing_plan(
         "Inquiries, Applications, Cost per inquiry, Cost per application, or Contracts. "
         "Never recommend protected-class targeting, family targeting, neighborhood safety claims, crime claims, "
         "school-quality claims, approval guarantees, credit promises, deceptive engagement, fake accounts, "
-        "browser automation, spam, policy evasion, or automatic posting into member-only Facebook Groups. "
-        "Do not repeat prohibited phrases even as examples. Facebook Marketplace and member-only Facebook Group "
-        "publication must remain manual. Use calm, direct, execution-focused language."
+        "browser automation, spam, policy evasion, automatic posting into member-only Facebook Groups, or "
+        "protected-class, hardship, or ZIP-code targeting for Nextdoor housing ads. "
+        "Facebook Marketplace, member-only Facebook Group, classifieds, and Nextdoor publication must remain manual. "
+        "Nextdoor paid housing-ad spending requires manager approval. Use calm, direct, execution-focused language."
     )
     payload = {
         "model": settings.model,
