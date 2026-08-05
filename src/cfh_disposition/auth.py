@@ -4,6 +4,8 @@ import hmac
 from collections.abc import Mapping
 from typing import Any
 
+from .channels import CHANNELS
+
 
 def _configure_private_navigation() -> None:
     """Hide private page names until login, then show authenticated shortcuts."""
@@ -24,8 +26,11 @@ def _configure_private_navigation() -> None:
         )
         return
 
-    st.sidebar.markdown("[🔗 14-Channel Link Center](?channel_center=1)")
-    st.sidebar.markdown("[📊 14-Channel Marketing Analytics](?analytics=1)")
+    channel_count = len(CHANNELS)
+    st.sidebar.markdown(f"[🔗 {channel_count}-Channel Link Center](?channel_center=1)")
+    st.sidebar.markdown(
+        f"[📊 {channel_count}-Channel Marketing Analytics](?analytics=1)"
+    )
 
 
 def configured_password(secrets: Mapping[str, Any]) -> str:
