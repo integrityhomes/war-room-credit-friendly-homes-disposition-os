@@ -75,25 +75,16 @@ def get_storage():
 
 
 def active_records_for_property(conversion_ledger, property_id: str):
-    return [
-        record
-        for record in conversion_ledger.records
-        if record.property_id == property_id and record.stage not in TERMINAL_STAGES
-    ]
+    return [record for record in conversion_ledger.records if record.property_id == property_id and record.stage not in TERMINAL_STAGES]
 
 
 def buyer_label(record, buyers_by_id) -> str:
     buyer = buyers_by_id.get(record.buyer_id)
     if buyer:
-        name = " ".join(
-            part for part in [buyer.first_name, buyer.last_name] if part
-        ).strip()
+        name = " ".join(part for part in [buyer.first_name, buyer.last_name] if part).strip()
     else:
         name = ""
-    return (
-        f"{name or 'Buyer ' + record.buyer_id[:8]} — "
-        f"{record.stage.value} — owner: {record.owner or 'Unassigned'}"
-    )
+    return f"{name or 'Buyer ' + record.buyer_id[:8]} — {record.stage.value} — owner: {record.owner or 'Unassigned'}"
 
 
 def sync_campaign_state(event, dispatch_status) -> None:
@@ -118,17 +109,9 @@ def sync_one_channel(event, channel_key: str, task_status: ControlTaskStatus) ->
         if state is None:
             return
         if task_status == ControlTaskStatus.CONFIRMED:
-            launch_status = (
-                LaunchStatus.POSTED
-                if event.operation == ControlOperation.RESUME
-                else LaunchStatus.PAUSED
-            )
+            launch_status = LaunchStatus.POSTED if event.operation == ControlOperation.RESUME else LaunchStatus.PAUSED
         elif task_status == ControlTaskStatus.DISPATCHED:
-            launch_status = (
-                LaunchStatus.SCHEDULED
-                if event.operation == ControlOperation.RESUME
-                else LaunchStatus.PAUSED
-            )
+            launch_status = LaunchStatus.SCHEDULED if event.operation == ControlOperation.RESUME else LaunchStatus.PAUSED
         elif task_status == ControlTaskStatus.FAILED:
             launch_status = LaunchStatus.FAILED
         else:
@@ -147,11 +130,11 @@ def sync_one_channel(event, channel_key: str, task_status: ControlTaskStatus) ->
 
 require_password()
 st.title("Property Shutdown & Buyer Reroute Center")
-st.caption(
-    "Stops or restores one property across all 15 marketing channels, protects public availability, and creates buyer reassignment work."
-)
+st.caption("Stops or restores one property across all 15 marketing channels, protects public availability, and creates buyer reassignment work.")
 st.warning(
-    "Saving Pending, Filled, Sold, or Paused immediately removes the property from the Credit Friendly Homes public portal. External platforms are not treated as stopped until their task or publishing-workflow result is confirmed."
+    "Saving Pending, Filled, Sold, or Paused immediately removes the property "
+    "from the Credit Friendly Homes public portal. External platforms are not "
+    "treated as stopped until their task or publishing-workflow result is confirmed."
 )
 
 try:
@@ -171,9 +154,7 @@ if not properties:
     st.stop()
 
 buyers_by_id = {str(buyer.buyer_id): buyer for buyer in buyers}
-property_options = {
-    f"{item.display_address} — {item.status.value}": item for item in properties
-}
+property_options = {f"{item.display_address} — {item.status.value}": item for item in properties}
 
 control_tab, channel_tab, buyer_tab, history_tab = st.tabs(
     [
@@ -215,19 +196,11 @@ with control_tab:
         MarketingControlAction.SOLD,
     }:
         winner_options = {"No buyer selected — reroute every active buyer": ""}
-        winner_options.update(
-            {
-                buyer_label(record, buyers_by_id): record.record_id
-                for record in active_records
-            }
-        )
+        winner_options.update({buyer_label(record, buyers_by_id): record.record_id for record in active_records})
         winner_label = st.selectbox(
             "Buyer staying with this property — optional",
             list(winner_options),
-            help=(
-                "The selected buyer remains attached to the pending contract or filled home. "
-                "Every other active buyer receives a reroute task."
-            ),
+            help=("The selected buyer remains attached to the pending contract or filled home. Every other active buyer receives a reroute task."),
         )
         winning_record_id = winner_options[winner_label]
 
@@ -245,9 +218,7 @@ with control_tab:
                 {
                     "Channel": task.channel_name,
                     "Operation": task.operation.value,
-                    "Manual Confirmation": (
-                        "Yes" if task.requires_manual_confirmation else "No"
-                    ),
+                    "Manual Confirmation": ("Yes" if task.requires_manual_confirmation else "No"),
                     "Instruction": task.instruction,
                 }
                 for task in preview_channels
@@ -282,15 +253,11 @@ with control_tab:
         requested_by = st.text_input("Authorized by", value="Sabrina")
         reason = st.text_area(
             "Reason*",
-            placeholder=(
-                "Examples: contract signed, buyer moved in, property sold, repairs in progress, or pending contract fell through."
-            ),
+            placeholder=("Examples: contract signed, buyer moved in, property sold, repairs in progress, or pending contract fell through."),
             height=100,
         )
         notes = st.text_area("Internal notes — optional", height=90)
-        confirmed = st.checkbox(
-            "I confirm this status is accurate and understand that public visibility changes immediately."
-        )
+        confirmed = st.checkbox("I confirm this status is accurate and understand that public visibility changes immediately.")
         submit = st.form_submit_button(
             "Apply Property Control Action",
             type="primary",
@@ -319,17 +286,13 @@ with control_tab:
                 try:
                     receipt = dispatch_property_control(event, settings)
                     dispatch_status = ControlDispatchStatus.SUCCEEDED
-                    dispatch_detail = (
-                        f"Publishing workflow accepted the request with HTTP {receipt.status_code}."
-                    )
+                    dispatch_detail = f"Publishing workflow accepted the request with HTTP {receipt.status_code}."
                 except PropertyControlError as exc:
                     dispatch_status = ControlDispatchStatus.FAILED
                     dispatch_detail = str(exc)
             else:
                 dispatch_status = ControlDispatchStatus.NOT_CONFIGURED
-                dispatch_detail = (
-                    "No publishing webhook is configured. Complete the saved external-channel tasks manually."
-                )
+                dispatch_detail = "No publishing webhook is configured. Complete the saved external-channel tasks manually."
 
             updated_ledger = mark_control_dispatch(
                 updated_ledger,
@@ -342,10 +305,7 @@ with control_tab:
             if updated_event:
                 sync_campaign_state(updated_event, dispatch_status)
 
-            st.session_state.property_control_message = (
-                f"{selected.display_address} changed from {selected.status.value} "
-                f"to {updated_property.status.value}. {dispatch_detail}"
-            )
+            st.session_state.property_control_message = f"{selected.display_address} changed from {selected.status.value} to {updated_property.status.value}. {dispatch_detail}"
             st.rerun()
         except (PropertyControlError, StorageError) as exc:
             st.error(str(exc))
@@ -360,10 +320,7 @@ with channel_tab:
         st.info("No property control event has been created yet.")
     else:
         event_options = {
-            (
-                f"{event.requested_at.astimezone().strftime('%Y-%m-%d %I:%M %p')} — "
-                f"{event.property_address} — {event.action.value}"
-            ): event
+            (f"{event.requested_at.astimezone().strftime('%Y-%m-%d %I:%M %p')} — {event.property_address} — {event.action.value}"): event
             for event in sorted(
                 control_ledger.events,
                 key=lambda item: item.requested_at,
@@ -390,10 +347,7 @@ with channel_tab:
             "text/csv",
         )
 
-        task_options = {
-            f"{task.channel_name} — {task.status.value}": task
-            for task in selected_event.channel_tasks
-        }
+        task_options = {f"{task.channel_name} — {task.status.value}": task for task in selected_event.channel_tasks}
         task_label = st.selectbox(
             "Update one channel",
             list(task_options),
@@ -445,15 +399,10 @@ with buyer_tab:
     st.write("### Buyers who need another available home")
     events_with_buyers = [event for event in control_ledger.events if event.buyer_tasks]
     if not events_with_buyers:
-        st.info(
-            "No buyer reroute tasks exist yet. They will populate from the Buyer Conversion Command Center after Dwelyx is connected and active buyer records exist."
-        )
+        st.info("No buyer reroute tasks exist yet. They will populate from the Buyer Conversion Command Center after Dwelyx is connected and active buyer records exist.")
     else:
         event_options = {
-            (
-                f"{event.property_address} — {event.action.value} — "
-                f"{event.requested_at.astimezone().strftime('%Y-%m-%d %I:%M %p')}"
-            ): event
+            (f"{event.property_address} — {event.action.value} — {event.requested_at.astimezone().strftime('%Y-%m-%d %I:%M %p')}"): event
             for event in sorted(
                 events_with_buyers,
                 key=lambda item: item.requested_at,
@@ -479,10 +428,7 @@ with buyer_tab:
             "text/csv",
         )
 
-        task_options = {
-            f"{task.buyer_name} — {task.current_stage} — {task.status.value}": task
-            for task in selected_event.buyer_tasks
-        }
+        task_options = {f"{task.buyer_name} — {task.current_stage} — {task.status.value}": task for task in selected_event.buyer_tasks}
         task_label = st.selectbox(
             "Update one buyer",
             list(task_options),

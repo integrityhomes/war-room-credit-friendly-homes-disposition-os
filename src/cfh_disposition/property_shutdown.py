@@ -176,10 +176,7 @@ def updated_property_for_action(
     if action == MarketingControlAction.RESUME:
         plan = build_launch_plan(updated)
         if not plan.can_launch:
-            raise PropertyControlError(
-                "Marketing cannot resume until the property passes the launch gate: "
-                + "; ".join(plan.validation.errors)
-            )
+            raise PropertyControlError("Marketing cannot resume until the property passes the launch gate: " + "; ".join(plan.validation.errors))
     return updated
 
 
@@ -225,11 +222,7 @@ def build_channel_control_tasks(
     tasks: list[ChannelControlTask] = []
     for channel in CHANNELS:
         launch_action = launch_action_for_channel(channel)
-        instruction = (
-            _resume_instruction(channel.key, channel.name, launch_action)
-            if operation == ControlOperation.RESUME
-            else _shutdown_instruction(channel.key, channel.name, launch_action)
-        )
+        instruction = _resume_instruction(channel.key, channel.name, launch_action) if operation == ControlOperation.RESUME else _shutdown_instruction(channel.key, channel.name, launch_action)
         internal = channel.key == "property_page"
         tasks.append(
             ChannelControlTask(
@@ -237,9 +230,7 @@ def build_channel_control_tasks(
                 channel_name=channel.name,
                 operation=operation,
                 launch_action=launch_action.value,
-                requires_manual_confirmation=(
-                    launch_action == LaunchAction.MANUAL_FINAL_POST and not internal
-                ),
+                requires_manual_confirmation=(launch_action == LaunchAction.MANUAL_FINAL_POST and not internal),
                 instruction=instruction,
                 status=(ControlTaskStatus.CONFIRMED if internal else ControlTaskStatus.READY),
                 updated_at=(timestamp if internal else None),
@@ -372,10 +363,7 @@ def _replace_event(
     now: datetime | None = None,
 ) -> PropertyControlLedger:
     timestamp = _current(now)
-    events = [
-        updated_event if event.event_id == updated_event.event_id else event
-        for event in ledger.events
-    ]
+    events = [updated_event if event.event_id == updated_event.event_id else event for event in ledger.events]
     return ledger.model_copy(update={"events": events, "updated_at": timestamp})
 
 
@@ -510,9 +498,7 @@ def build_property_control_payload(event: PropertyControlEvent) -> dict[str, Any
             "new_status": event.new_status,
         },
         "buyer_reroute": {
-            "affected_active_records": sum(
-                task.status != ControlTaskStatus.NOT_APPLICABLE for task in event.buyer_tasks
-            ),
+            "affected_active_records": sum(task.status != ControlTaskStatus.NOT_APPLICABLE for task in event.buyer_tasks),
             "winning_conversion_record_id": event.winning_conversion_record_id or None,
             "send_buyer_personal_data": False,
         },
@@ -540,9 +526,7 @@ def dispatch_property_control(
     settings: AutomationDispatchSettings,
 ) -> AutomationDispatchReceipt:
     if not settings.configured:
-        raise PropertyControlError(
-            "The publishing workflow is not connected. The property status was still saved locally, and the task board remains available."
-        )
+        raise PropertyControlError("The publishing workflow is not connected. The property status was still saved locally, and the task board remains available.")
     body = serialize_launch_payload(build_property_control_payload(event))
     headers = {
         "Content-Type": "application/json",
@@ -559,17 +543,11 @@ def dispatch_property_control(
             response_text = response.read().decode("utf-8", errors="replace")[:PROPERTY_CONTROL_RESPONSE_LIMIT]
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:PROPERTY_CONTROL_RESPONSE_LIMIT]
-        raise PropertyControlError(
-            f"The publishing workflow rejected the property control request (HTTP {exc.code}). {detail}"
-        ) from exc
+        raise PropertyControlError(f"The publishing workflow rejected the property control request (HTTP {exc.code}). {detail}") from exc
     except (URLError, TimeoutError) as exc:
-        raise PropertyControlError(
-            "The publishing workflow could not be reached. Use the saved task board to stop or resume each channel manually."
-        ) from exc
+        raise PropertyControlError("The publishing workflow could not be reached. Use the saved task board to stop or resume each channel manually.") from exc
     if not 200 <= status_code < 300:
-        raise PropertyControlError(
-            f"The publishing workflow returned HTTP {status_code}. Use the saved task board to control each channel manually."
-        )
+        raise PropertyControlError(f"The publishing workflow returned HTTP {status_code}. Use the saved task board to control each channel manually.")
     return AutomationDispatchReceipt(
         status_code=status_code,
         sent_at=datetime.now(UTC),
@@ -589,21 +567,13 @@ def campaign_state_after_control(
     for channel in CHANNELS:
         launch_action = launch_action_for_channel(channel)
         if channel.key == "property_page":
-            status = (
-                LaunchStatus.POSTED
-                if event.operation == ControlOperation.RESUME
-                else LaunchStatus.PAUSED
-            )
+            status = LaunchStatus.POSTED if event.operation == ControlOperation.RESUME else LaunchStatus.PAUSED
             note = "Public visibility updated by the saved property status."
         elif launch_action == LaunchAction.MANUAL_FINAL_POST:
             status = LaunchStatus.READY
             note = "Manual platform confirmation is still required."
         elif dispatch_status == ControlDispatchStatus.SUCCEEDED:
-            status = (
-                LaunchStatus.SCHEDULED
-                if event.operation == ControlOperation.RESUME
-                else LaunchStatus.PAUSED
-            )
+            status = LaunchStatus.SCHEDULED if event.operation == ControlOperation.RESUME else LaunchStatus.PAUSED
             note = "The connected publishing workflow accepted the property control request."
         elif dispatch_status == ControlDispatchStatus.FAILED:
             status = LaunchStatus.FAILED
@@ -664,14 +634,8 @@ def event_history_rows(ledger: PropertyControlLedger) -> list[dict[str, str | in
                 "To": event.new_status,
                 "Requested By": event.requested_by,
                 "Dispatch": event.dispatch_status.value,
-                "Open Channel Tasks": sum(
-                    task.status in {ControlTaskStatus.READY, ControlTaskStatus.FAILED}
-                    for task in event.channel_tasks
-                ),
-                "Open Buyer Tasks": sum(
-                    task.status in {ControlTaskStatus.READY, ControlTaskStatus.FAILED}
-                    for task in event.buyer_tasks
-                ),
+                "Open Channel Tasks": sum(task.status in {ControlTaskStatus.READY, ControlTaskStatus.FAILED} for task in event.channel_tasks),
+                "Open Buyer Tasks": sum(task.status in {ControlTaskStatus.READY, ControlTaskStatus.FAILED} for task in event.buyer_tasks),
                 "Reason": event.reason,
             }
         )
