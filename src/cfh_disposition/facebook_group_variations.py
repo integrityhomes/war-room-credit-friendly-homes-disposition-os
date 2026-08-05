@@ -72,7 +72,7 @@ def variation_index(
     *,
     prior_post_count: int = 0,
 ) -> int:
-    seed = f"{property_id}|{group_id}".encode("utf-8")
+    seed = f"{property_id}|{group_id}".encode()
     base = int.from_bytes(hashlib.sha256(seed).digest()[:8], "big")
     return (base + max(prior_post_count, 0)) % VARIATION_COUNT
 
