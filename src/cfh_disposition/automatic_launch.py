@@ -18,11 +18,11 @@ from .channels import CHANNELS, MarketingChannel
 from .models import OwnerFinanceProperty
 
 AUTOMATION_EVENT = "credit_friendly_homes.campaign.approved"
-AUTOMATION_SCHEMA_VERSION = "1.1"
+AUTOMATION_SCHEMA_VERSION = "1.2"
 AUTOMATION_TIMEOUT_SECONDS = 30
 AUTOMATION_RESPONSE_LIMIT = 500
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
-RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds"}
+RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds", "nextdoor"}
 FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace"}
 INTERNAL_LIVE_CHANNELS = {"property_page"}
 
@@ -89,6 +89,7 @@ def _copy_source(package: CampaignPackage, channel_key: str) -> str:
         "tiktok": package.video_script,
         "youtube": package.video_script,
         "classifieds": package.classified_ad,
+        "nextdoor": f"{package.headline}\n\n{package.social_caption}",
     }
     try:
         return mapping[channel_key]
@@ -194,6 +195,7 @@ def build_automatic_launch_payload(
             "property_sync_to_dwelyx": False,
             "facebook_marketplace_direct_link": False,
             "facebook_groups_direct_link": True,
+            "nextdoor_direct_link": True,
         },
         "marketplace_monthly_gate": {
             "blocked": marketplace_blocked,
@@ -270,6 +272,11 @@ def automation_plan_rows() -> list[dict[str, str]]:
             result = (
                 "A no-link package is prepared for a final human post, subject to the five-per-month "
                 "Homes for Sale or Rent safety gate."
+            )
+        elif channel.key == "nextdoor":
+            result = (
+                "A tracked Business Post and paid housing-ad package is prepared. Business Page verification, "
+                "final publication, platform review, targeting review, and ad spending remain manual."
             )
         elif action == LaunchAction.MANUAL_FINAL_POST:
             result = (
