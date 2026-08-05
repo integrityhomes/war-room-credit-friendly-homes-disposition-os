@@ -3,9 +3,8 @@ from __future__ import annotations
 import csv
 import io
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
-from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
