@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from cfh_disposition.channels import CHANNELS
+from cfh_disposition.simple_flow import PRIMARY_NAVIGATION
 
 UI_FILES = (
     Path("app.py"),
@@ -23,7 +24,8 @@ def test_key_ui_files_do_not_hard_code_the_old_channel_count() -> None:
         assert "all 14 channels" not in source
 
 
-def test_growth_plan_uses_live_channel_count_and_full_table_height() -> None:
+def test_home_uses_live_channel_count_and_simple_default_flow() -> None:
     source = Path("app.py").read_text(encoding="utf-8")
-    assert 'st.subheader(f"{len(CHANNELS)}-Channel Growth Plan")' in source
-    assert "height=max(420, len(CHANNELS) * 35 + 45)" in source
+    assert 'st.subheader(f"Simple {len(CHANNELS)}-Channel Marketing Flow")' in source
+    assert PRIMARY_NAVIGATION[0] == "Simple Marketing Flow"
+    assert "height=max(420, len(CHANNELS) * 35 + 45)" not in source
