@@ -117,7 +117,7 @@ def test_duplicate_active_experiment_is_blocked() -> None:
     ledger = create_experiment(CreativeTestingLedger(), experiment)
 
     with pytest.raises(CreativeTestingError, match="active creative test"):
-        create_experiment(ledger, build_test())
+        create_experiment(ledger, experiment)
 
 
 def test_outcome_upsert_replaces_same_variant_period() -> None:
