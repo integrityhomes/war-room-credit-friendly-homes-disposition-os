@@ -89,6 +89,19 @@ def top_channel_name(channel_rows) -> str:
     return winner.name
 
 
+def compact_id(value: str, *, prefix: int = 8, suffix: int = 4) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "Unassigned"
+    if len(text) <= prefix + suffix + 3:
+        return text
+    return f"{text[:prefix]}…{text[-suffix:]}"
+
+
+def local_timestamp(value: datetime) -> str:
+    return value.astimezone().strftime("%b %d, %Y • %I:%M %p")
+
+
 require_password()
 st.title("Dwelyx Results Tracking & Attribution Center")
 st.caption(
@@ -216,8 +229,8 @@ with journeys_tab:
         )
         journey_options = {
             (
-                f"{item.dwelyx_buyer_id} — "
-                f"{labels.get(item.cfh_property_id, item.cfh_property_id or item.dwelyx_property_id or 'Unassigned')} — "
+                f"{compact_id(item.dwelyx_buyer_id)} • "
+                f"{labels.get(item.cfh_property_id, compact_id(item.cfh_property_id or item.dwelyx_property_id))} • "
                 f"{item.stage.value}"
             ): item
             for item in journeys
@@ -227,11 +240,39 @@ with journeys_tab:
             list(journey_options),
         )
         selected = journey_options[selected_label]
-        detail = st.columns(4)
-        detail[0].metric("Dwelyx Buyer ID", selected.dwelyx_buyer_id)
-        detail[1].metric("Stage", selected.stage.value)
-        detail[2].metric("Channel", selected.channel_name)
-        detail[3].metric("Campaign", selected.campaign)
+        property_id = selected.cfh_property_id or selected.dwelyx_property_id
+        property_name = labels.get(property_id, "")
+        property_display = property_name or compact_id(property_id)
+
+        st.write("### Buyer Journey Detail")
+        with st.container(border=True):
+            primary = st.columns(3)
+            primary[0].write("**Stage**")
+            primary[0].write(selected.stage.value)
+            primary[1].write("**Property**")
+            primary[1].write(property_display)
+            primary[2].write("**Requested / Latest Activity**")
+            primary[2].write(local_timestamp(selected.latest_event_at))
+
+            attribution = st.columns(3)
+            attribution[0].write("**Marketing Channel**")
+            attribution[0].write(selected.channel_name)
+            attribution[1].write("**Campaign**")
+            attribution[1].write(selected.campaign or "Not specified")
+            attribution[2].write("**Events in Journey**")
+            attribution[2].write(str(selected.event_count))
+
+            identity = st.columns(2)
+            identity[0].write("**Dwelyx Buyer ID**")
+            identity[0].code(selected.dwelyx_buyer_id, language=None)
+            identity[1].write("**Property ID**")
+            identity[1].code(property_id or "Unassigned", language=None)
+
+            st.caption(
+                f"Journey first seen {local_timestamp(selected.first_event_at)}. "
+                "This center is for marketing attribution and funnel tracking; Dwelyx remains the system of record for buyer and showing details."
+            )
+
         if selected.dwelyx_record_url:
             st.link_button(
                 "Open This Journey in Dwelyx",
