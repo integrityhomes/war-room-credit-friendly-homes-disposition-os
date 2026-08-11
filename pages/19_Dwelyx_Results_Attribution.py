@@ -60,8 +60,23 @@ def get_property_storage():
     return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 
-def property_labels(properties) -> dict[str, str]:
-    return {str(item.property_id): item.display_address or str(item.property_id) for item in properties}
+def property_labels(properties, secrets=None) -> dict[str, str]:
+    labels = {
+        str(item.property_id): item.display_address or str(item.property_id)
+        for item in properties
+    }
+    if secrets is not None:
+        overrides = secrets.get("DWELYX_PROPERTY_ADDRESSES", {})
+        try:
+            override_items = overrides.items()
+        except AttributeError:
+            override_items = ()
+        for property_id, address in override_items:
+            clean_id = str(property_id or "").strip()
+            clean_address = str(address or "").strip()
+            if clean_id and clean_address:
+                labels[clean_id] = clean_address
+    return labels
 
 
 def filtered_events(events, days: int, include_tests: bool):
@@ -119,7 +134,7 @@ except (DwelyxAttributionError, StorageError) as exc:
     st.error(f"Dwelyx attribution is safety-locked: {exc}")
     st.stop()
 
-labels = property_labels(properties)
+labels = property_labels(properties, st.secrets)
 results_tab, journeys_tab, test_tab, connection_tab = st.tabs(
     [
         "Results Dashboard",
@@ -230,7 +245,7 @@ with journeys_tab:
         journey_options = {
             (
                 f"{compact_id(item.dwelyx_buyer_id)} • "
-                f"{labels.get(item.cfh_property_id, compact_id(item.cfh_property_id or item.dwelyx_property_id))} • "
+                f"{labels.get(item.cfh_property_id or item.dwelyx_property_id, compact_id(item.cfh_property_id or item.dwelyx_property_id))} • "
                 f"{item.stage.value}"
             ): item
             for item in journeys
@@ -242,14 +257,14 @@ with journeys_tab:
         selected = journey_options[selected_label]
         property_id = selected.cfh_property_id or selected.dwelyx_property_id
         property_name = labels.get(property_id, "")
-        property_display = property_name or compact_id(property_id)
+        property_display = property_name or "Address not linked"
 
         st.write("### Buyer Journey Detail")
         with st.container(border=True):
             primary = st.columns(3)
             primary[0].write("**Stage**")
             primary[0].write(selected.stage.value)
-            primary[1].write("**Property**")
+            primary[1].write("**Property Address**")
             primary[1].write(property_display)
             primary[2].write("**Requested / Latest Activity**")
             primary[2].write(local_timestamp(selected.latest_event_at))
@@ -404,7 +419,10 @@ with connection_tab:
     st.code(
         'DWELYX_WEBHOOK_SECRET = "use-a-long-random-shared-secret"\n'
         '# Optional override after deploying the receiver:\n'
-        'DWELYX_RESULTS_ENDPOINT = "https://your-project.supabase.co/functions/v1/dwelyx-results"'
+        'DWELYX_RESULTS_ENDPOINT = "https://your-project.supabase.co/functions/v1/dwelyx-results"\n\n'
+        '# Optional address labels for Dwelyx-only property IDs:\n'
+        '[DWELYX_PROPERTY_ADDRESSES]\n'
+        '"dwelyx-property-uuid" = "123 Main St, Decatur, IL 62521"'
     )
     st.warning(
         "The receiver source is included in this repository, but it is not live until the Supabase Edge Function is deployed. The separate Dwelyx repository must then send signed events to this URL."
