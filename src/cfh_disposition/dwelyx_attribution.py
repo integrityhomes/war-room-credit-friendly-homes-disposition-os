@@ -399,7 +399,9 @@ def build_funnel(journeys: Sequence[JourneySnapshot]) -> FunnelSnapshot:
     applications_started = sum(_reached(item, JourneyStage.APPLICATION_STARTED) for item in journeys)
     applications_submitted = sum(_reached(item, JourneyStage.APPLICATION_SUBMITTED) for item in journeys)
     showings_requested = sum(_reached(item, JourneyStage.SHOWING_REQUESTED) for item in journeys)
-    showings_scheduled = sum(_reached(item, JourneyStage.SHOWING_SCHEDULED) for item in journeys)
+    # The Results Dashboard's "Showings" metric represents showing requests (or any later showing stage).
+    # Keep the legacy field name for compatibility with the Streamlit page while counting from SHOWING_REQUESTED.
+    showings_scheduled = showings_requested
     contracts_pending = sum(_reached(item, JourneyStage.CONTRACT_PENDING) for item in journeys)
     contracts_signed = sum(_reached(item, JourneyStage.CONTRACT_SIGNED) for item in journeys)
     filled = sum(_reached(item, JourneyStage.FILLED) for item in journeys)
@@ -423,7 +425,7 @@ def build_funnel(journeys: Sequence[JourneySnapshot]) -> FunnelSnapshot:
 def _attribution_row(key: str, name: str, journeys: Sequence[JourneySnapshot]) -> AttributionRow:
     registrations = sum(_reached(item, JourneyStage.REGISTERED) for item in journeys)
     applications = sum(_reached(item, JourneyStage.APPLICATION_SUBMITTED) for item in journeys)
-    showings = sum(_reached(item, JourneyStage.SHOWING_SCHEDULED) for item in journeys)
+    showings = sum(_reached(item, JourneyStage.SHOWING_REQUESTED) for item in journeys)
     contracts = sum(_reached(item, JourneyStage.CONTRACT_SIGNED) for item in journeys)
     filled = sum(_reached(item, JourneyStage.FILLED) for item in journeys)
     return AttributionRow(
