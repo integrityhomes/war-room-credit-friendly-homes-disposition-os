@@ -150,5 +150,7 @@ for tab, key in zip(channel_tabs, channel_keys, strict=True):
         )
 
 st.warning(
-    "Before posting: verify the property is still available, confirm all displayed terms, review the photos/video, and approve the final creative. Do not promise buyer approval or change verified property facts in the copy."
+    "Before posting: verify the property is still available, confirm all displayed terms, "
+    "review the photos/video, and approve the final creative. Do not promise buyer approval "
+    "or change verified property facts in the copy."
 )
