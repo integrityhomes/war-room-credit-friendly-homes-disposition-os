@@ -57,7 +57,9 @@ st.caption(
     "Builds three separate, fact-safe social packages from one property while preserving channel-specific Dwelyx attribution."
 )
 st.info(
-    "Each channel gets its own tracked link. Use the exact link supplied for that platform so registrations, applications, showings, contracts, and filled homes can be attributed back to Instagram, TikTok, or YouTube."
+    "Each channel gets its own tracked link. Use the exact link supplied for that platform "
+    "so registrations, applications, showings, contracts, and filled homes can be attributed "
+    "back to Instagram, TikTok, or YouTube."
 )
 
 try:
