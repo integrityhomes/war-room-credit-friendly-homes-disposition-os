@@ -107,8 +107,6 @@ def test_platform_packages_are_distinct_but_keep_same_property_facts():
 
 def test_social_package_blocks_missing_property_address():
     property_ = OwnerFinanceProperty(
-        city="Decatur",
-        state="IL",
         total_price=Decimal("79900"),
     )
 
