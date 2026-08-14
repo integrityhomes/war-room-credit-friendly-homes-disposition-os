@@ -54,12 +54,10 @@ def get_storage():
 require_password()
 st.title("Instagram Reels + TikTok + YouTube Shorts")
 st.caption(
-    "Builds three separate, fact-safe social packages from one property while preserving channel-specific Dwelyx attribution."
+    "Creates ready-to-post short-form social packages for each platform while keeping Dwelyx attribution separate by channel, campaign, and property."
 )
 st.info(
-    "Each channel gets its own tracked link. Use the exact link supplied for that platform "
-    "so registrations, applications, showings, contracts, and filled homes can be attributed "
-    "back to Instagram, TikTok, or YouTube."
+    "Each platform gets its own tracked Dwelyx link plus platform-specific titles, caption variations, hashtags, on-screen text, scripts, and posting notes."
 )
 
 try:
@@ -72,17 +70,14 @@ if not properties:
     st.warning("Add and save a property before creating social content.")
     st.stop()
 
-property_options = {
-    item.display_address or str(item.property_id): item
-    for item in properties
-}
+property_options = {item.display_address or str(item.property_id): item for item in properties}
 selected_label = st.selectbox("Choose property", list(property_options))
 selected = property_options[selected_label]
 
 campaign = st.text_input(
     "Campaign name",
     value=f"social_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower(),
-    help="This campaign name stays attached to all three channel links so the Results Center can compare them cleanly.",
+    help="The same campaign name is used across all three channels so the Results Center can compare performance cleanly.",
 ).strip()
 if not campaign:
     st.warning("Enter a campaign name before creating the packages.")
@@ -113,63 +108,95 @@ for channel_key, channel_name in SOCIAL_CHANNELS:
 summary = st.columns(4)
 summary[0].metric("Property", selected.city or selected.state or "Saved property")
 summary[1].metric("Platforms", "3")
-summary[2].metric("Campaign", campaign)
+summary[2].metric("Caption variations", "9 total")
 summary[3].metric("Attribution", "Separate by channel")
 
-st.write("### Content packages")
+st.write("### Ready-to-post packages")
 tabs = st.tabs([name for _, name in SOCIAL_CHANNELS])
 for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
     package = packages[channel_key]
     with tab:
         st.write(f"#### {channel_name}")
+        st.text_input("Post / video title", value=package.post_title, key=f"title_{channel_key}")
         st.text_input("Tracked Dwelyx link", value=package.tracked_link, key=f"link_{channel_key}")
+
         st.write("**Hook**")
         st.code(package.hook, language=None)
-        st.write("**Caption / post copy**")
-        st.text_area(
-            "Copy-ready post",
-            value=package.caption,
-            height=260,
-            key=f"caption_{channel_key}",
-        )
-        st.write("**30–45 second voice/script guide**")
+
+        st.write("**Caption variations**")
+        for index, caption in enumerate(package.caption_variants, start=1):
+            st.text_area(
+                f"Variation {index}",
+                value=caption,
+                height=220,
+                key=f"caption_{channel_key}_{index}",
+            )
+
+        st.write("**Hashtags**")
+        st.code(" ".join(package.hashtags), language=None)
+
+        st.write("**30–45 second script guide**")
         st.text_area(
             "Short-form script",
             value=package.short_script,
             height=220,
             key=f"script_{channel_key}",
         )
+
+        st.write("**On-screen text sequence**")
+        on_screen_rows = [
+            {"Order": index, "Text": text}
+            for index, text in enumerate(package.on_screen_text, start=1)
+        ]
+        st.dataframe(pd.DataFrame(on_screen_rows), use_container_width=True, hide_index=True)
+
         st.write("**Recommended shot order**")
         shot_rows = [
             {"Order": index, "Shot": shot}
             for index, shot in enumerate(package.shot_list, start=1)
         ]
         st.dataframe(pd.DataFrame(shot_rows), use_container_width=True, hide_index=True)
+
+        st.write("**Posting notes**")
+        for note in package.posting_notes:
+            st.write(f"- {note}")
+
         st.write(f"**Call to action:** {package.call_to_action}")
         st.caption(
-            "Final publication stays approval-controlled. Do not replace the tracked link with a raw Dwelyx URL."
+            "Final publication stays approval-controlled. Keep the exact tracked link with the platform content so downstream buyer activity remains attributable."
         )
 
-st.write("### Three-channel tracking summary")
-tracking_frame = pd.DataFrame(
-    [
-        {
-            "Channel": channel_name,
-            "Campaign": campaign,
-            "Property": selected_label,
-            "Tracked Dwelyx Link": packages[channel_key].tracked_link,
-        }
-        for channel_key, channel_name in SOCIAL_CHANNELS
-    ]
-)
-st.dataframe(tracking_frame, use_container_width=True, hide_index=True)
+st.write("### Downloadable three-channel posting pack")
+posting_rows = []
+for channel_key, channel_name in SOCIAL_CHANNELS:
+    package = packages[channel_key]
+    for variation_number, caption in enumerate(package.caption_variants, start=1):
+        posting_rows.append(
+            {
+                "Channel": channel_name,
+                "Campaign": campaign,
+                "Property": selected_label,
+                "Variation": variation_number,
+                "Title": package.post_title,
+                "Caption": caption,
+                "Hashtags": " ".join(package.hashtags),
+                "Script": package.short_script,
+                "Tracked Dwelyx Link": package.tracked_link,
+            }
+        )
+
+posting_frame = pd.DataFrame(posting_rows)
+st.dataframe(posting_frame, use_container_width=True, hide_index=True)
 st.download_button(
-    "Download Social Channel Package Links",
-    tracking_frame.to_csv(index=False).encode("utf-8"),
-    f"property-{selected.property_id}-social-links.csv",
+    "Download Ready-to-Post Social Pack",
+    posting_frame.to_csv(index=False).encode("utf-8"),
+    f"property-{selected.property_id}-social-posting-pack.csv",
     "text/csv",
 )
 
+st.warning(
+    "Before posting: confirm the property is still available, verify current terms, and review the photos or video. Do not alter the property condition or add unverified claims."
+)
 st.caption(
-    "Long-form YouTube walkthrough video editing, AI narration, music, and downloadable rendered video are intentionally deferred to the later video-engine build."
+    "Long-form YouTube walkthrough editing, AI narration, music, and rendered downloadable video remain intentionally deferred to the later video-engine build."
 )
