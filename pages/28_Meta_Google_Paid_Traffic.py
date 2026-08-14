@@ -126,6 +126,15 @@ for tab, key in zip(tabs, channel_keys, strict=True):
 
 if export_rows:
     csv_bytes = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
-    st.download_button("Download Meta + Google campaign package CSV", data=csv_bytes, file_name=f"{campaign}_paid_traffic.csv", mime="text/csv")
+    st.download_button(
+        "Download Meta + Google campaign package CSV",
+        data=csv_bytes,
+        file_name=f"{campaign}_paid_traffic.csv",
+        mime="text/csv",
+    )
 
-st.warning("Before launch, verify the property is still available, verify all terms, review the current platform housing/financial-services requirements, and approve the budget and targeting. Do not promise buyer approval.")
+st.warning(
+    "Before launch, verify the property is still available, verify all terms, review the current "
+    "platform housing/financial-services requirements, and approve the budget and targeting. "
+    "Do not promise buyer approval."
+)
