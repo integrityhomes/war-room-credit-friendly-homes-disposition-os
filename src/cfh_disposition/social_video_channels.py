@@ -14,9 +14,14 @@ class SocialVideoPackage:
     channel_key: str
     channel_name: str
     hook: str
+    post_title: str
     caption: str
+    caption_variants: tuple[str, ...]
     short_script: str
+    on_screen_text: tuple[str, ...]
     shot_list: tuple[str, ...]
+    hashtags: tuple[str, ...]
+    posting_notes: tuple[str, ...]
     call_to_action: str
     tracked_link: str
 
@@ -55,6 +60,106 @@ def _validate(property_: OwnerFinanceProperty, tracked_link: str) -> None:
         )
 
 
+def _location(property_: OwnerFinanceProperty) -> str:
+    if property_.city and property_.state:
+        return f"{property_.city}, {property_.state}"
+    return property_.city or property_.state or "your area"
+
+
+def _platform_fields(
+    property_: OwnerFinanceProperty,
+    *,
+    channel_key: str,
+    tracked_link: str,
+    hook: str,
+    facts: list[str],
+) -> tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    location = _location(property_)
+    address = _property_label(property_)
+    price_fact = _money(property_.monthly_payment or property_.total_price)
+
+    if channel_key == "instagram":
+        title = f"Owner-finance home in {location}"
+        hashtags = (
+            "#OwnerFinancing",
+            "#CreditFriendlyHomes",
+            f"#{(property_.city or property_.state or 'Homes').replace(' ', '')}",
+            "#HomeBuyer",
+            "#HomesForSale",
+        )
+        on_screen = (
+            hook,
+            address,
+            f"Current details from {price_fact}" if price_fact else "See current property details",
+            "View current details in Dwelyx",
+        )
+        notes = (
+            "Use for an Instagram Reel or feed post.",
+            "Keep the tracked Dwelyx link attached to the post or profile-link workflow used for this campaign.",
+            "Do not add financing promises or property claims that are not in the saved property record.",
+        )
+    elif channel_key == "tiktok":
+        title = f"Take a look at this owner-finance home in {location}"
+        hashtags = (
+            "#OwnerFinance",
+            "#HomeTour",
+            "#CreditFriendlyHomes",
+            f"#{(property_.city or property_.state or 'Homes').replace(' ', '')}",
+            "#RealEstate",
+        )
+        on_screen = (
+            "Owner-finance home available",
+            address,
+            ", ".join(facts[:2]) if facts else "Current details available",
+            "Open the tracked Dwelyx link for current details",
+        )
+        notes = (
+            "Lead with the strongest exterior or interior shot in the first 2 seconds.",
+            "Use the exact tracked link for this TikTok campaign wherever the profile/post workflow permits it.",
+            "Keep the property visually truthful to the uploaded photos or video.",
+        )
+    elif channel_key == "youtube":
+        title = f"Owner Finance Home in {location} | Quick Tour"
+        hashtags = (
+            "#Shorts",
+            "#OwnerFinancing",
+            "#CreditFriendlyHomes",
+            f"#{(property_.city or property_.state or 'Homes').replace(' ', '')}",
+        )
+        on_screen = (
+            f"Owner Finance | {location}",
+            address,
+            ", ".join(facts[:2]) if facts else "Current property details",
+            "Details + next step in Dwelyx",
+        )
+        notes = (
+            "Publish as a vertical YouTube Short.",
+            "Put the tracked Dwelyx link in the description and pinned comment when available.",
+            "Long-form walkthrough rendering remains a separate later build.",
+        )
+    else:
+        raise SocialVideoPackageError(f"Unsupported social channel: {channel_key}")
+
+    return title, hashtags, on_screen, notes
+
+
+def _caption_variants(
+    *,
+    hook: str,
+    address: str,
+    fact_sentence: str,
+    condition_summary: str | None,
+    tracked_link: str,
+) -> tuple[str, ...]:
+    details = fact_sentence or "Current property details available in Dwelyx"
+    condition = f"\n{condition_summary}" if condition_summary else ""
+    return (
+        f"{hook}\n\n{address}\n\n{details}{condition}\n\nSee current details in Dwelyx:\n{tracked_link}",
+        f"New property opportunity: {address}\n\n{details}{condition}\n\nView the current details here:\n{tracked_link}",
+        f"Quick look at {address}.\n\n{details}{condition}\n\nUse this link for current property details and next steps:\n{tracked_link}",
+    )
+
+
 def build_social_video_package(
     property_: OwnerFinanceProperty,
     *,
@@ -62,26 +167,29 @@ def build_social_video_package(
     channel_name: str,
     tracked_link: str,
 ) -> SocialVideoPackage:
-    """Create a fact-only short-form social package for one property and channel."""
+    """Create a fact-only, ready-to-post short-form social package for one property and channel."""
     _validate(property_, tracked_link)
     address = _property_label(property_)
     facts = _fact_lines(property_)
     fact_sentence = " • ".join(facts)
+    hook = f"Looking for an owner-finance home in {_location(property_)}?"
 
-    hook = f"Looking for an owner-finance home in {property_.city or property_.state}?"
-    caption_parts = [hook, address]
-    if fact_sentence:
-        caption_parts.append(fact_sentence)
-    if property_.condition_summary:
-        caption_parts.append(property_.condition_summary)
-    caption_parts.append("See current details and continue in Dwelyx:")
-    caption_parts.append(tracked_link)
-    caption = "\n\n".join(caption_parts)
+    variants = _caption_variants(
+        hook=hook,
+        address=address,
+        fact_sentence=fact_sentence,
+        condition_summary=property_.condition_summary,
+        tracked_link=tracked_link,
+    )
+    post_title, hashtags, on_screen_text, posting_notes = _platform_fields(
+        property_,
+        channel_key=channel_key,
+        tracked_link=tracked_link,
+        hook=hook,
+        facts=facts,
+    )
 
-    script_lines = [
-        hook,
-        f"Take a quick look at {address}.",
-    ]
+    script_lines = [hook, f"Take a quick look at {address}."]
     if facts:
         script_lines.append("Here are the current terms: " + ", ".join(facts) + ".")
     if property_.condition_summary:
@@ -102,9 +210,14 @@ def build_social_video_package(
         channel_key=channel_key,
         channel_name=channel_name,
         hook=hook,
-        caption=caption,
+        post_title=post_title,
+        caption=variants[0],
+        caption_variants=variants,
         short_script=" ".join(script_lines),
+        on_screen_text=on_screen_text,
         shot_list=shot_list,
+        hashtags=hashtags,
+        posting_notes=posting_notes,
         call_to_action="View current details in Dwelyx",
         tracked_link=tracked_link,
     )
