@@ -46,7 +46,7 @@ def _validate(
 ) -> None:
     if channel_key not in {"meta_ads", "google_ads"}:
         raise PaidTrafficPackageError(f"Unsupported paid channel: {channel_key}")
-    if not property_.display_address:
+    if not property_.address.strip():
         raise PaidTrafficPackageError("Property address is required before creating paid ads.")
     if property_.monthly_payment is None and property_.down_payment is None:
         raise PaidTrafficPackageError("Add a monthly payment or down payment before creating paid ads.")
