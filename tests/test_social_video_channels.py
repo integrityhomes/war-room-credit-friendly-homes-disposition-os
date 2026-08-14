@@ -54,7 +54,7 @@ def test_social_channels_get_distinct_tracked_links():
         ("youtube", "YouTube Shorts"),
     ],
 )
-def test_social_package_uses_verified_property_facts_and_tracked_link(channel_key, channel_name):
+def test_social_package_is_ready_to_post_and_uses_verified_facts(channel_key, channel_name):
     property_ = property_record()
     link = f"https://tracking.example.com/?medium={channel_key}"
     package = build_social_video_package(
@@ -66,14 +66,43 @@ def test_social_package_uses_verified_property_facts_and_tracked_link(channel_ke
 
     assert package.channel_key == channel_key
     assert package.channel_name == channel_name
-    assert "945 W Packard St" in package.caption
-    assert "Decatur" in package.caption
-    assert "$995" in package.caption
-    assert "$3,500" in package.caption
-    assert "$79,900" in package.caption
-    assert link in package.caption
-    assert package.tracked_link == link
+    assert package.post_title
+    assert len(package.caption_variants) == 3
+    assert len(package.hashtags) >= 4
+    assert len(package.on_screen_text) >= 4
+    assert len(package.posting_notes) >= 3
     assert len(package.shot_list) >= 5
+    assert package.tracked_link == link
+
+    for caption in package.caption_variants:
+        assert "945 W Packard St" in caption
+        assert "$995" in caption
+        assert "$3,500" in caption
+        assert "$79,900" in caption
+        assert link in caption
+
+
+def test_platform_packages_are_distinct_but_keep_same_property_facts():
+    property_ = property_record()
+    packages = {
+        key: build_social_video_package(
+            property_,
+            channel_key=key,
+            channel_name=name,
+            tracked_link=f"https://tracking.example.com/?medium={key}",
+        )
+        for key, name in (
+            ("instagram", "Instagram Reels & Posts"),
+            ("tiktok", "TikTok"),
+            ("youtube", "YouTube Shorts"),
+        )
+    }
+
+    assert len({package.post_title for package in packages.values()}) == 3
+    assert "#Shorts" in packages["youtube"].hashtags
+    assert "#HomeTour" in packages["tiktok"].hashtags
+    assert "#HomesForSale" in packages["instagram"].hashtags
+    assert all("945 W Packard St" in package.caption for package in packages.values())
 
 
 def test_social_package_blocks_missing_property_address():
@@ -106,4 +135,15 @@ def test_social_package_blocks_missing_terms_and_price():
             channel_key="youtube",
             channel_name="YouTube Shorts",
             tracked_link="https://tracking.example.com/?medium=youtube",
+        )
+
+
+def test_social_package_blocks_unsupported_channel():
+    property_ = property_record()
+    with pytest.raises(SocialVideoPackageError, match="Unsupported social channel"):
+        build_social_video_package(
+            property_,
+            channel_key="unknown",
+            channel_name="Unknown",
+            tracked_link="https://tracking.example.com/?medium=unknown",
         )
