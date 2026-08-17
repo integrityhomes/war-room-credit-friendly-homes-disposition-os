@@ -117,7 +117,7 @@ def build_chatgpt_ads_plan(
     )
 
     notes = (
-        "Buyer-acquisition only by default; do not advertise a specific property from this module.",
+        "Buyer acquisition only by default; do not advertise a specific property from this module.",
         "Do not promise approval, guaranteed financing, or guaranteed qualification.",
         "Review current OpenAI Ads policies and advertiser eligibility before launch.",
         "Keep final budget and campaign launch manager-approved.",
