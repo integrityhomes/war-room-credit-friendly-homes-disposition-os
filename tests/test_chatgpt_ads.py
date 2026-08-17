@@ -1,8 +1,8 @@
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
-from cfh_disposition.chatgpt_ads import SUPPORTED_MARKETS, build_chatgpt_ads_plan
 from cfh_disposition.channels import CHANNELS_BY_KEY
+from cfh_disposition.chatgpt_ads import SUPPORTED_MARKETS, build_chatgpt_ads_plan
 
 
 def test_chatgpt_ads_is_registered_as_channel_16():
