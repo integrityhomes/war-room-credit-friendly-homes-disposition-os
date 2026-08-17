@@ -1,12 +1,12 @@
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
-from cfh_disposition.channels import CHANNELS_BY_KEY
+from cfh_disposition.channels import ALL_MARKETING_CHANNELS_BY_KEY
 from cfh_disposition.chatgpt_ads import SUPPORTED_MARKETS, build_chatgpt_ads_plan
 
 
 def test_chatgpt_ads_is_registered_as_channel_16():
-    channel = CHANNELS_BY_KEY["chatgpt_ads"]
+    channel = ALL_MARKETING_CHANNELS_BY_KEY["chatgpt_ads"]
     assert channel.name == "ChatGPT Ads"
 
 
@@ -34,7 +34,7 @@ def test_chatgpt_ads_plan_is_buyer_acquisition_and_tracked():
     assert query["market"] == ["Virginia"]
     assert query["intent"] == ["Owner-financed homes"]
     assert "property_id" not in query
-    assert any("buyer-acquisition" in note.lower() for note in plan.notes)
+    assert any("buyer acquisition" in note.lower() for note in plan.notes)
 
 
 def test_chatgpt_ads_does_not_generate_specific_property_copy():
