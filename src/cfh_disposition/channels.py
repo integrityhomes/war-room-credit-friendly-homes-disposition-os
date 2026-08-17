@@ -39,6 +39,12 @@ CHANNELS: tuple[MarketingChannel, ...] = (
         ChannelMode.ASSISTED,
         "Prepares verified Business Page posts and paid housing-ad packages with a tracked Dwelyx link; final publication and ad spending remain manual and approval-controlled.",
     ),
+    MarketingChannel(
+        "chatgpt_ads",
+        "ChatGPT Ads",
+        ChannelMode.APPROVAL_REQUIRED,
+        "Acquires buyers by market and intent, then routes tracked traffic into the CFH/Dwelyx buyer funnel rather than advertising an individual property.",
+    ),
 )
 
 CHANNELS_BY_KEY = {channel.key: channel for channel in CHANNELS}
