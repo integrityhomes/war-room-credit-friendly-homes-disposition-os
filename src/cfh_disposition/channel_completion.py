@@ -32,6 +32,11 @@ _REQUIREMENTS: dict[str, tuple[bool, str, str]] = {
     "youtube": (True, "Upload/publish approved YouTube Short", "Approval/manual publish"),
     "classifieds": (True, "Manual final post to selected classified site", "Assisted manual post"),
     "nextdoor": (True, "Manual final post or paid-ad setup in Nextdoor", "Assisted / paid setup"),
+    "chatgpt_ads": (
+        True,
+        "Set up an eligible OpenAI Ads Manager account, conversion measurement, and approved buyer-acquisition campaign before spending",
+        "Paid setup required / API-ready",
+    ),
 }
 
 
