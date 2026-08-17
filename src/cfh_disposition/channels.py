@@ -50,4 +50,14 @@ CHATGPT_ADS_CHANNEL = MarketingChannel(
 
 BUYER_ACQUISITION_CHANNELS: tuple[MarketingChannel, ...] = (CHATGPT_ADS_CHANNEL,)
 ALL_MARKETING_CHANNELS: tuple[MarketingChannel, ...] = CHANNELS + BUYER_ACQUISITION_CHANNELS
-CHANNELS_BY_KEY = {channel.key: channel for channel in ALL_MARKETING_CHANNELS}
+
+# Keep the long-standing property-channel registry scoped to the 15 channels
+# that advertise and control individual properties. Property launch, shutdown,
+# refresh, and terms-testing logic depends on this exact registry.
+CHANNELS_BY_KEY = {channel.key: channel for channel in CHANNELS}
+
+# Buyer-acquisition channels such as ChatGPT Ads live at the overall marketing
+# level and must not be pulled into property-specific lifecycle workflows.
+ALL_MARKETING_CHANNELS_BY_KEY = {
+    channel.key: channel for channel in ALL_MARKETING_CHANNELS
+}
