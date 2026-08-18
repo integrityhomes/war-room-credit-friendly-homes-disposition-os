@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-from .automatic_launch import AutomationDispatchSettings
+from .automatic_launch import (
+    AUTOMATION_RESPONSE_LIMIT,
+    AUTOMATION_TIMEOUT_SECONDS,
+    AutomationDispatchSettings,
+    serialize_launch_payload,
+    sign_launch_payload,
+)
+
+CONNECTION_TEST_EVENT = "credit_friendly_homes.connection.test"
+CONNECTION_TEST_SCHEMA_VERSION = "1.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +27,13 @@ class ConnectionStatus:
     configured: bool
     required_for: str
     next_step: str
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionTestReceipt:
+    status_code: int
+    sent_at: datetime
+    response_text: str = ""
 
 
 def _has(values: Mapping[str, Any], *keys: str) -> bool:
@@ -28,9 +48,12 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
             "15-Channel Publishing Workflow",
             automation.configured,
             "Blog, Market SEO, Email/SMS handoff, paid/social publishing workflows",
-            "Add AUTOMATION_WEBHOOK_URL (or MAKE_WEBHOOK_URL) in Streamlit Secrets and connect the receiving Make.com workflow."
+            (
+                "Add AUTOMATION_WEBHOOK_URL (or MAKE_WEBHOOK_URL) in Streamlit Secrets "
+                "and connect the receiving Make.com workflow."
+            )
             if not automation.configured
-            else "Connected. Keep manual-final-post channels human approved.",
+            else "Connected. Run the safe webhook test before any live campaign dispatch.",
         ),
         ConnectionStatus(
             "email_sender",
@@ -78,3 +101,80 @@ def connection_summary(rows: tuple[ConnectionStatus, ...]) -> dict[str, int]:
         "connected": sum(row.configured for row in rows),
         "remaining": sum(not row.configured for row in rows),
     }
+
+
+def build_publishing_connection_test_payload(
+    *,
+    requested_by: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    timestamp = now or datetime.now(UTC)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return {
+        "schema_version": CONNECTION_TEST_SCHEMA_VERSION,
+        "event": CONNECTION_TEST_EVENT,
+        "sent_at": timestamp.astimezone(UTC).isoformat(),
+        "requested_by": requested_by.strip() or "Connection Center",
+        "test_only": True,
+        "instructions": (
+            "Connection test only. Do not publish, send messages, create ads, or spend money."
+        ),
+    }
+
+
+def dispatch_publishing_connection_test(
+    values: Mapping[str, Any],
+    *,
+    requested_by: str,
+    now: datetime | None = None,
+) -> ConnectionTestReceipt:
+    settings = AutomationDispatchSettings.from_mapping(values)
+    if not settings.configured:
+        raise ValueError(
+            "Publishing webhook is not configured. Add AUTOMATION_WEBHOOK_URL or MAKE_WEBHOOK_URL first."
+        )
+
+    payload = build_publishing_connection_test_payload(requested_by=requested_by, now=now)
+    body = serialize_launch_payload(payload)
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
+        "X-CFH-Event": CONNECTION_TEST_EVENT,
+    }
+    signature = sign_launch_payload(body, settings.signing_secret)
+    if signature:
+        headers["X-CFH-Signature"] = signature
+
+    request = Request(settings.webhook_url, data=body, headers=headers, method="POST")
+    try:
+        with urlopen(
+            request,
+            timeout=settings.timeout_seconds or AUTOMATION_TIMEOUT_SECONDS,
+        ) as response:
+            status_code = int(getattr(response, "status", 200))
+            response_text = response.read().decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:AUTOMATION_RESPONSE_LIMIT]
+        raise ValueError(
+            f"The publishing workflow rejected the safe test (HTTP {exc.code}). {detail}"
+        ) from exc
+    except (URLError, TimeoutError) as exc:
+        raise ValueError("The publishing workflow could not be reached by the safe test.") from exc
+
+    if not 200 <= status_code < 300:
+        raise ValueError(f"The publishing workflow returned HTTP {status_code} during the safe test.")
+
+    sent_at = now or datetime.now(UTC)
+    if sent_at.tzinfo is None:
+        sent_at = sent_at.replace(tzinfo=UTC)
+    return ConnectionTestReceipt(
+        status_code=status_code,
+        sent_at=sent_at.astimezone(UTC),
+        response_text=response_text[:AUTOMATION_RESPONSE_LIMIT],
+    )
+
+
+def make_connection_sample_json(*, requested_by: str = "Connection Center") -> str:
+    payload = build_publishing_connection_test_payload(requested_by=requested_by)
+    return json.dumps(payload, indent=2, sort_keys=True)
