@@ -1,4 +1,12 @@
-from cfh_disposition.go_live_connections import build_connection_status, connection_summary
+from datetime import UTC, datetime
+
+from cfh_disposition.go_live_connections import (
+    CONNECTION_TEST_EVENT,
+    build_connection_status,
+    build_publishing_connection_test_payload,
+    connection_summary,
+    make_connection_sample_json,
+)
 
 
 def test_go_live_connections_report_all_categories():
@@ -36,3 +44,25 @@ def test_provider_connections_are_detected_without_exposing_values():
     rendered = " ".join(row.next_step for row in rows)
     for secret_value in secrets.values():
         assert secret_value not in rendered
+
+
+def test_safe_publishing_connection_payload_cannot_publish_anything():
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    payload = build_publishing_connection_test_payload(requested_by="Shawn", now=now)
+    assert payload["event"] == CONNECTION_TEST_EVENT
+    assert payload["test_only"] is True
+    assert payload["requested_by"] == "Shawn"
+    assert payload["sent_at"] == "2026-08-18T12:00:00+00:00"
+    serialized = str(payload).lower()
+    assert "property_id" not in serialized
+    assert "buyer_id" not in serialized
+    assert "daily_budget" not in serialized
+    assert "test only" in payload["instructions"].lower()
+
+
+def test_make_sample_json_is_safe_and_exposes_no_secret():
+    sample = make_connection_sample_json(requested_by="Connection Center")
+    assert CONNECTION_TEST_EVENT in sample
+    assert '"test_only": true' in sample
+    assert "webhook" not in sample.lower()
+    assert "secret" not in sample.lower()
