@@ -45,12 +45,12 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
     rows = (
         ConnectionStatus(
             "publishing_webhook",
-            "15-Channel Publishing Workflow",
+            "Automation Publishing Engine",
             automation.configured,
             "Blog, Market SEO, Email/SMS handoff, paid/social publishing workflows",
             (
-                "Add AUTOMATION_WEBHOOK_URL (or MAKE_WEBHOOK_URL) in Streamlit Secrets "
-                "and connect the receiving Make.com workflow."
+                "Create the n8n webhook workflow, then save its production webhook URL as "
+                "AUTOMATION_WEBHOOK_URL in Streamlit Secrets."
             )
             if not automation.configured
             else "Connected. Run the safe webhook test before any live campaign dispatch.",
@@ -132,7 +132,7 @@ def dispatch_publishing_connection_test(
     settings = AutomationDispatchSettings.from_mapping(values)
     if not settings.configured:
         raise ValueError(
-            "Publishing webhook is not configured. Add AUTOMATION_WEBHOOK_URL or MAKE_WEBHOOK_URL first."
+            "Publishing webhook is not configured. Add AUTOMATION_WEBHOOK_URL first."
         )
 
     payload = build_publishing_connection_test_payload(requested_by=requested_by, now=now)
@@ -157,13 +157,13 @@ def dispatch_publishing_connection_test(
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:AUTOMATION_RESPONSE_LIMIT]
         raise ValueError(
-            f"The publishing workflow rejected the safe test (HTTP {exc.code}). {detail}"
+            f"The automation engine rejected the safe test (HTTP {exc.code}). {detail}"
         ) from exc
     except (URLError, TimeoutError) as exc:
-        raise ValueError("The publishing workflow could not be reached by the safe test.") from exc
+        raise ValueError("The automation engine could not be reached by the safe test.") from exc
 
     if not 200 <= status_code < 300:
-        raise ValueError(f"The publishing workflow returned HTTP {status_code} during the safe test.")
+        raise ValueError(f"The automation engine returned HTTP {status_code} during the safe test.")
 
     sent_at = now or datetime.now(UTC)
     if sent_at.tzinfo is None:
@@ -175,6 +175,6 @@ def dispatch_publishing_connection_test(
     )
 
 
-def make_connection_sample_json(*, requested_by: str = "Connection Center") -> str:
+def automation_connection_sample_json(*, requested_by: str = "Connection Center") -> str:
     payload = build_publishing_connection_test_payload(requested_by=requested_by)
     return json.dumps(payload, indent=2, sort_keys=True)

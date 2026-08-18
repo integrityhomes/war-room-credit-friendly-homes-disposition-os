@@ -2,10 +2,10 @@ from datetime import UTC, datetime
 
 from cfh_disposition.go_live_connections import (
     CONNECTION_TEST_EVENT,
+    automation_connection_sample_json,
     build_connection_status,
     build_publishing_connection_test_payload,
     connection_summary,
-    make_connection_sample_json,
 )
 
 
@@ -60,8 +60,8 @@ def test_safe_publishing_connection_payload_cannot_publish_anything():
     assert "test only" in payload["instructions"].lower()
 
 
-def test_make_sample_json_is_safe_and_exposes_no_secret():
-    sample = make_connection_sample_json(requested_by="Connection Center")
+def test_automation_sample_json_is_safe_and_exposes_no_secret():
+    sample = automation_connection_sample_json(requested_by="Connection Center")
     assert CONNECTION_TEST_EVENT in sample
     assert '"test_only": true' in sample
     assert "webhook" not in sample.lower()
