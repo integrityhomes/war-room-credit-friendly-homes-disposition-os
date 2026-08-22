@@ -21,9 +21,11 @@ from cfh_disposition.campaign_launch import (
 )
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
+from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.launch_plan import build_launch_plan
 from cfh_disposition.marketplace_ui import render_marketplace_guard
 from cfh_disposition.models import OwnerFinanceProperty, PropertyStatus
+from cfh_disposition.operational_failures import render_critical_failure_banner
 from cfh_disposition.public_pages import (
     public_portal_path,
     public_property_path,
@@ -97,6 +99,14 @@ def property_options() -> dict[str, OwnerFinanceProperty]:
     return {
         item.display_address or str(item.property_id): item
         for item in st.session_state.properties
+    }
+
+
+def marketing_property_options() -> dict[str, OwnerFinanceProperty]:
+    return {
+        item.display_address or str(item.property_id): item
+        for item in st.session_state.properties
+        if item.status in MARKETABLE_PROPERTY_STATUSES
     }
 
 
@@ -180,7 +190,7 @@ def render_simple_marketing_flow() -> None:
         render_flow_step(step, column)
 
     if flow.complete:
-        st.success("The property, campaign, and all 15 marketing channels are in place.")
+        st.success("The property, campaign, and all 15 property marketing channels are in place.")
     else:
         st.info(f"Next action: {flow.next_step.detail}")
 
@@ -207,6 +217,7 @@ def render_simple_marketing_flow() -> None:
 
 def render_property_intake(settings: SupabaseSettings) -> None:
     st.subheader("Step 1 — Add an Owner-Finance Property")
+    st.info("This central property record is the only place price, down payment, monthly payment, bedrooms, and availability may be changed. Downstream marketing is read-only and must regenerate from this record.")
     if not settings.configured:
         st.warning("Demo mode is active. Connect Supabase before entering real property information.")
 
@@ -228,6 +239,7 @@ def render_property_intake(settings: SupabaseSettings) -> None:
         total_price = middle.text_input("Total price*", value="100000")
         down_payment = right.text_input("Down payment*", value="5000")
         monthly_payment = left.text_input("Monthly payment*", value="1200")
+        available_date = middle.text_input("Available date", placeholder="YYYY-MM-DD or Available now")
         condition = st.text_area("Condition summary*")
         repairs = st.text_area("Known repairs needed")
         showing = st.text_area("Showing instructions*")
@@ -252,6 +264,7 @@ def render_property_intake(settings: SupabaseSettings) -> None:
             total_price=Decimal(total_price.replace(",", "").replace("$", "")),
             down_payment=Decimal(down_payment.replace(",", "").replace("$", "")),
             monthly_payment=Decimal(monthly_payment.replace(",", "").replace("$", "")),
+            available_date=available_date,
             condition_summary=condition,
             repairs_needed=repairs,
             showing_instructions=showing,
@@ -280,9 +293,9 @@ def render_campaign_readiness(
     campaign_settings: CampaignFactorySettings,
 ) -> None:
     st.subheader("Step 2 — Prepare the Marketing Campaign")
-    options = property_options()
+    options = marketing_property_options()
     if not options:
-        st.info("Add a property before preparing a campaign.")
+        st.info("No Ready to Launch or Marketing Live property is available for campaign preparation.")
         if st.button("Add Property", type="primary"):
             navigate("Property Intake")
         return
@@ -326,7 +339,7 @@ def render_campaign_readiness(
         st.info(f"AI campaign writer is connected using {campaign_settings.model}.")
         if st.button("Generate Fresh Campaign Package", type="primary"):
             try:
-                with st.spinner("Creating and checking the 15-channel campaign..."):
+                with st.spinner("Creating and checking the 15-channel property campaign..."):
                     package = generate_ai_campaign(selected, tracked_dwelyx_link, campaign_settings)
                 st.session_state[campaign_key] = package.model_dump(mode="json")
                 st.session_state[campaign_mode_key] = "AI generated — fact guard passed"
@@ -341,6 +354,7 @@ def render_campaign_readiness(
     package = CampaignPackage.model_validate(package_data) if package_data else fallback_package
     mode = st.session_state.get(campaign_mode_key, "Safe template")
     st.success(f"Campaign package ready: {mode}")
+    st.caption("Campaign copy is read-only. Change locked facts only in the central property record, then regenerate the campaign.")
 
     with st.expander("Review detailed campaign copy"):
         for index, (label, text) in enumerate(package.channel_rows()):
@@ -350,10 +364,11 @@ def render_campaign_readiness(
                 value=text,
                 height=height,
                 key=f"campaign_{selected.property_id}_{index}",
+                disabled=True,
             )
 
     with st.expander("Review buyer links and channel plan"):
-        st.text_input("Tracked Dwelyx buyer link", value=tracked_dwelyx_link)
+        st.text_input("Tracked Dwelyx buyer link", value=tracked_dwelyx_link, disabled=True)
         st.link_button("Open Dwelyx Buyer Registration", tracked_dwelyx_link)
         st.markdown(f"[Open property landing page]({public_property_path(selected.property_id)})")
         st.markdown(f"[Open all featured homes]({public_portal_path()})")
@@ -391,7 +406,7 @@ def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
         ],
     )
     campaign = right.text_input("Campaign name", value="owner_finance_homes")
-    options = {"All Dwelyx inventory": None, **property_options()}
+    options = {"All Dwelyx inventory": None, **marketing_property_options()}
     selected_name = st.selectbox("Property that generated the interest — optional", list(options))
     selected_property = options[selected_name]
     tracked_url = build_dwelyx_url(
@@ -401,7 +416,7 @@ def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
         campaign=campaign,
         property_id=selected_property.property_id if selected_property else None,
     )
-    st.text_input("Copy this tracked Dwelyx link", value=tracked_url)
+    st.text_input("Copy this tracked Dwelyx link", value=tracked_url, disabled=True)
     st.caption("Do not paste direct external links into Facebook Marketplace listings.")
 
 
@@ -470,7 +485,7 @@ require_password()
 load_records()
 
 st.title("Credit Friendly Homes Disposition OS")
-st.caption("Simple property marketing across 15 channels, with every supported buyer path leading to Dwelyx.")
+st.caption("Simple property marketing across 15 property channels plus buyer-acquisition channels, with supported buyer paths leading to Dwelyx.")
 
 storage = get_storage()
 settings = SupabaseSettings.from_mapping(st.secrets)
@@ -497,6 +512,9 @@ st.sidebar.caption("Use the first four screens for normal daily work. More Tools
 if st.session_state.get("storage_error"):
     st.error(st.session_state.storage_error)
     st.warning("Open System Setup and confirm the Supabase connection before entering records.")
+
+render_critical_failure_banner(st.secrets)
+st.divider()
 
 if page == "Simple Marketing Flow":
     render_simple_marketing_flow()
