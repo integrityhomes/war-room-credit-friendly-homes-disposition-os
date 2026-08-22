@@ -24,6 +24,7 @@ from .facebook_assignments import (
     upsert_operator,
 )
 from .facebook_groups import FacebookGroupError, FacebookGroupStore, business_now
+from .fact_lock import MARKETABLE_PROPERTY_STATUSES
 from .models import OwnerFinanceProperty
 
 
@@ -33,6 +34,7 @@ def _property_options(
     return {
         property_record.display_address or str(property_record.property_id): property_record
         for property_record in properties
+        if property_record.status in MARKETABLE_PROPERTY_STATUSES
     }
 
 
@@ -59,6 +61,28 @@ def _render_assignment_photos(
         column = columns[index % len(columns)]
         column.image(url, use_container_width=True)
         column.link_button(f"Open Photo {index + 1}", url)
+
+
+def _assignment_is_stale(
+    assignment: FacebookPostingAssignment,
+    property_record: OwnerFinanceProperty | None,
+) -> tuple[bool, str]:
+    if property_record is None:
+        return True, "The central property record is missing. Do not post this assignment."
+    if property_record.status not in MARKETABLE_PROPERTY_STATUSES:
+        return True, f"The property is now {property_record.status.value}. Do not post this assignment."
+    property_updated = property_record.updated_at
+    assignment_created = assignment.created_at
+    if property_updated.tzinfo is None:
+        property_updated = property_updated.replace(tzinfo=assignment_created.tzinfo)
+    if assignment_created.tzinfo is None:
+        assignment_created = assignment_created.replace(tzinfo=property_updated.tzinfo)
+    if property_updated > assignment_created:
+        return True, (
+            "The central property facts changed after this VA assignment was created. "
+            "Regenerate today's assignment before posting so price, down payment, monthly payment, bedrooms, and availability cannot be stale."
+        )
+    return False, ""
 
 
 def _history_rows(assignments: Sequence[FacebookPostingAssignment]) -> list[dict[str, str | int]]:
@@ -193,7 +217,7 @@ def render_facebook_assignment_dashboard(
         st.write("### Build a balanced daily posting plan")
         operators = active_operators(assignment_ledger)
         if not properties_by_name:
-            st.info("Add properties before generating Facebook assignments.")
+            st.info("No Ready to Launch or Marketing Live properties are available for Facebook assignments.")
         elif not operators:
             st.info("Add active team members in Team Setup first.")
         elif not group_ledger.groups:
@@ -307,7 +331,7 @@ def render_facebook_assignment_dashboard(
             st.info("No Facebook posting assignments are saved for this date.")
 
         if filtered_assignments:
-            st.write("### Work the selected assignment")
+            st.write("### DO THIS NOW")
             assignment_options = {
                 _assignment_option_label(assignment): assignment
                 for assignment in filtered_assignments
@@ -318,6 +342,8 @@ def render_facebook_assignment_dashboard(
                 key="facebook_assignment_selected_assignment",
             )
             selected = assignment_options[selected_label]
+            property_record = properties_by_id.get(selected.property_id)
+            stale, stale_reason = _assignment_is_stale(selected, property_record)
 
             detail_columns = st.columns(4)
             detail_columns[0].metric("Team Member", selected.assigned_to_name)
@@ -326,9 +352,16 @@ def render_facebook_assignment_dashboard(
             detail_columns[3].metric("Priority", selected.priority)
             st.write(f"**Property:** {selected.property_address}")
             st.write(f"**Facebook Group:** {selected.group_name}")
+
+            if stale:
+                st.error(stale_reason)
+                st.warning("Do not copy or post this assignment. Open Generate Assignments and rebuild the work from the current central property record.")
+            else:
+                st.success("Current property facts verified. Use the exact package below; do not retype price, down payment, monthly payment, bedrooms, or availability.")
+
             if selected.group_url:
                 st.link_button(
-                    f"Open {selected.group_name}",
+                    f"1. Open {selected.group_name}",
                     selected.group_url,
                     type="primary",
                     use_container_width=True,
@@ -336,13 +369,15 @@ def render_facebook_assignment_dashboard(
             else:
                 st.error("This assignment has no saved Facebook Group URL.")
 
-            st.write("### Copy-ready Facebook Group post")
-            st.code(selected.post_copy, language=None)
+            st.write("### 2. Copy the exact Facebook Group post")
+            st.code(selected.post_copy if not stale else "STALE ASSIGNMENT — REGENERATE BEFORE POSTING", language=None)
             st.text_input(
-                "Tracked Dwelyx buyer-registration link",
+                "3. Tracked Dwelyx buyer-registration link",
                 value=selected.tracked_link,
                 key=f"assignment_link_{selected.assignment_id}",
+                disabled=True,
             )
+            st.write("### 4. Use these property photos")
             _render_assignment_photos(selected, properties_by_id)
 
             action_notes = st.text_area(
@@ -358,7 +393,7 @@ def render_facebook_assignment_dashboard(
             )
 
             start_column, review_column, skip_column = st.columns(3)
-            if start_column.button("Start Assignment", use_container_width=True):
+            if start_column.button("Start Assignment", use_container_width=True, disabled=stale):
                 try:
                     updated = update_assignment_status(
                         assignment_ledger,
@@ -379,7 +414,7 @@ def render_facebook_assignment_dashboard(
                         assignment_id=selected.assignment_id,
                         status=AssignmentStatus.NEEDS_REVIEW,
                         actor=actor,
-                        notes=action_notes,
+                        notes=action_notes or stale_reason,
                     )
                     assignment_store.save(updated)
                     st.success("Assignment sent to manager review.")
@@ -393,7 +428,7 @@ def render_facebook_assignment_dashboard(
                         assignment_id=selected.assignment_id,
                         status=AssignmentStatus.SKIPPED,
                         actor=actor,
-                        notes=action_notes,
+                        notes=action_notes or stale_reason,
                     )
                     assignment_store.save(updated)
                     st.success("Assignment skipped and removed from the active daily workload.")
@@ -402,14 +437,15 @@ def render_facebook_assignment_dashboard(
                     st.error(str(exc))
 
             posted_confirmed = st.checkbox(
-                "I confirm the property post is already live in this exact Facebook Group.",
+                "I confirm this exact property post is already live in this exact Facebook Group.",
                 key=f"assignment_posted_confirmed_{selected.assignment_id}",
+                disabled=stale,
             )
             if st.button(
-                "Record Posted and Activate Cooldown",
+                "5. Record Posted and Activate Cooldown",
                 type="primary",
                 use_container_width=True,
-                disabled=not posted_confirmed or not selected.group_url,
+                disabled=stale or not posted_confirmed or not selected.group_url,
             ):
                 try:
                     updated_assignments, updated_groups = (
