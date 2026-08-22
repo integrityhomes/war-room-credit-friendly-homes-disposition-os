@@ -35,6 +35,14 @@ def _buyer_options(buyers: list[BuyerProfile]) -> dict[str, BuyerProfile]:
     return options
 
 
+def _ensure_record_manager_state(storage: Storage) -> None:
+    """Load central records for this page instead of assuming another page ran first."""
+    if "properties" not in st.session_state:
+        st.session_state.properties = storage.list_properties()
+    if "buyers" not in st.session_state:
+        st.session_state.buyers = storage.list_buyers()
+
+
 def _replace_property(record: OwnerFinanceProperty) -> None:
     current = {str(item.property_id): item for item in st.session_state.properties}
     current[str(record.property_id)] = record
@@ -348,6 +356,7 @@ def _render_buyer_manager(storage: Storage) -> None:
 
 
 def render_record_manager(storage: Storage) -> None:
+    _ensure_record_manager_state(storage)
     st.subheader("Edit, Add Photos, or Delete Saved Records")
     message = st.session_state.pop("record_manager_message", "")
     if message:
