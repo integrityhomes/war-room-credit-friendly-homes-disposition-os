@@ -29,6 +29,7 @@ from .facebook_groups import (
     record_facebook_group_post,
     upsert_group,
 )
+from .fact_lock import MARKETABLE_PROPERTY_STATUSES
 from .models import OwnerFinanceProperty
 
 
@@ -38,6 +39,7 @@ def _property_options(
     return {
         item.display_address or str(item.property_id): item
         for item in properties
+        if item.status in MARKETABLE_PROPERTY_STATUSES
     }
 
 
@@ -97,6 +99,10 @@ def render_facebook_group_posting_center(
     st.caption(
         "Prepare tracked Facebook Group posts, move through groups quickly, prevent duplicate "
         "posting, and keep a per-group cooldown history. Final publication remains manual."
+    )
+    st.info(
+        "Fact-lock active: only Ready to Launch or Marketing Live properties appear here. "
+        "Price, down payment, monthly payment, bedrooms, availability, links, and photos come from the central property record."
     )
 
     try:
@@ -188,7 +194,7 @@ def render_facebook_group_posting_center(
         options = _property_options(properties)
         groups = active_groups(ledger)
         if not options:
-            st.info("Add a property before starting Fast Operator Mode.")
+            st.info("No Ready to Launch or Marketing Live property is available for Fast Operator Mode.")
         elif not groups:
             st.info(
                 "Add Facebook Groups in the Group Directory before starting Fast Operator Mode."
@@ -276,11 +282,10 @@ def render_facebook_group_posting_center(
                         "This group has no saved Facebook URL. Add it in Group Directory before posting."
                     )
 
-                st.write("### 2. Copy the prepared post")
+                st.write("### 2. Copy the exact prepared post")
                 st.code(copy_text, language=None)
                 st.caption(
-                    "Use the copy control in the post box. This Facebook Group version includes "
-                    "the tracked Dwelyx buyer-registration link."
+                    "Do not retype the property terms. This Facebook Group version includes the tracked Dwelyx buyer-registration link."
                 )
 
                 _render_property_photos(selected)
@@ -298,7 +303,7 @@ def render_facebook_group_posting_center(
                     key=notes_key,
                 )
                 confirmed = st.checkbox(
-                    "I confirm this post is already live in the current Facebook Group.",
+                    "I confirm this exact post is already live in the current Facebook Group.",
                     key=confirm_key,
                 )
 
@@ -347,7 +352,7 @@ def render_facebook_group_posting_center(
         options = _property_options(properties)
         groups = active_groups(ledger)
         if not options:
-            st.info("Add a property before preparing Facebook Group posts.")
+            st.info("No Ready to Launch or Marketing Live property is available for Facebook Group posting.")
         elif not groups:
             st.info(
                 "Add at least one Facebook Group in the Group Directory tab before preparing a post."
@@ -411,16 +416,18 @@ def render_facebook_group_posting_center(
                     "Tracked Dwelyx buyer-registration link for this group post",
                     value=tracked_link,
                     key="facebook_group_tracked_link",
+                    disabled=True,
                 )
                 st.text_area(
                     "Complete Facebook Group post",
                     value=copy_text,
                     height=360,
                     key="facebook_group_post_copy",
+                    disabled=True,
                 )
                 st.info(
                     "The tracked Dwelyx link is allowed in the Facebook Group package. Do not "
-                    "copy this version into Facebook Marketplace."
+                    "copy this version into Facebook Marketplace. Change property facts only in Record Manager."
                 )
 
                 notes = st.text_area(
@@ -429,7 +436,7 @@ def render_facebook_group_posting_center(
                     key="facebook_group_post_notes",
                 )
                 confirmed = st.checkbox(
-                    "I confirm this post was actually published in the selected Facebook Group.",
+                    "I confirm this exact post was actually published in the selected Facebook Group.",
                     key="facebook_group_post_confirmed",
                 )
                 if st.button(
@@ -467,7 +474,7 @@ def render_facebook_group_posting_center(
         options = _property_options(properties)
         groups = active_groups(ledger)
         if not options:
-            st.info("Add a property before building a multi-group posting queue.")
+            st.info("No Ready to Launch or Marketing Live property is available for a multi-group queue.")
         elif not groups:
             st.info(
                 "Add Facebook Groups in the Group Directory before building a posting queue."
@@ -522,7 +529,7 @@ def render_facebook_group_posting_center(
                     key="facebook_group_queue_selection",
                 )
                 st.info(
-                    "Open each selected group, paste its prepared post, publish manually, then "
+                    "Open each selected group, paste its exact prepared post, publish manually, then "
                     "check only the groups where the post actually went live."
                 )
 
@@ -568,12 +575,14 @@ def render_facebook_group_posting_center(
                             "Tracked Dwelyx link",
                             value=tracked_link,
                             key=f"queue_link_{selected.property_id}_{item.group_id}",
+                            disabled=True,
                         )
                         st.text_area(
                             "Prepared group post",
                             value=copy_text,
                             height=330,
                             key=f"queue_copy_{selected.property_id}_{item.group_id}",
+                            disabled=True,
                         )
                         st.text_area(
                             "Optional post URL or notes",
@@ -581,7 +590,7 @@ def render_facebook_group_posting_center(
                             key=notes_key,
                         )
                         st.checkbox(
-                            "I confirm this post was actually published in this group.",
+                            "I confirm this exact post was actually published in this group.",
                             key=confirm_key,
                         )
 
