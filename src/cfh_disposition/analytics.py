@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from .operational_failures import CriticalFailureType, record_operational_failure
 from .storage import SupabaseSettings
 
 CLICK_BUCKET = "cfh-click-events"
@@ -106,6 +107,7 @@ class ClickAnalyticsStore:
         settings = SupabaseSettings.from_mapping(values)
         if not settings.configured:
             raise AnalyticsError("Supabase is not configured for click analytics.")
+        self._values = values
         if client is None:
             try:
                 from supabase import create_client
@@ -135,8 +137,8 @@ class ClickAnalyticsStore:
         self._bucket_ready = True
 
     def record(self, event: ClickEvent) -> None:
-        self._ensure_bucket()
         try:
+            self._ensure_bucket()
             self._client.storage.from_(CLICK_BUCKET).upload(
                 path=event_object_path(event),
                 file=b"{}",
@@ -147,6 +149,16 @@ class ClickAnalyticsStore:
                 },
             )
         except Exception as exc:
+            record_operational_failure(
+                self._values,
+                CriticalFailureType.LEAD_CAPTURE,
+                summary="A tracked buyer click could not be written to attribution history.",
+                technical_detail=str(exc),
+                property_id=event.property_id or "",
+                channel=event.medium,
+                campaign=event.campaign,
+                source=event.source,
+            )
             raise AnalyticsError("Could not record the Dwelyx click.") from exc
 
     def list_recent(self, days: int = DEFAULT_REPORT_DAYS) -> list[ClickEvent]:
