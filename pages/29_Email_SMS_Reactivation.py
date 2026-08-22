@@ -8,7 +8,16 @@ from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.channels import CHANNELS_BY_KEY
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
 from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
+from cfh_disposition.operational_failures import (
+    CriticalFailureType,
+    record_operational_failure,
+)
 from cfh_disposition.outreach_channels import OutreachPackageError, build_outreach_package
+from cfh_disposition.rei_blackbook_sms import (
+    ReiBlackBookSmsError,
+    SmsHandoffSettings,
+    dispatch_sms_handoff,
+)
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
@@ -38,22 +47,31 @@ def get_storage():
     return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 
+def buyer_label(buyer) -> str:
+    name = " ".join(part for part in [buyer.first_name, buyer.last_name] if part).strip()
+    phone_tail = buyer.phone[-4:] if buyer.phone else "no phone"
+    return f"{name or 'Buyer'} — ••••{phone_tail}"
+
+
 require_password()
 st.title("Matched Buyer Email + SMS + Reactivation")
 st.caption("Prepare three separately tracked buyer-outreach channels from one saved property.")
 st.info(
     "Fact-lock active: this page prepares read-only copy and attribution from the central property record. "
-    "Price, down payment, monthly payment, bedrooms, and availability cannot be edited here. Final sending must still respect saved consent and do-not-contact status."
+    "Price, down payment, monthly payment, bedrooms, and availability cannot be edited here. "
+    "REI BlackBook / Profit Dial remains the actual SMS sender."
 )
 
 try:
+    storage = get_storage()
     properties = [
         item
-        for item in get_storage().list_properties()
+        for item in storage.list_properties()
         if item.status in MARKETABLE_PROPERTY_STATUSES
     ]
+    buyers = storage.list_buyers()
 except StorageError as exc:
-    st.error(f"Property storage is unavailable: {exc}")
+    st.error(f"Marketing storage is unavailable: {exc}")
     st.stop()
 
 if not properties:
@@ -136,6 +154,94 @@ for tab, key in zip(tabs, channel_keys, strict=True):
         st.write("### Sending guardrails")
         for note in package.compliance_notes:
             st.write(f"- {note}")
+
+        if key == "sms":
+            st.divider()
+            st.write("### Send through REI BlackBook / Profit Dial")
+            sms_settings = SmsHandoffSettings.from_mapping(st.secrets)
+            if sms_settings.configured:
+                st.success("SMS marketing handoff is connected to the configured Zapier webhook.")
+            else:
+                st.warning(
+                    "SMS handoff is not connected yet. Add the real Zapier Catch Hook URL as "
+                    "SMS_SENDER_WEBHOOK_URL in Streamlit Secrets. No alternate SMS provider will be used."
+                )
+
+            eligible_buyers = [
+                buyer
+                for buyer in buyers
+                if buyer.phone.strip() and buyer.sms_consent and not buyer.do_not_contact
+            ]
+            if not eligible_buyers:
+                st.info("No saved buyer currently has a phone number, SMS consent, and an active contact status.")
+            else:
+                buyer_options = {buyer_label(buyer): buyer for buyer in eligible_buyers}
+                selected_buyer_label = st.selectbox(
+                    "Buyer with saved SMS consent",
+                    list(buyer_options),
+                    key="profit_dial_buyer",
+                )
+                selected_buyer = buyer_options[selected_buyer_label]
+                variation_number = st.selectbox(
+                    "Locked SMS variation",
+                    list(range(1, len(package.message_variants) + 1)),
+                    format_func=lambda value: f"Variation {value}",
+                    key="profit_dial_variation",
+                )
+                chosen_message = package.message_variants[variation_number - 1]
+                st.text_area(
+                    "Exact message that will be handed to Profit Dial",
+                    value=chosen_message,
+                    height=130,
+                    disabled=True,
+                    key="profit_dial_locked_message",
+                )
+                requested_by = st.text_input(
+                    "Requested by",
+                    value="Sabrina",
+                    key="profit_dial_requested_by",
+                )
+                confirmed = st.checkbox(
+                    "I confirm this buyer has saved SMS consent and I want REI BlackBook / Profit Dial to run the approved CFH marketing SMS workflow.",
+                    key="profit_dial_confirm",
+                )
+                send_clicked = st.button(
+                    "Send via REI BlackBook / Profit Dial",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not sms_settings.configured or not confirmed,
+                )
+                if send_clicked:
+                    try:
+                        receipt = dispatch_sms_handoff(
+                            st.secrets,
+                            buyer=selected_buyer,
+                            property_record=selected,
+                            campaign=campaign,
+                            message=chosen_message,
+                            tracked_link=package.tracked_link,
+                            requested_by=requested_by,
+                        )
+                        st.success(
+                            f"REI BlackBook / Profit Dial handoff accepted (HTTP {receipt.status_code}). "
+                            "This confirms the handoff only; it does not claim carrier delivery."
+                        )
+                    except ReiBlackBookSmsError as exc:
+                        record_operational_failure(
+                            st.secrets,
+                            CriticalFailureType.SMS,
+                            summary=f"Profit Dial SMS handoff failed for {selected.display_address}.",
+                            technical_detail=str(exc),
+                            property_id=str(selected.property_id),
+                            property_address=selected.display_address,
+                            channel="sms",
+                            campaign=campaign,
+                            source="rei_blackbook_profit_dial",
+                            buyer_id=str(selected_buyer.buyer_id),
+                        )
+                        st.error(
+                            f"SMS handoff failed and was sent to the main critical-failure ledger: {exc}"
+                        )
 
 if export_rows:
     csv_bytes = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
