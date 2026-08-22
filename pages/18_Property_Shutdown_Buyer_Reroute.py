@@ -18,6 +18,10 @@ from cfh_disposition.campaign_launch import (
     set_channel_status,
 )
 from cfh_disposition.channels import CHANNELS_BY_KEY
+from cfh_disposition.operational_failures import (
+    CriticalFailureType,
+    record_operational_failure,
+)
 from cfh_disposition.property_shutdown import (
     ControlDispatchStatus,
     ControlOperation,
@@ -126,6 +130,20 @@ def sync_one_channel(event, channel_key: str, task_status: ControlTaskStatus) ->
         campaign_store.save(state)
     except LaunchStoreError:
         return
+
+
+def log_shutdown_failure(event, detail: str, *, channel: str = "property-wide") -> None:
+    record_operational_failure(
+        st.secrets,
+        CriticalFailureType.SOLD_SHUTDOWN,
+        summary="A sold/filled property shutdown still needs intervention on one or more marketing surfaces.",
+        technical_detail=detail,
+        property_id=event.property_id,
+        property_address=event.property_address,
+        channel=channel,
+        campaign=event.campaign,
+        source="property_control",
+    )
 
 
 require_password()
@@ -305,6 +323,9 @@ with control_tab:
             if updated_event:
                 sync_campaign_state(updated_event, dispatch_status)
 
+            if action in {MarketingControlAction.FILLED, MarketingControlAction.SOLD} and dispatch_status != ControlDispatchStatus.SUCCEEDED:
+                log_shutdown_failure(event, dispatch_detail)
+
             st.session_state.property_control_message = f"{selected.display_address} changed from {selected.status.value} to {updated_property.status.value}. {dispatch_detail}"
             st.rerun()
         except (PropertyControlError, StorageError) as exc:
@@ -390,6 +411,15 @@ with channel_tab:
                         selected_task.channel_key,
                         task_status,
                     )
+                    if (
+                        task_status == ControlTaskStatus.FAILED
+                        and updated_event.action in {MarketingControlAction.FILLED, MarketingControlAction.SOLD}
+                    ):
+                        log_shutdown_failure(
+                            updated_event,
+                            task_notes or f"{selected_task.channel_name} shutdown task was marked Failed.",
+                            channel=selected_task.channel_key,
+                        )
                 st.success(f"{selected_task.channel_name} saved as {task_status.value}.")
                 st.rerun()
             except PropertyControlError as exc:
