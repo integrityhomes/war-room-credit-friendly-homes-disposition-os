@@ -7,6 +7,7 @@ from cfh_disposition.dwelyx import dwelyx_base_url
 from cfh_disposition.facebook_assignments_ui import (
     render_facebook_assignment_dashboard,
 )
+from cfh_disposition.facebook_failure_scan import scan_facebook_operational_failures
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
@@ -59,6 +60,10 @@ try:
 except StorageError as exc:
     st.error(f"Properties could not be loaded: {exc}")
     st.stop()
+
+# Any actionable Facebook operational problem discovered here is copied into the
+# central critical-failure learning ledger so it will also appear on the main screen.
+scan_facebook_operational_failures(st.secrets, properties)
 
 render_facebook_assignment_dashboard(
     properties,
