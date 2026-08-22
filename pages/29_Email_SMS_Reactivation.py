@@ -7,6 +7,7 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.channels import CHANNELS_BY_KEY
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
+from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.outreach_channels import OutreachPackageError, build_outreach_package
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
@@ -41,17 +42,22 @@ require_password()
 st.title("Matched Buyer Email + SMS + Reactivation")
 st.caption("Prepare three separately tracked buyer-outreach channels from one saved property.")
 st.info(
-    "This page prepares copy and attribution only. Final sending must still respect the buyer's saved consent and do-not-contact status."
+    "Fact-lock active: this page prepares read-only copy and attribution from the central property record. "
+    "Price, down payment, monthly payment, bedrooms, and availability cannot be edited here. Final sending must still respect saved consent and do-not-contact status."
 )
 
 try:
-    properties = get_storage().list_properties()
+    properties = [
+        item
+        for item in get_storage().list_properties()
+        if item.status in MARKETABLE_PROPERTY_STATUSES
+    ]
 except StorageError as exc:
     st.error(f"Property storage is unavailable: {exc}")
     st.stop()
 
 if not properties:
-    st.warning("Add a property before creating outreach packages.")
+    st.warning("No Ready to Launch or Marketing Live property is available for buyer outreach.")
     st.stop()
 
 options = {(item.display_address or str(item.property_id)): item for item in properties}
@@ -93,19 +99,21 @@ for tab, key in zip(tabs, channel_keys, strict=True):
         st.write("### Subject / Label")
         st.code(package.subject, language=None)
 
-        st.write("### Message variations")
+        st.write("### Locked message variations")
         for index, message in enumerate(package.message_variants, start=1):
             st.text_area(
                 f"Variation {index}",
                 value=message,
                 height=130,
                 key=f"{key}_outreach_{index}",
+                disabled=True,
             )
             export_rows.append(
                 {
                     "channel": channel.name,
                     "channel_key": key,
                     "campaign": campaign,
+                    "property_id": str(selected.property_id),
                     "property": selected.display_address,
                     "variation": str(index),
                     "subject": package.subject,
@@ -115,9 +123,14 @@ for tab, key in zip(tabs, channel_keys, strict=True):
             )
 
         st.write("### Tracked Dwelyx link")
-        st.code(package.tracked_link, language=None)
+        st.text_input(
+            "Exact tracked link",
+            value=package.tracked_link,
+            key=f"{key}_tracked_link",
+            disabled=True,
+        )
         st.caption(
-            "Use this exact link so downstream registrations, applications, showings, contracts, and filled homes stay attributed to this outreach channel."
+            "Use this exact link so downstream registrations, applications, showings, contracts, and filled homes stay attributed to this property, campaign, and outreach channel."
         )
 
         st.write("### Sending guardrails")
@@ -127,12 +140,12 @@ for tab, key in zip(tabs, channel_keys, strict=True):
 if export_rows:
     csv_bytes = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Download email + SMS + reactivation package CSV",
+        "Download locked email + SMS + reactivation package CSV",
         data=csv_bytes,
         file_name=f"{campaign}_buyer_outreach.csv",
         mime="text/csv",
     )
 
 st.warning(
-    "Before sending, verify the property is still available, verify all terms, and confirm the buyer's saved consent for the selected channel."
+    "Before sending, verify the property remains Ready to Launch or Marketing Live and confirm the buyer's saved consent for the selected channel. Change property facts only in Record Manager."
 )
