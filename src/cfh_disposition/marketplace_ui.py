@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from .fact_lock import MARKETABLE_PROPERTY_STATUSES
 from .marketplace import build_meta_safe_marketplace_package, review_marketplace_copy
 from .marketplace_calendar import (
     MARKETPLACE_MONTHLY_LIMIT,
@@ -23,7 +24,11 @@ from .models import OwnerFinanceProperty
 def _property_options(
     properties: Sequence[OwnerFinanceProperty],
 ) -> dict[str, OwnerFinanceProperty]:
-    return {item.display_address or str(item.property_id): item for item in properties}
+    return {
+        item.display_address or str(item.property_id): item
+        for item in properties
+        if item.status in MARKETABLE_PROPERTY_STATUSES
+    }
 
 
 def render_marketplace_guard(
@@ -38,7 +43,7 @@ def render_marketplace_guard(
 
     options = _property_options(properties)
     if not options:
-        st.info("Add a property before preparing Marketplace copy.")
+        st.info("No Ready to Launch or Marketing Live property is available for Marketplace posting.")
         return
 
     selected_name = st.selectbox(
@@ -97,17 +102,23 @@ def render_marketplace_guard(
         )
 
         package = build_meta_safe_marketplace_package(selected)
-        title = st.text_input("Marketplace title", value=package.title)
+        st.write("### Locked property package")
+        st.caption(
+            "Price, down payment, monthly payment, bedrooms, and availability come only from the central property record. "
+            "To change a fact, update the property in Record Manager and return here."
+        )
+        title = st.text_input("Marketplace title", value=package.title, disabled=True)
         description = st.text_area(
             "Marketplace description",
             value=package.description,
             height=360,
+            disabled=True,
         )
         try:
             check = review_marketplace_copy(
                 selected,
-                str(title or ""),
-                str(description or ""),
+                package.title,
+                package.description,
                 int(status.used),
             )
         except (TypeError, ValueError) as exc:
@@ -125,7 +136,7 @@ def render_marketplace_guard(
         if check.passed:
             st.success("Marketplace package passed the configured compliance checks.")
         else:
-            st.error("Do not publish until these items are corrected:")
+            st.error("Do not publish until these items are corrected in the central property record:")
             for error in check.errors:
                 st.write(f"- {error}")
         for warning in check.warnings:
@@ -147,7 +158,7 @@ def render_marketplace_guard(
             height=80,
         )
         confirmed = st.checkbox(
-            "I confirm this listing was actually created on Facebook Marketplace under For Sale. "
+            "I confirm this exact locked listing was actually created on Facebook Marketplace under For Sale. "
             "Recording it permanently uses one monthly slot even if the listing is later deleted.",
             key="marketplace_created_confirmation",
         )
