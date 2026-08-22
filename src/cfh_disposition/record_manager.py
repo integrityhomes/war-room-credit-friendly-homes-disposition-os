@@ -20,10 +20,7 @@ def _decimal_text(value: Decimal | None) -> str:
 
 
 def _property_options(properties: list[OwnerFinanceProperty]) -> dict[str, OwnerFinanceProperty]:
-    return {
-        f"{item.display_address or 'Unnamed property'} — {str(item.property_id)[:8]}": item
-        for item in properties
-    }
+    return {f"{item.display_address or 'Unnamed property'} — {str(item.property_id)[:8]}": item for item in properties}
 
 
 def _buyer_options(buyers: list[BuyerProfile]) -> dict[str, BuyerProfile]:
@@ -195,15 +192,7 @@ def _render_add_buyer(storage: Storage) -> None:
         st.error("A Do Not Contact buyer cannot simultaneously be marked as SMS-consented.")
         return
     try:
-        record = BuyerProfile(
-            first_name=first_name.strip(),
-            last_name=last_name.strip(),
-            phone=phone.strip(),
-            communication_preference=CommunicationPreference.SMS if sms_consent else CommunicationPreference.ANY,
-            sms_consent=sms_consent,
-            do_not_contact=do_not_contact,
-            source=source.strip() or "CFH marketing",
-        )
+        record = BuyerProfile(first_name=first_name.strip(), last_name=last_name.strip(), phone=phone.strip(), communication_preference=CommunicationPreference.SMS if sms_consent else CommunicationPreference.ANY, sms_consent=sms_consent, do_not_contact=do_not_contact, source=source.strip() or "CFH marketing")
         storage.save_buyer(record)
         _replace_buyer(record)
         st.session_state.record_manager_message = "Buyer saved. Marketing channels will still enforce consent and Do Not Contact status before sending."
@@ -262,3 +251,8 @@ def _render_buyer_manager(storage: Storage) -> None:
             st.session_state.buyers = [item for item in st.session_state.buyers if item.buyer_id != selected.buyer_id]
             st.session_state.record_manager_message = "Buyer deleted."
             st.rerun()
+        except StorageError as exc:
+            st.error(str(exc))
+
+
+def render_record_manager(storage: Storage
