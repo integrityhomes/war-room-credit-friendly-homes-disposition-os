@@ -140,6 +140,11 @@ function validateDwelyxUrl(value: unknown): boolean {
   }
 }
 
+function requiredAttributionText(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function validatePayload(payload: unknown): string[] {
   const errors: string[] = [];
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -169,6 +174,14 @@ function validatePayload(payload: unknown): string[] {
   }
   const occurredAt = typeof record.occurred_at === "string" ? Date.parse(record.occurred_at) : Number.NaN;
   if (!Number.isFinite(occurredAt)) errors.push("occurred_at is invalid");
+
+  const source = requiredAttributionText(record, "source");
+  const medium = requiredAttributionText(record, "medium");
+  const campaign = requiredAttributionText(record, "campaign");
+  if (!source) errors.push("source is required for every Dwelyx result");
+  if (!medium || medium.toLowerCase() === "unknown") errors.push("medium/channel is required for every Dwelyx result");
+  if (!campaign) errors.push("campaign is required for every Dwelyx result");
+
   if (
     typeof record.event_type === "string" &&
     PROPERTY_REQUIRED_EVENTS.has(record.event_type) &&
