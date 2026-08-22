@@ -143,7 +143,8 @@ def _render_property_manager(storage: Storage) -> None:
 
     _render_property_photos(storage, selected)
     st.divider()
-    st.write("#### Property details")
+    st.write("#### Central property truth")
+    st.info("This is the only place to change locked marketing facts. Price, down payment, monthly payment, bedrooms, and availability flow from here into landing pages and marketing packages.")
 
     with st.form("edit_property_form"):
         left, middle, right = st.columns(3)
@@ -168,6 +169,11 @@ def _render_property_manager(storage: Storage) -> None:
         total_price = middle.text_input("Total price*", value=_decimal_text(selected.total_price))
         down_payment = right.text_input("Down payment*", value=_decimal_text(selected.down_payment))
         monthly_payment = left.text_input("Monthly payment*", value=_decimal_text(selected.monthly_payment))
+        available_date = right.text_input(
+            "Available date",
+            value=selected.available_date,
+            help="Use a clear date or wording such as Available now. Downstream marketing reads this field; it does not maintain a separate availability value.",
+        )
         statuses = list(PropertyStatus)
         status = middle.selectbox(
             "Status",
@@ -206,6 +212,7 @@ def _render_property_manager(storage: Storage) -> None:
                     "total_price": _decimal(total_price),
                     "down_payment": _decimal(down_payment),
                     "monthly_payment": _decimal(monthly_payment),
+                    "available_date": available_date,
                     "condition_summary": condition,
                     "repairs_needed": repairs,
                     "showing_instructions": showing,
@@ -218,7 +225,7 @@ def _render_property_manager(storage: Storage) -> None:
             record = OwnerFinanceProperty.model_validate(data)
             storage.save_property(record)
             _replace_property(record)
-            st.session_state.record_manager_message = "Property changes saved."
+            st.session_state.record_manager_message = "Property changes saved. Downstream marketing must regenerate from these facts."
             st.rerun()
         except (ValidationError, InvalidOperation, StorageError) as exc:
             st.error(f"Property could not be updated: {exc}")
