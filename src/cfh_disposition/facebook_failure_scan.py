@@ -10,7 +10,25 @@ from .facebook_assignments import (
 )
 from .facebook_groups import FacebookGroupError, FacebookGroupStore, active_groups
 from .models import OwnerFinanceProperty
-from .operational_failures import CriticalFailureType, record_operational_failure
+from .operational_failures import (
+    CriticalFailureType,
+    OperationalFailureError,
+    OperationalFailureStore,
+    open_failures,
+    record_operational_failure,
+)
+
+
+def _key(
+    *,
+    property_id: str = "",
+    channel: str = "facebook_groups",
+    campaign: str = "owner_finance_homes",
+    source: str = "",
+) -> str:
+    return "|".join(
+        [CriticalFailureType.FACEBOOK_TASK.value, property_id, channel, campaign, source]
+    ).casefold()
 
 
 def scan_facebook_operational_failures(
@@ -19,66 +37,92 @@ def scan_facebook_operational_failures(
 ) -> int:
     """Promote actionable Facebook work failures into the critical failure ledger.
 
-    This is intentionally best-effort: a broken failure scanner must never make the VA board
-    unusable. The main critical banner will display whatever this scanner successfully records.
+    Existing open failures are not re-recorded on every Streamlit rerun; repeat counts should
+    represent real repeated incidents rather than page refreshes.
     """
     recorded = 0
     properties_by_id = {str(item.property_id): item for item in properties}
+    try:
+        open_keys = {
+            item.occurrence_key
+            for item in open_failures(OperationalFailureStore(values).load())
+            if item.occurrence_key
+        }
+    except OperationalFailureError:
+        open_keys = set()
+
+    def record_once(
+        *,
+        summary: str,
+        technical_detail: str,
+        property_id: str = "",
+        property_address: str = "",
+        campaign: str = "owner_finance_homes",
+        source: str = "",
+    ) -> None:
+        nonlocal recorded
+        occurrence_key = _key(
+            property_id=property_id,
+            campaign=campaign,
+            source=source,
+        )
+        if occurrence_key in open_keys:
+            return
+        if record_operational_failure(
+            values,
+            CriticalFailureType.FACEBOOK_TASK,
+            summary=summary,
+            technical_detail=technical_detail,
+            property_id=property_id,
+            property_address=property_address,
+            channel="facebook_groups",
+            campaign=campaign,
+            source=source,
+        ):
+            recorded += 1
+            open_keys.add(occurrence_key)
 
     try:
         assignment_ledger = FacebookAssignmentStore(values).load()
     except FacebookAssignmentError as exc:
-        if record_operational_failure(
-            values,
-            CriticalFailureType.FACEBOOK_TASK,
+        record_once(
             summary="Facebook assignment ledger could not be loaded.",
             technical_detail=str(exc),
-            channel="facebook_groups",
             source="facebook_assignment_dashboard",
-        ):
-            recorded += 1
+        )
         assignment_ledger = None
 
     try:
         group_ledger = FacebookGroupStore(values).load()
     except FacebookGroupError as exc:
-        if record_operational_failure(
-            values,
-            CriticalFailureType.FACEBOOK_TASK,
+        record_once(
             summary="Facebook Group directory/posting ledger could not be loaded.",
             technical_detail=str(exc),
-            channel="facebook_groups",
             source="facebook_group_posting_center",
-        ):
-            recorded += 1
+        )
         group_ledger = None
 
     if group_ledger is not None:
         for group in active_groups(group_ledger):
             if group.group_url:
                 continue
-            if record_operational_failure(
-                values,
-                CriticalFailureType.FACEBOOK_TASK,
+            record_once(
                 summary=f"Active Facebook Group is missing its saved URL: {group.name}.",
                 technical_detail=(
                     "The VA cannot open the exact destination from the Daily Board until the "
                     "group URL is added in the Facebook Group Directory."
                 ),
-                channel="facebook_groups",
                 source=f"group:{group.group_id}",
-            ):
-                recorded += 1
+            )
 
     if assignment_ledger is not None:
         for assignment in assignment_ledger.assignments:
             if assignment.status in {AssignmentStatus.POSTED, AssignmentStatus.SKIPPED}:
                 continue
             property_record = properties_by_id.get(assignment.property_id)
+            source = f"assignment:{assignment.assignment_id}"
             if assignment.status == AssignmentStatus.NEEDS_REVIEW:
-                if record_operational_failure(
-                    values,
-                    CriticalFailureType.FACEBOOK_TASK,
+                record_once(
                     summary=(
                         f"Facebook assignment needs manager review: {assignment.property_address} "
                         f"→ {assignment.group_name}."
@@ -86,33 +130,27 @@ def scan_facebook_operational_failures(
                     technical_detail=assignment.notes or "Assignment was moved to Needs Review.",
                     property_id=assignment.property_id,
                     property_address=assignment.property_address,
-                    channel="facebook_groups",
                     campaign=assignment.campaign,
-                    source=f"assignment:{assignment.assignment_id}",
-                ):
-                    recorded += 1
+                    source=source,
+                )
             if not assignment.group_url:
-                if record_operational_failure(
-                    values,
-                    CriticalFailureType.FACEBOOK_TASK,
+                record_once(
                     summary=(
                         f"Facebook assignment has no group URL: {assignment.property_address} "
                         f"→ {assignment.group_name}."
                     ),
-                    technical_detail="The assignment cannot be completed from the VA board until the group URL is saved.",
+                    technical_detail=(
+                        "The assignment cannot be completed from the VA board until the group URL is saved."
+                    ),
                     property_id=assignment.property_id,
                     property_address=assignment.property_address,
-                    channel="facebook_groups",
                     campaign=assignment.campaign,
-                    source=f"assignment:{assignment.assignment_id}",
-                ):
-                    recorded += 1
+                    source=source,
+                )
             if property_record is not None and property_record.updated_at > assignment.created_at:
-                if record_operational_failure(
-                    values,
-                    CriticalFailureType.FACEBOOK_TASK,
+                record_once(
                     summary=(
-                        f"Facebook assignment is stale after a property fact change: "
+                        "Facebook assignment is stale after a property fact change: "
                         f"{assignment.property_address} → {assignment.group_name}."
                     ),
                     technical_detail=(
@@ -121,10 +159,8 @@ def scan_facebook_operational_failures(
                     ),
                     property_id=assignment.property_id,
                     property_address=assignment.property_address,
-                    channel="facebook_groups",
                     campaign=assignment.campaign,
-                    source=f"assignment:{assignment.assignment_id}",
-                ):
-                    recorded += 1
+                    source=source,
+                )
 
     return recorded
