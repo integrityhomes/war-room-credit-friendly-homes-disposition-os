@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .channels import CHANNELS
+from .channels import ALL_MARKETING_CHANNELS
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +43,7 @@ _REQUIREMENTS: dict[str, tuple[bool, str, str]] = {
 def build_channel_completion() -> tuple[ChannelCompletion, ...]:
     """Return one honest completion row for every registered marketing channel."""
     rows: list[ChannelCompletion] = []
-    for channel in CHANNELS:
+    for channel in ALL_MARKETING_CHANNELS:
         ready, requirement, operating_mode = _REQUIREMENTS.get(
             channel.key,
             (False, "Channel implementation still needs review", channel.mode.value),
