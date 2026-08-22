@@ -6,7 +6,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channel_completion import build_channel_completion, completion_summary
 
-st.set_page_config(page_title="15-Channel Completion Audit", page_icon="✅", layout="wide")
+st.set_page_config(page_title="16-Channel Completion Audit", page_icon="✅", layout="wide")
 
 
 def require_password() -> None:
@@ -28,7 +28,7 @@ def require_password() -> None:
 
 
 require_password()
-st.title("15-Channel Completion Audit")
+st.title("16-Channel Completion Audit")
 st.caption(
     "One honest view of what is built, tracked, usable now, and what still needs a connection, paid setup, or manual final post."
 )
@@ -71,9 +71,9 @@ st.dataframe(
 )
 
 st.download_button(
-    "Download 15-channel completion audit CSV",
+    "Download 16-channel completion audit CSV",
     data=data.to_csv(index=False).encode("utf-8"),
-    file_name="cfh_15_channel_completion_audit.csv",
+    file_name="cfh_16_channel_completion_audit.csv",
     mime="text/csv",
 )
 
