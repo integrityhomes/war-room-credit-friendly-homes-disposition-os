@@ -255,4 +255,5 @@ def _render_buyer_manager(storage: Storage) -> None:
             st.error(str(exc))
 
 
-def render_record_manager(storage: Storage
+def render_record_manager(storage: Storage) -> None:
+   
