@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
-from cfh_disposition.record_manager import render_record_manager
+from cfh_disposition.record_manager_safe import render_record_manager
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
