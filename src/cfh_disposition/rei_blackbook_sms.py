@@ -25,7 +25,7 @@ class SmsHandoffSettings:
     webhook_url: str = ""
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "SmsHandoffSettings":
+    def from_mapping(cls, values: Mapping[str, Any]) -> SmsHandoffSettings:
         # SMS_SENDER_WEBHOOK_URL is intentionally the only required connection detail.
         # For the documented Zapier -> REI BlackBook path, Zapier owns the REI BlackBook
         # connection/authentication. CFH must not store or invent Profit Dial credentials.
