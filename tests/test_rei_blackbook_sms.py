@@ -5,8 +5,14 @@ import pytest
 
 from cfh_disposition.models import BuyerProfile, OwnerFinanceProperty, PropertyStatus
 from cfh_disposition.rei_blackbook_sms import (
+    CFH_BLACKBOOK_FIELD_ADDRESS,
+    CFH_BLACKBOOK_FIELD_DETAILS_LINK,
+    CFH_BLACKBOOK_FIELD_DOWN_PAYMENT,
+    CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT,
+    CFH_BLACKBOOK_FIELD_PRICE,
     ReiBlackBookSmsError,
     SmsHandoffSettings,
+    build_rei_blackbook_property_fields,
     build_sms_handoff_payload,
     ensure_buyer_can_receive_sms,
 )
@@ -55,6 +61,21 @@ def test_sms_handoff_blocks_do_not_contact():
         ensure_buyer_can_receive_sms(_buyer(do_not_contact=True))
 
 
+def test_rei_blackbook_property_fields_use_exact_saved_field_names():
+    fields = build_rei_blackbook_property_fields(
+        property_record=_property(),
+        details_link="https://example.test/t/abc",
+    )
+
+    assert fields == {
+        CFH_BLACKBOOK_FIELD_ADDRESS: "123 Main St, Franklin, VA 23851",
+        CFH_BLACKBOOK_FIELD_PRICE: "85000",
+        CFH_BLACKBOOK_FIELD_DOWN_PAYMENT: "5000",
+        CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT: "1100",
+        CFH_BLACKBOOK_FIELD_DETAILS_LINK: "https://example.test/t/abc",
+    }
+
+
 def test_payload_preserves_marketing_attribution_and_sender_boundary():
     buyer = _buyer()
     property_record = _property()
@@ -68,6 +89,7 @@ def test_payload_preserves_marketing_attribution_and_sender_boundary():
         now=datetime(2026, 8, 22, 23, 0, tzinfo=UTC),
     )
 
+    assert payload["schema_version"] == "1.1"
     assert payload["sender_system"] == "rei_blackbook_profit_dial"
     assert payload["action"] == "create_or_update_contact_and_run_sms_workflow"
     assert payload["buyer"]["phone"] == buyer.phone
@@ -77,4 +99,22 @@ def test_payload_preserves_marketing_attribution_and_sender_boundary():
     assert payload["marketing"]["source"] == "credit_friendly_homes"
     assert payload["marketing"]["channel"] == "sms"
     assert payload["marketing"]["tracked_dwelyx_link"] == "https://example.test/t/abc"
+
+    fields = payload["rei_blackbook"]["contact_fields"]
+    assert fields[CFH_BLACKBOOK_FIELD_ADDRESS] == "123 Main St, Franklin, VA 23851"
+    assert fields[CFH_BLACKBOOK_FIELD_PRICE] == "85000"
+    assert fields[CFH_BLACKBOOK_FIELD_DOWN_PAYMENT] == "5000"
+    assert fields[CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT] == "1100"
+    assert fields[CFH_BLACKBOOK_FIELD_DETAILS_LINK] == "https://example.test/t/abc"
+    assert payload["rei_blackbook"]["reply_keyword"] == "DETAILS"
+    assert payload["rei_blackbook"]["reply_workflow"] == "CFH - Buyer YES Property Details"
+
+    flat = payload["rei_blackbook_fields"]
+    assert flat["cfh_current_property_address"] == "123 Main St, Franklin, VA 23851"
+    assert flat["cfh_current_property_price"] == "85000"
+    assert flat["cfh_current_property_down_payment"] == "5000"
+    assert flat["cfh_current_property_monthly_payment"] == "1100"
+    assert flat["cfh_current_property_details_link"] == "https://example.test/t/abc"
+
     assert payload["instructions"]["do_not_change_message"] is True
+    assert payload["instructions"]["do_not_default_missing_property_terms_to_zero"] is True

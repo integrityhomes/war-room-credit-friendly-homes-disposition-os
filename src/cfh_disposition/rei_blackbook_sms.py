@@ -13,7 +13,13 @@ from .models import BuyerProfile, OwnerFinanceProperty
 SMS_HANDOFF_TIMEOUT_SECONDS = 15
 SMS_HANDOFF_RESPONSE_LIMIT = 2000
 SMS_HANDOFF_EVENT = "credit_friendly_homes.marketing.sms_handoff"
-SMS_HANDOFF_SCHEMA_VERSION = "1.0"
+SMS_HANDOFF_SCHEMA_VERSION = "1.1"
+
+CFH_BLACKBOOK_FIELD_ADDRESS = "CFH Current Property Address"
+CFH_BLACKBOOK_FIELD_PRICE = "CFH Current Property Price"
+CFH_BLACKBOOK_FIELD_DOWN_PAYMENT = "CFH Current Property Down Payment"
+CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT = "CFH Current Property Monthly Payment"
+CFH_BLACKBOOK_FIELD_DETAILS_LINK = "CFH Current Property Details Link"
 
 
 class ReiBlackBookSmsError(RuntimeError):
@@ -52,6 +58,32 @@ def ensure_buyer_can_receive_sms(buyer: BuyerProfile) -> None:
         raise ReiBlackBookSmsError("This buyer does not have a saved phone number.")
 
 
+def build_rei_blackbook_property_fields(
+    *,
+    property_record: OwnerFinanceProperty,
+    details_link: str,
+) -> dict[str, str]:
+    """Return the exact REI BlackBook custom-field names and values CFH owns.
+
+    Keeping this mapping inside the app makes the property terms authoritative and
+    prevents downstream automation from inventing, retyping, or defaulting values.
+    """
+
+    return {
+        CFH_BLACKBOOK_FIELD_ADDRESS: property_record.display_address,
+        CFH_BLACKBOOK_FIELD_PRICE: (
+            str(property_record.total_price) if property_record.total_price is not None else ""
+        ),
+        CFH_BLACKBOOK_FIELD_DOWN_PAYMENT: (
+            str(property_record.down_payment) if property_record.down_payment is not None else ""
+        ),
+        CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT: (
+            str(property_record.monthly_payment) if property_record.monthly_payment is not None else ""
+        ),
+        CFH_BLACKBOOK_FIELD_DETAILS_LINK: details_link.strip(),
+    }
+
+
 def build_sms_handoff_payload(
     *,
     buyer: BuyerProfile,
@@ -64,14 +96,20 @@ def build_sms_handoff_payload(
 ) -> dict[str, Any]:
     ensure_buyer_can_receive_sms(buyer)
     clean_message = message.strip()
+    clean_link = tracked_link.strip()
     if not clean_message:
         raise ReiBlackBookSmsError("The prepared SMS message is empty.")
-    if not tracked_link.strip():
+    if not clean_link:
         raise ReiBlackBookSmsError("The tracked Dwelyx link is missing.")
 
     timestamp = now or datetime.now(UTC)
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
+
+    contact_fields = build_rei_blackbook_property_fields(
+        property_record=property_record,
+        details_link=clean_link,
+    )
 
     return {
         "schema_version": SMS_HANDOFF_SCHEMA_VERSION,
@@ -93,12 +131,35 @@ def build_sms_handoff_payload(
             "source": "credit_friendly_homes",
             "channel": "sms",
             "message": clean_message,
-            "tracked_dwelyx_link": tracked_link.strip(),
+            "tracked_dwelyx_link": clean_link,
+        },
+        "rei_blackbook": {
+            "match_contact_by": "phone",
+            "phone": buyer.phone,
+            "workflow": "CFH - Marketing SMS Handoff",
+            "reply_keyword": "DETAILS",
+            "reply_workflow": "CFH - Buyer YES Property Details",
+            "contact_fields": contact_fields,
+        },
+        # Flat aliases intentionally make Zapier/Make/n8n mapping simple and stable.
+        # They carry the same values as rei_blackbook.contact_fields and are not a
+        # second source of truth.
+        "rei_blackbook_fields": {
+            "cfh_current_property_address": contact_fields[CFH_BLACKBOOK_FIELD_ADDRESS],
+            "cfh_current_property_price": contact_fields[CFH_BLACKBOOK_FIELD_PRICE],
+            "cfh_current_property_down_payment": contact_fields[CFH_BLACKBOOK_FIELD_DOWN_PAYMENT],
+            "cfh_current_property_monthly_payment": contact_fields[CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT],
+            "cfh_current_property_details_link": contact_fields[CFH_BLACKBOOK_FIELD_DETAILS_LINK],
         },
         "instructions": {
             "destination": "REI BlackBook / Profit Dial",
-            "required_action": "Create or update the contact by phone, then run the approved CFH owner-finance SMS workflow using the configured Profit Dial number.",
+            "required_action": (
+                "Create or update the contact by phone, write every rei_blackbook.contact_fields value "
+                "to the matching REI BlackBook custom contact field, then run CFH - Marketing SMS Handoff "
+                "using the configured Credit Friendly Homes Profit Dial number."
+            ),
             "do_not_change_message": True,
+            "do_not_default_missing_property_terms_to_zero": True,
         },
     }
 
