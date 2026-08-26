@@ -66,15 +66,15 @@ else:
     st.success("All tracked external connection categories are configured. Proceed to controlled live testing.")
 
 publishing = next(row for row in rows if row.key == "publishing_webhook")
-st.write("### n8n automation connection")
+st.write("### Automation Publishing Engine")
 if publishing.configured:
     st.success("An automation webhook URL is present in Streamlit Secrets.")
     tester = st.text_input("Connection test requested by", value="Shawn")
     st.caption(
         "This test sends no property, buyer, email, SMS, ad, or spending instruction. "
-        "It only confirms that the CFH app can reach the n8n webhook."
+        "It only confirms that the CFH app can reach the configured publishing webhook."
     )
-    if st.button("Send safe n8n connection test", type="primary"):
+    if st.button("Send safe publishing connection test", type="primary"):
         try:
             receipt = dispatch_publishing_connection_test(
                 st.secrets,
@@ -83,15 +83,15 @@ if publishing.configured:
         except ValueError as exc:
             st.error(str(exc))
         else:
-            st.success(f"n8n webhook reached successfully — HTTP {receipt.status_code}.")
+            st.success(f"Publishing webhook reached successfully — HTTP {receipt.status_code}.")
             if receipt.response_text:
                 st.caption(f"Webhook response: {receipt.response_text}")
 else:
     st.warning(
-        "n8n is not connected yet. Create an n8n Webhook trigger, activate the workflow, then save its "
-        "production webhook URL as AUTOMATION_WEBHOOK_URL in Streamlit Secrets."
+        "The publishing engine is not connected yet. Create the Zapier Catch Hook, then save its "
+        "webhook URL as AUTOMATION_WEBHOOK_URL in Streamlit Secrets."
     )
-    with st.expander("Show the safe test payload n8n should receive"):
+    with st.expander("Show the safe test payload the publishing engine should receive"):
         st.code(automation_connection_sample_json(), language="json")
     st.write(
         "After the URL is saved, return here and use the safe connection-test button before any live campaign is sent."
