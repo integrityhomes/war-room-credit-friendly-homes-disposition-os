@@ -19,29 +19,16 @@ from cfh_disposition.rei_blackbook_sms import (
 
 
 def _buyer(**updates) -> BuyerProfile:
-    values = {
-        "first_name": "Test",
-        "last_name": "Buyer",
-        "phone": "7575551212",
-        "sms_consent": True,
-        "do_not_contact": False,
-    }
+    values = {"first_name": "Test", "last_name": "Buyer", "phone": "7575551212", "sms_consent": True, "do_not_contact": False}
     values.update(updates)
     return BuyerProfile(**values)
 
 
 def _property() -> OwnerFinanceProperty:
     return OwnerFinanceProperty(
-        status=PropertyStatus.LIVE,
-        address="123 Main St",
-        city="Franklin",
-        state="VA",
-        zip_code="23851",
-        bedrooms=3,
-        bathrooms=Decimal("2"),
-        total_price=Decimal("85000"),
-        down_payment=Decimal("5000"),
-        monthly_payment=Decimal("1100"),
+        status=PropertyStatus.LIVE, address="123 Main St", city="Franklin", state="VA", zip_code="23851",
+        bedrooms=3, bathrooms=Decimal("2"), total_price=Decimal("85000"),
+        down_payment=Decimal("5000"), monthly_payment=Decimal("1100"),
     )
 
 
@@ -62,13 +49,10 @@ def test_sms_handoff_blocks_do_not_contact():
 
 
 def test_rei_blackbook_property_fields_use_exact_saved_field_names():
-    fields = build_rei_blackbook_property_fields(
-        property_record=_property(),
-        details_link="https://example.test/t/abc",
-    )
-
+    property_record = _property()
+    fields = build_rei_blackbook_property_fields(property_record=property_record, details_link="https://example.test/t/abc")
     assert fields == {
-        CFH_BLACKBOOK_FIELD_ADDRESS: "123 Main St, Franklin, VA 23851",
+        CFH_BLACKBOOK_FIELD_ADDRESS: property_record.display_address,
         CFH_BLACKBOOK_FIELD_PRICE: "85000",
         CFH_BLACKBOOK_FIELD_DOWN_PAYMENT: "5000",
         CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT: "1100",
@@ -80,15 +64,11 @@ def test_payload_preserves_marketing_attribution_and_sender_boundary():
     buyer = _buyer()
     property_record = _property()
     payload = build_sms_handoff_payload(
-        buyer=buyer,
-        property_record=property_record,
-        campaign="va_owner_finance_august",
+        buyer=buyer, property_record=property_record, campaign="va_owner_finance_august",
         message="Owner financing opportunity. See details: https://example.test/t/abc",
-        tracked_link="https://example.test/t/abc",
-        requested_by="Sabrina",
+        tracked_link="https://example.test/t/abc", requested_by="Sabrina",
         now=datetime(2026, 8, 22, 23, 0, tzinfo=UTC),
     )
-
     assert payload["schema_version"] == "1.1"
     assert payload["sender_system"] == "rei_blackbook_profit_dial"
     assert payload["action"] == "create_or_update_contact_and_run_sms_workflow"
@@ -99,22 +79,19 @@ def test_payload_preserves_marketing_attribution_and_sender_boundary():
     assert payload["marketing"]["source"] == "credit_friendly_homes"
     assert payload["marketing"]["channel"] == "sms"
     assert payload["marketing"]["tracked_dwelyx_link"] == "https://example.test/t/abc"
-
     fields = payload["rei_blackbook"]["contact_fields"]
-    assert fields[CFH_BLACKBOOK_FIELD_ADDRESS] == "123 Main St, Franklin, VA 23851"
+    assert fields[CFH_BLACKBOOK_FIELD_ADDRESS] == property_record.display_address
     assert fields[CFH_BLACKBOOK_FIELD_PRICE] == "85000"
     assert fields[CFH_BLACKBOOK_FIELD_DOWN_PAYMENT] == "5000"
     assert fields[CFH_BLACKBOOK_FIELD_MONTHLY_PAYMENT] == "1100"
     assert fields[CFH_BLACKBOOK_FIELD_DETAILS_LINK] == "https://example.test/t/abc"
     assert payload["rei_blackbook"]["reply_keyword"] == "DETAILS"
     assert payload["rei_blackbook"]["reply_workflow"] == "CFH - Buyer YES Property Details"
-
     flat = payload["rei_blackbook_fields"]
-    assert flat["cfh_current_property_address"] == "123 Main St, Franklin, VA 23851"
+    assert flat["cfh_current_property_address"] == property_record.display_address
     assert flat["cfh_current_property_price"] == "85000"
     assert flat["cfh_current_property_down_payment"] == "5000"
     assert flat["cfh_current_property_monthly_payment"] == "1100"
     assert flat["cfh_current_property_details_link"] == "https://example.test/t/abc"
-
     assert payload["instructions"]["do_not_change_message"] is True
     assert payload["instructions"]["do_not_default_missing_property_terms_to_zero"] is True
