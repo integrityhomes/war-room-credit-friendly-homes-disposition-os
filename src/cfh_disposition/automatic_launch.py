@@ -18,13 +18,22 @@ from .channels import CHANNELS, MarketingChannel
 from .models import OwnerFinanceProperty
 
 AUTOMATION_EVENT = "credit_friendly_homes.campaign.approved"
-AUTOMATION_SCHEMA_VERSION = "1.2"
+AUTOMATION_SCHEMA_VERSION = "1.3"
 AUTOMATION_TIMEOUT_SECONDS = 30
-AUTOMATION_RESPONSE_LIMIT = 500
+AUTOMATION_RESPONSE_LIMIT = 12_000
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds", "nextdoor"}
 FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace"}
 INTERNAL_LIVE_CHANNELS = {"property_page"}
+CONFIRMED_EXTERNAL_STATUSES = {
+    "accepted",
+    "queued",
+    "scheduled",
+    "sent",
+    "published",
+    "posted",
+    "live",
+}
 
 
 class AutomationLaunchError(RuntimeError):
@@ -59,10 +68,19 @@ class AutomationDispatchSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class AutomationChannelResult:
+    channel_key: str
+    status: str
+    external_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class AutomationDispatchReceipt:
     status_code: int
     sent_at: datetime
     response_text: str = ""
+    dispatch_id: str = ""
+    channel_results: tuple[AutomationChannelResult, ...] = ()
 
 
 def launch_action_for_channel(channel: MarketingChannel) -> LaunchAction:
@@ -202,6 +220,11 @@ def build_automatic_launch_payload(
             "reason": marketplace_block_reason,
         },
         "channels": channel_payloads,
+        "response_contract": {
+            "require_per_channel_results": True,
+            "confirmed_statuses": sorted(CONFIRMED_EXTERNAL_STATUSES),
+            "manual_final_post_channels_are_not_auto_completed": True,
+        },
     }
 
 
@@ -214,6 +237,90 @@ def sign_launch_payload(body: bytes, signing_secret: str) -> str:
         return ""
     digest = hmac.new(signing_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return f"sha256={digest}"
+
+
+def expected_automatic_channel_keys(payload: Mapping[str, Any]) -> set[str]:
+    expected: set[str] = set()
+    raw_channels = payload.get("channels", [])
+    if not isinstance(raw_channels, list):
+        return expected
+    for row in raw_channels:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("posting_blocked"):
+            continue
+        if row.get("launch_action") == LaunchAction.AUTO_PUBLISH.value:
+            channel_key = str(row.get("channel_key", "")).strip()
+            if channel_key:
+                expected.add(channel_key)
+    return expected
+
+
+def parse_dispatch_response(
+    response_text: str,
+    payload: Mapping[str, Any],
+) -> tuple[str, tuple[AutomationChannelResult, ...]]:
+    try:
+        response_payload = json.loads(response_text)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise AutomationLaunchError(
+            "The publishing workflow returned HTTP success but not valid JSON. No external channel was marked launched."
+        ) from exc
+    if not isinstance(response_payload, Mapping):
+        raise AutomationLaunchError(
+            "The publishing workflow returned an invalid success response. No external channel was marked launched."
+        )
+    if response_payload.get("accepted") is not True:
+        raise AutomationLaunchError(
+            "The publishing workflow did not explicitly accept the campaign. No external channel was marked launched."
+        )
+
+    raw_results = response_payload.get("channel_results")
+    if not isinstance(raw_results, list):
+        raise AutomationLaunchError(
+            "The publishing workflow did not return per-channel results. A generic HTTP 200 is not enough to mark channels launched."
+        )
+
+    expected = expected_automatic_channel_keys(payload)
+    confirmed: dict[str, AutomationChannelResult] = {}
+    for raw_result in raw_results:
+        if not isinstance(raw_result, Mapping):
+            raise AutomationLaunchError(
+                "The publishing workflow returned a malformed channel result. No external channel was marked launched."
+            )
+        channel_key = str(raw_result.get("channel_key", "")).strip()
+        status = str(raw_result.get("status", "")).strip().lower()
+        external_id = str(raw_result.get("external_id", "")).strip()
+        if not channel_key:
+            raise AutomationLaunchError(
+                "The publishing workflow returned a channel result without a channel_key. No external channel was marked launched."
+            )
+        if channel_key in confirmed:
+            raise AutomationLaunchError(
+                f"The publishing workflow returned duplicate results for {channel_key}. No external channel was marked launched."
+            )
+        if channel_key not in expected:
+            continue
+        if status not in CONFIRMED_EXTERNAL_STATUSES:
+            raise AutomationLaunchError(
+                f"The publishing workflow did not confirm {channel_key} (status: {status or 'missing'}). No external channel was marked launched."
+            )
+        confirmed[channel_key] = AutomationChannelResult(
+            channel_key=channel_key,
+            status=status,
+            external_id=external_id,
+        )
+
+    missing = sorted(expected - set(confirmed))
+    if missing:
+        raise AutomationLaunchError(
+            "The publishing workflow did not confirm every automatic channel. Missing: "
+            + ", ".join(missing)
+            + ". No external automatic channel was marked launched."
+        )
+
+    dispatch_id = str(response_payload.get("dispatch_id", "")).strip()
+    return dispatch_id, tuple(confirmed[key] for key in sorted(confirmed))
 
 
 def dispatch_automatic_launch(
@@ -255,10 +362,13 @@ def dispatch_automatic_launch(
             f"The automatic publishing workflow returned HTTP {status_code}. No external channel was marked launched."
         )
 
+    dispatch_id, channel_results = parse_dispatch_response(response_text, payload)
     return AutomationDispatchReceipt(
         status_code=status_code,
         sent_at=datetime.now(UTC),
         response_text=response_text,
+        dispatch_id=dispatch_id,
+        channel_results=channel_results,
     )
 
 
@@ -284,7 +394,10 @@ def automation_plan_rows() -> list[dict[str, str]]:
                 "for a final human post."
             )
         else:
-            result = "The approved package is sent to the connected publishing workflow."
+            result = (
+                "The approved package is sent to the connected publishing workflow and only counts after "
+                "that workflow returns a confirmed result for this exact channel."
+            )
         rows.append(
             {
                 "Channel": channel.name,

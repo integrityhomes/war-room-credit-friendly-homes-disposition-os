@@ -1,11 +1,15 @@
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+
+import pytest
 
 import cfh_disposition.automatic_launch as automatic_launch
 from cfh_disposition.ai_campaign import build_fallback_campaign
 from cfh_disposition.automatic_launch import (
     AUTOMATION_EVENT,
     AutomationDispatchSettings,
+    AutomationLaunchError,
     LaunchAction,
     automation_plan_rows,
     build_automatic_launch_payload,
@@ -75,6 +79,7 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert payload["buyer_destination"]["facebook_marketplace_direct_link"] is False
     assert payload["buyer_destination"]["facebook_groups_direct_link"] is True
     assert payload["buyer_destination"]["nextdoor_direct_link"] is True
+    assert payload["response_contract"]["require_per_channel_results"] is True
     assert len(payload["channels"]) == len(CHANNELS) == 15
     assert payload["property"]["address"] == "101 Test Street"
     assert payload["property"]["photo_urls"] == ["https://example.com/front.jpg"]
@@ -190,8 +195,36 @@ def test_payload_signature_is_stable() -> None:
     assert sign_launch_payload(body, "secret").startswith("sha256=")
 
 
+def _confirmed_response_for(payload):
+    results = [
+        {
+            "channel_key": row["channel_key"],
+            "status": "scheduled",
+            "external_id": f"job-{row['channel_key']}",
+        }
+        for row in payload.get("channels", [])
+        if row.get("launch_action") == LaunchAction.AUTO_PUBLISH.value
+        and not row.get("posting_blocked")
+    ]
+    return json.dumps(
+        {
+            "accepted": True,
+            "dispatch_id": "dispatch-123",
+            "channel_results": results,
+        }
+    ).encode()
+
+
 def test_dispatch_posts_signed_json(monkeypatch) -> None:
     requests = []
+    item, links_by_key, package = launch_fixture()
+    payload = build_automatic_launch_payload(
+        item,
+        package,
+        links_by_key,
+        campaign="august_bristol",
+        approved_by="Sabrina",
+    )
 
     class FakeResponse:
         status = 202
@@ -203,7 +236,7 @@ def test_dispatch_posts_signed_json(monkeypatch) -> None:
             return False
 
         def read(self):
-            return b'{"accepted":true}'
+            return _confirmed_response_for(payload)
 
     def fake_urlopen(request, timeout):
         requests.append((request, timeout))
@@ -216,9 +249,11 @@ def test_dispatch_posts_signed_json(monkeypatch) -> None:
         timeout_seconds=5,
     )
 
-    receipt = dispatch_automatic_launch({"event": AUTOMATION_EVENT}, settings)
+    receipt = dispatch_automatic_launch(payload, settings)
 
     assert receipt.status_code == 202
+    assert receipt.dispatch_id == "dispatch-123"
+    assert receipt.channel_results
     assert len(requests) == 1
     request, timeout = requests[0]
     assert timeout == 5
@@ -226,3 +261,63 @@ def test_dispatch_posts_signed_json(monkeypatch) -> None:
     assert request.headers["Content-type"] == "application/json"
     assert request.headers["X-cfh-event"] == AUTOMATION_EVENT
     assert request.headers["X-cfh-signature"].startswith("sha256=")
+
+
+def test_dispatch_rejects_generic_http_success_without_channel_results(monkeypatch) -> None:
+    item, links_by_key, package = launch_fixture()
+    payload = build_automatic_launch_payload(
+        item,
+        package,
+        links_by_key,
+        campaign="august_bristol",
+        approved_by="Sabrina",
+    )
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b'{"accepted":true}'
+
+    monkeypatch.setattr(automatic_launch, "urlopen", lambda request, timeout: FakeResponse())
+    settings = AutomationDispatchSettings(webhook_url="https://hook.example.com/campaign")
+
+    with pytest.raises(AutomationLaunchError, match="per-channel results"):
+        dispatch_automatic_launch(payload, settings)
+
+
+def test_dispatch_rejects_missing_automatic_channel_result(monkeypatch) -> None:
+    item, links_by_key, package = launch_fixture()
+    payload = build_automatic_launch_payload(
+        item,
+        package,
+        links_by_key,
+        campaign="august_bristol",
+        approved_by="Sabrina",
+    )
+    response = json.loads(_confirmed_response_for(payload))
+    response["channel_results"] = response["channel_results"][1:]
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps(response).encode()
+
+    monkeypatch.setattr(automatic_launch, "urlopen", lambda request, timeout: FakeResponse())
+    settings = AutomationDispatchSettings(webhook_url="https://hook.example.com/campaign")
+
+    with pytest.raises(AutomationLaunchError, match="Missing"):
+        dispatch_automatic_launch(payload, settings)
