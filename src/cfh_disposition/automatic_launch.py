@@ -50,7 +50,7 @@ class AutomationDispatchSettings:
         return parts.scheme in {"http", "https"} and bool(parts.netloc)
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "AutomationDispatchSettings":
+    def from_mapping(cls, values: Mapping[str, Any]) -> AutomationDispatchSettings:
         webhook = values.get("AUTOMATION_WEBHOOK_URL") or values.get("MAKE_WEBHOOK_URL") or ""
         secret = values.get("AUTOMATION_WEBHOOK_SECRET") or values.get("MAKE_WEBHOOK_SECRET") or ""
         return cls(webhook_url=str(webhook).strip(), signing_secret=str(secret).strip())
@@ -128,17 +128,14 @@ def _property_payload(item: OwnerFinanceProperty) -> dict[str, Any]:
     return {
         "property_id": str(item.property_id), "address": item.address, "city": item.city,
         "state": item.state, "zip_code": item.zip_code, "county": item.county,
-        "bedrooms": item.bedrooms,
-        "bathrooms": str(item.bathrooms) if item.bathrooms is not None else None,
-        "square_feet": item.square_feet,
-        "acreage": str(item.acreage) if item.acreage is not None else None,
+        "bedrooms": item.bedrooms, "bathrooms": str(item.bathrooms) if item.bathrooms is not None else None,
+        "square_feet": item.square_feet, "acreage": str(item.acreage) if item.acreage is not None else None,
         "total_price": str(item.total_price) if item.total_price is not None else None,
         "down_payment": str(item.down_payment) if item.down_payment is not None else None,
         "monthly_payment": str(item.monthly_payment) if item.monthly_payment is not None else None,
         "condition_summary": item.condition_summary, "repairs_needed": item.repairs_needed,
         "showing_instructions": item.showing_instructions, "public_disclosures": item.public_disclosures,
-        "photo_urls": [str(url) for url in item.photo_urls],
-        "video_url": str(item.video_url) if item.video_url else None,
+        "photo_urls": [str(url) for url in item.photo_urls], "video_url": str(item.video_url) if item.video_url else None,
     }
 
 
@@ -157,8 +154,7 @@ def build_automatic_launch_payload(property_record: OwnerFinanceProperty, packag
         channel_payloads.append({
             "channel_key": channel.key, "channel_name": channel.name, "channel_mode": channel.mode.value,
             "launch_action": action.value, "requires_manual_final_post": action == LaunchAction.MANUAL_FINAL_POST,
-            "posting_blocked": posting_blocked,
-            "block_reason": marketplace_block_reason if posting_blocked else "",
+            "posting_blocked": posting_blocked, "block_reason": marketplace_block_reason if posting_blocked else "",
             "public_external_link_allowed": not marketplace_no_link,
             "tracked_buyer_link": None if marketplace_no_link else tracked_link,
             "copy": "" if posting_blocked else channel_copy_with_link(package, channel.key, tracked_link),
@@ -176,6 +172,7 @@ def build_automatic_launch_payload(property_record: OwnerFinanceProperty, packag
         "response_contract": {
             "dispatch_is_asynchronous": True,
             "generic_2xx_means_submitted_not_published": True,
+            "require_per_channel_results": True,
             "require_per_channel_results_in_initial_response": False,
             "confirmed_statuses": sorted(CONFIRMED_EXTERNAL_STATUSES),
             "manual_final_post_channels_are_not_auto_completed": True,
@@ -200,7 +197,7 @@ def expected_automatic_channel_keys(payload: Mapping[str, Any]) -> set[str]:
 
 
 def parse_dispatch_response(response_text: str, payload: Mapping[str, Any]) -> tuple[str, tuple[AutomationChannelResult, ...]]:
-    """Parse optional immediate confirmations. Zapier's generic response is valid submission only."""
+    """Treat a generic Zapier response as submission; validate explicit CFH confirmations strictly."""
     if not response_text.strip():
         return "", ()
     try:
@@ -210,21 +207,24 @@ def parse_dispatch_response(response_text: str, payload: Mapping[str, Any]) -> t
     if not isinstance(response_payload, Mapping):
         return "", ()
     dispatch_id = str(response_payload.get("dispatch_id", "")).strip()
+    if response_payload.get("accepted") is not True:
+        return dispatch_id, ()
     raw_results = response_payload.get("channel_results")
     if not isinstance(raw_results, list):
-        return dispatch_id, ()
+        raise AutomationLaunchError("The publishing workflow explicitly accepted the campaign but did not return per-channel results.")
     expected = expected_automatic_channel_keys(payload)
-    confirmed: list[AutomationChannelResult] = []
-    seen: set[str] = set()
+    confirmed: dict[str, AutomationChannelResult] = {}
     for raw in raw_results:
         if not isinstance(raw, Mapping):
             continue
         key = str(raw.get("channel_key", "")).strip()
         status = str(raw.get("status", "")).strip().lower()
-        if key in expected and key not in seen and status in CONFIRMED_EXTERNAL_STATUSES:
-            seen.add(key)
-            confirmed.append(AutomationChannelResult(key, status, str(raw.get("external_id", "")).strip()))
-    return dispatch_id, tuple(confirmed)
+        if key in expected and key not in confirmed and status in CONFIRMED_EXTERNAL_STATUSES:
+            confirmed[key] = AutomationChannelResult(key, status, str(raw.get("external_id", "")).strip())
+    missing = sorted(expected - set(confirmed))
+    if missing:
+        raise AutomationLaunchError("The publishing workflow did not confirm every automatic channel. Missing: " + ", ".join(missing))
+    return dispatch_id, tuple(confirmed[key] for key in sorted(confirmed))
 
 
 def dispatch_automatic_launch(payload: Mapping[str, Any], settings: AutomationDispatchSettings) -> AutomationDispatchReceipt:
@@ -250,8 +250,7 @@ def dispatch_automatic_launch(payload: Mapping[str, Any], settings: AutomationDi
         raise AutomationLaunchError(f"The automatic publishing workflow returned HTTP {status_code}. No external channel was marked launched.")
     dispatch_id, channel_results = parse_dispatch_response(response_text, payload)
     return AutomationDispatchReceipt(status_code=status_code, sent_at=datetime.now(UTC), response_text=response_text,
-                                     dispatch_id=dispatch_id, channel_results=channel_results,
-                                     awaiting_confirmation=True)
+                                     dispatch_id=dispatch_id, channel_results=channel_results, awaiting_confirmation=True)
 
 
 def automation_plan_rows() -> list[dict[str, str]]:
