@@ -125,7 +125,10 @@ def navigate(page_name: str, *, property_label: str = "") -> None:
         st.session_state.campaign_readiness_property = property_label
     if property_label and page_name == "Campaign Launch Center":
         st.session_state.launch_center_property = property_label
-    st.session_state.main_navigation = page_name
+    # Streamlit does not allow changing a widget-backed session-state key
+    # after that widget has been created in the current run. Queue the
+    # destination and apply it before the sidebar radio is instantiated.
+    st.session_state.pending_main_navigation = page_name
     st.rerun()
 
 
@@ -500,6 +503,9 @@ if st.sidebar.button("Log out"):
     st.session_state.authenticated = False
     st.rerun()
 
+pending_navigation = st.session_state.pop("pending_main_navigation", None)
+if pending_navigation in PRIMARY_NAVIGATION:
+    st.session_state.main_navigation = pending_navigation
 if st.session_state.get("main_navigation") not in PRIMARY_NAVIGATION:
     st.session_state.main_navigation = PRIMARY_NAVIGATION[0]
 page = st.sidebar.radio(
