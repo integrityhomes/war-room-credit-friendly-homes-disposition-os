@@ -49,15 +49,14 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
             automation.configured,
             "Blog, Market SEO, Email/SMS handoff, paid/social publishing workflows",
             (
-                "Create the n8n webhook workflow, then save its production webhook URL as "
+                "Create the Zapier Catch Hook, then save its webhook URL as "
                 "AUTOMATION_WEBHOOK_URL in Streamlit Secrets."
             )
             if not automation.configured
             else "Connected. Run the safe webhook test before any live campaign dispatch.",
         ),
         ConnectionStatus(
-            "email_sender",
-            "Email Sender",
+            "email_sender", "Email Sender",
             _has(values, "EMAIL_SENDER_WEBHOOK_URL", "EMAIL_PROVIDER_API_KEY"),
             "Matched Buyer Email and email reactivation",
             "Connect the approved email sender before live sending."
@@ -65,8 +64,7 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
             else "Connected. Continue enforcing saved email consent and unsubscribe status.",
         ),
         ConnectionStatus(
-            "sms_sender",
-            "SMS Sender",
+            "sms_sender", "SMS Sender",
             _has(values, "SMS_SENDER_WEBHOOK_URL", "SMS_PROVIDER_API_KEY"),
             "Matched Buyer SMS and SMS reactivation",
             "Connect the approved SMS sender before live sending."
@@ -74,17 +72,14 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
             else "Connected. Continue enforcing saved SMS consent and STOP/do-not-contact status.",
         ),
         ConnectionStatus(
-            "meta_ads",
-            "Meta Ads Account",
-            _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN"),
+            "meta_ads", "Meta Ads Account", _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN"),
             "Meta Housing Ads",
             "Add the approved Meta ad-account connection when ready for live paid campaigns."
             if not _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN")
             else "Connection details present. Final campaign targeting and spend still require approval.",
         ),
         ConnectionStatus(
-            "google_ads",
-            "Google Ads Account",
+            "google_ads", "Google Ads Account",
             _has(values, "GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN"),
             "Google Search Ads",
             "Add the approved Google Ads connection when ready for live paid campaigns."
@@ -96,18 +91,10 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
 
 
 def connection_summary(rows: tuple[ConnectionStatus, ...]) -> dict[str, int]:
-    return {
-        "total": len(rows),
-        "connected": sum(row.configured for row in rows),
-        "remaining": sum(not row.configured for row in rows),
-    }
+    return {"total": len(rows), "connected": sum(row.configured for row in rows), "remaining": sum(not row.configured for row in rows)}
 
 
-def build_publishing_connection_test_payload(
-    *,
-    requested_by: str,
-    now: datetime | None = None,
-) -> dict[str, Any]:
+def build_publishing_connection_test_payload(*, requested_by: str, now: datetime | None = None) -> dict[str, Any]:
     timestamp = now or datetime.now(UTC)
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
@@ -117,64 +104,40 @@ def build_publishing_connection_test_payload(
         "sent_at": timestamp.astimezone(UTC).isoformat(),
         "requested_by": requested_by.strip() or "Connection Center",
         "test_only": True,
-        "instructions": (
-            "Connection test only. Do not publish, send messages, create ads, or spend money."
-        ),
+        "instructions": "Connection test only. Do not publish, send messages, create ads, or spend money.",
     }
 
 
-def dispatch_publishing_connection_test(
-    values: Mapping[str, Any],
-    *,
-    requested_by: str,
-    now: datetime | None = None,
-) -> ConnectionTestReceipt:
+def dispatch_publishing_connection_test(values: Mapping[str, Any], *, requested_by: str,
+                                        now: datetime | None = None) -> ConnectionTestReceipt:
     settings = AutomationDispatchSettings.from_mapping(values)
     if not settings.configured:
-        raise ValueError(
-            "Publishing webhook is not configured. Add AUTOMATION_WEBHOOK_URL first."
-        )
-
+        raise ValueError("Publishing webhook is not configured. Add AUTOMATION_WEBHOOK_URL first.")
     payload = build_publishing_connection_test_payload(requested_by=requested_by, now=now)
     body = serialize_launch_payload(payload)
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
-        "X-CFH-Event": CONNECTION_TEST_EVENT,
-    }
+    headers = {"Content-Type": "application/json", "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
+               "X-CFH-Event": CONNECTION_TEST_EVENT}
     signature = sign_launch_payload(body, settings.signing_secret)
     if signature:
         headers["X-CFH-Signature"] = signature
-
     request = Request(settings.webhook_url, data=body, headers=headers, method="POST")
     try:
-        with urlopen(
-            request,
-            timeout=settings.timeout_seconds or AUTOMATION_TIMEOUT_SECONDS,
-        ) as response:
+        with urlopen(request, timeout=settings.timeout_seconds or AUTOMATION_TIMEOUT_SECONDS) as response:
             status_code = int(getattr(response, "status", 200))
             response_text = response.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:AUTOMATION_RESPONSE_LIMIT]
-        raise ValueError(
-            f"The automation engine rejected the safe test (HTTP {exc.code}). {detail}"
-        ) from exc
+        raise ValueError(f"The automation engine rejected the safe test (HTTP {exc.code}). {detail}") from exc
     except (URLError, TimeoutError) as exc:
         raise ValueError("The automation engine could not be reached by the safe test.") from exc
-
     if not 200 <= status_code < 300:
         raise ValueError(f"The automation engine returned HTTP {status_code} during the safe test.")
-
     sent_at = now or datetime.now(UTC)
     if sent_at.tzinfo is None:
         sent_at = sent_at.replace(tzinfo=UTC)
-    return ConnectionTestReceipt(
-        status_code=status_code,
-        sent_at=sent_at.astimezone(UTC),
-        response_text=response_text[:AUTOMATION_RESPONSE_LIMIT],
-    )
+    return ConnectionTestReceipt(status_code=status_code, sent_at=sent_at.astimezone(UTC),
+                                 response_text=response_text[:AUTOMATION_RESPONSE_LIMIT])
 
 
 def automation_connection_sample_json(*, requested_by: str = "Connection Center") -> str:
-    payload = build_publishing_connection_test_payload(requested_by=requested_by)
-    return json.dumps(payload, indent=2, sort_keys=True)
+    return json.dumps(build_publishing_connection_test_payload(requested_by=requested_by), indent=2, sort_keys=True)
