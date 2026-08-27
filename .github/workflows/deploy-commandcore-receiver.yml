@@ -8,9 +8,11 @@ on:
       - agent/commandcore-direct-channel-receiver
       - agent/commandcore-dispatcher
       - agent/commandcore-dispatch-worker
+      - agent/commandcore-market-seo-adapter
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
+      - "supabase/functions/commandcore-market-seo/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -25,7 +27,7 @@ jobs:
         with:
           version: latest
 
-      - name: Deploy CommandCore receiver and worker
+      - name: Deploy CommandCore functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -33,6 +35,7 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
           supabase functions deploy commandcore-channel-receiver --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-market-seo --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-dispatch-worker --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -56,4 +59,5 @@ jobs:
           }
 
           check_health commandcore-channel-receiver
+          check_health commandcore-market-seo
           check_health commandcore-dispatch-worker
