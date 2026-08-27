@@ -29,7 +29,7 @@ async function writeObject(path:string,payload:Record<string,unknown>){const{sup
 async function rateAllowed(ip:string):Promise<boolean>{await ensureBucket();const hash=(await sha256(ip)).slice(0,32);const path=`rates/${hash}.json`;const now=Date.now();const current=await readObject(path)||{};const start=Number(current.window_start||0);let count=Number(current.count||0);if(!start||now-start>RATE_WINDOW_MS){count=0;}count+=1;await writeObject(path,{window_start:(!start||now-start>RATE_WINDOW_MS)?now:start,count,updated_at:new Date().toISOString()});return count<=RATE_LIMIT}
 async function forward(body:Record<string,unknown>):Promise<{status:number;body:unknown}>{const{supabaseUrl,key}=storageConfig();const r=await fetch(`${supabaseUrl}/functions/v1/commandcore-lead-source-adapter`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(body)});let parsed:unknown={};try{parsed=await r.json()}catch{parsed={ok:false,error:"invalid_adapter_response"}}return{status:r.status,body:parsed}}
 
-Deno.serve(async(req=>{
+Deno.serve(async (req) => {
   if(req.method==="GET")return jsonResponse(200,{ok:true,service:"commandcore-public-lead-gateway",version:SERVICE_VERSION,status:"healthy",public_ingress_enabled:true,allowed_sources:Array.from(ALLOWED_SOURCES),external_action_started:false});
   const origin=allowedOrigin(req);
   if(req.method==="OPTIONS")return origin?new Response(null,{status:204,headers:{"access-control-allow-origin":origin,"access-control-allow-methods":"POST, OPTIONS","access-control-allow-headers":"content-type","access-control-max-age":"600","vary":"Origin"}}):jsonResponse(403,{ok:false,error:"origin_not_allowed"});
@@ -45,11 +45,10 @@ Deno.serve(async(req=>{
   try{
     if(!(await rateAllowed(clientIp(req))))return jsonResponse(429,{ok:false,error:"rate_limited"},origin);
     const payload:Record<string,unknown>={source_type:source,payload:{...body,source_type:undefined,source:undefined,website:undefined,company:undefined,middle_name:undefined,honeypot:undefined},source_event_id:normalized(body.source_event_id)||crypto.randomUUID()};
-    // Public form submissions never manufacture consent. Explicit granted consent must carry evidence created by the form UI/version.
     const sms=lower(body.sms_consent_state);const emailState=lower(body.email_consent_state);const evidence=normalized(body.consent_evidence_reference);
     if((sms==="granted"||emailState==="granted")&&!evidence)return jsonResponse(422,{ok:false,error:"granted_consent_requires_evidence"},origin);
     const result=await forward(payload);
     if(result.status<200||result.status>=300)return jsonResponse(502,{ok:false,error:"lead_intake_failed"},origin);
     return jsonResponse(202,{ok:true,accepted:true,source_type:source,external_action_started:false},origin);
   }catch(error){console.error("CommandCore public lead gateway failed",error);return jsonResponse(503,{ok:false,error:"lead_gateway_unavailable"},origin)}
-}));
+});
