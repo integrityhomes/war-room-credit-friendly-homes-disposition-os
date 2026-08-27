@@ -15,6 +15,7 @@ on:
       - agent/commandcore-buyer-matcher
       - agent/commandcore-buyer-preferences
       - agent/commandcore-lead-intake
+      - agent/commandcore-lead-source-adapters
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
@@ -25,6 +26,7 @@ on:
       - "supabase/functions/commandcore-buyer-matcher/**"
       - "supabase/functions/commandcore-buyer-profile/**"
       - "supabase/functions/commandcore-lead-intake/**"
+      - "supabase/functions/commandcore-lead-source-adapter/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -54,6 +56,7 @@ jobs:
           supabase functions deploy commandcore-buyer-profile --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-buyer-matcher --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-lead-intake --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-lead-source-adapter --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -84,4 +87,5 @@ jobs:
           check_health commandcore-buyer-profile
           check_health commandcore-buyer-matcher
           check_health commandcore-lead-intake
+          check_health commandcore-lead-source-adapter
           check_health commandcore-communication-gate
