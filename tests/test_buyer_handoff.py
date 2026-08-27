@@ -83,6 +83,23 @@ def test_consent_ready_buyer_is_attached_to_email_and_sms() -> None:
     assert rows["sms"]["posting_blocked"] is False
 
 
+def test_execution_rows_expose_single_contact_values_for_zapier() -> None:
+    payload, match = _fixture()
+    enriched = enrich_launch_payload_with_buyer_audience(payload, [match])
+
+    email_rows = [row for row in enriched["execution_rows"] if row["channel_key"] == "email"]
+    sms_rows = [row for row in enriched["execution_rows"] if row["channel_key"] == "sms"]
+
+    assert len(email_rows) == 1
+    assert len(sms_rows) == 1
+    assert email_rows[0]["recipient_email"] == "taylor@example.com"
+    assert email_rows[0]["recipient_phone"] == ""
+    assert sms_rows[0]["recipient_phone"] == "+17575550101"
+    assert sms_rows[0]["recipient_email"] == ""
+    assert sms_rows[0]["recipient"] == "+17575550101"
+    assert enriched["execution_row_count"] == len(enriched["execution_rows"])
+
+
 def test_reactivation_is_never_duplicated_by_property_launch() -> None:
     payload, match = _fixture()
     enriched = enrich_launch_payload_with_buyer_audience(payload, [match])
@@ -109,3 +126,8 @@ def test_no_consent_ready_audience_blocks_email_and_sms() -> None:
     assert rows["sms"]["recipient_phone_numbers"] == []
     assert "email" not in expected_automatic_channel_keys(enriched)
     assert "sms" not in expected_automatic_channel_keys(enriched)
+
+    email_rows = [row for row in enriched["execution_rows"] if row["channel_key"] == "email"]
+    sms_rows = [row for row in enriched["execution_rows"] if row["channel_key"] == "sms"]
+    assert len(email_rows) == 1 and email_rows[0]["posting_blocked"] is True
+    assert len(sms_rows) == 1 and sms_rows[0]["posting_blocked"] is True
