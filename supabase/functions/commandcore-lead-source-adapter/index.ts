@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-27.1";
+const SERVICE_VERSION = "2026-08-27.2";
 const MAX_BODY_BYTES = 128 * 1024;
 const SUPPORTED_SOURCES = new Set(["website_form", "property_page", "facebook_lead", "inbound_sms", "inbound_call", "manual_import"]);
 
@@ -60,7 +60,7 @@ async function forwardToIntake(payload:Record<string,unknown>):Promise<{status:n
   return {status:response.status,body:parsed};
 }
 
-Deno.serve(async(req=>{
+Deno.serve(async (req) => {
   if(req.method==="GET")return jsonResponse(200,{ok:true,service:"commandcore-lead-source-adapter",version:SERVICE_VERSION,status:"healthy",public_ingress_enabled:false,external_action_started:false,supported_sources:Array.from(SUPPORTED_SOURCES)});
   if(req.method!=="POST")return jsonResponse(405,{ok:false,error:"method_not_allowed"});
   if(!isAuthenticated(req))return jsonResponse(401,{ok:false,error:"unauthorized"});
@@ -76,4 +76,4 @@ Deno.serve(async(req=>{
     const intake=await forwardToIntake(normalizedLead);
     return jsonResponse(intake.status,{ok:intake.status>=200&&intake.status<300,action:"normalize_and_forward_lead",source_type:sourceType,source_event_id:normalizedLead.source_event_id||"",intake:intake.body,external_action_started:false});
   }catch(error){console.error("CommandCore lead source adapter failed",error);return jsonResponse(503,{ok:false,error:"lead_source_adapter_unavailable"})}
-}));
+});
