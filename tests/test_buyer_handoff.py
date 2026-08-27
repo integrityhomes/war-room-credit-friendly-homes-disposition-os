@@ -71,8 +71,14 @@ def test_consent_ready_buyer_is_attached_to_email_and_sms() -> None:
 
     assert enriched["buyer_audience"]["email_recipient_count"] == 1
     assert enriched["buyer_audience"]["sms_recipient_count"] == 1
+    assert enriched["buyer_audience"]["email_recipient_addresses"] == ["taylor@example.com"]
+    assert enriched["buyer_audience"]["sms_recipient_phone_numbers"] == ["+17575550101"]
     assert rows["email"]["recipients"][0]["recipient"] == "taylor@example.com"
+    assert rows["email"]["recipients"][0]["email"] == "taylor@example.com"
     assert rows["sms"]["recipients"][0]["recipient"] == "+17575550101"
+    assert rows["sms"]["recipients"][0]["phone"] == "+17575550101"
+    assert rows["email"]["recipient_addresses"] == ["taylor@example.com"]
+    assert rows["sms"]["recipient_phone_numbers"] == ["+17575550101"]
     assert rows["email"]["posting_blocked"] is False
     assert rows["sms"]["posting_blocked"] is False
 
@@ -93,9 +99,13 @@ def test_no_consent_ready_audience_blocks_email_and_sms() -> None:
     enriched = enrich_launch_payload_with_buyer_audience(payload, [])
     rows = {row["channel_key"]: row for row in enriched["channels"]}
 
+    assert enriched["buyer_audience"]["email_recipient_addresses"] == []
+    assert enriched["buyer_audience"]["sms_recipient_phone_numbers"] == []
     assert rows["email"]["posting_blocked"] is True
     assert rows["sms"]["posting_blocked"] is True
     assert rows["email"]["recipients"] == []
     assert rows["sms"]["recipients"] == []
+    assert rows["email"]["recipient_addresses"] == []
+    assert rows["sms"]["recipient_phone_numbers"] == []
     assert "email" not in expected_automatic_channel_keys(enriched)
     assert "sms" not in expected_automatic_channel_keys(enriched)
