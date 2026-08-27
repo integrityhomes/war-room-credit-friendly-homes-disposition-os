@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - agent/commandcore-direct-channel-receiver
+      - agent/commandcore-dispatcher
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
