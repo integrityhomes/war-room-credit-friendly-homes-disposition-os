@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any
 
 from .buyer_intent import BuyerPropertyMatch
@@ -36,6 +37,49 @@ def _recipient_row(
     return row
 
 
+def _build_execution_rows(channels: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Return Zapier-ready rows with exactly one buyer contact per email/SMS row.
+
+    ``channels`` remains the canonical 15-channel campaign catalog. Zapier should loop
+    over ``execution_rows`` instead. Non-buyer channels stay one row each; email and
+    SMS are expanded to one row per consent-ready buyer so actions that accept a single
+    email address or phone number never receive an array or comma-separated value.
+    """
+    execution_rows: list[dict[str, Any]] = []
+
+    for source_row in channels:
+        row = deepcopy(dict(source_row))
+        channel_key = str(row.get("channel_key", ""))
+
+        if channel_key not in {"email", "sms"}:
+            execution_rows.append(row)
+            continue
+
+        recipients = row.get("recipients", [])
+        if not isinstance(recipients, list) or not recipients:
+            # Preserve the blocked row so downstream path/filter behavior remains visible.
+            execution_rows.append(row)
+            continue
+
+        for recipient in recipients:
+            if not isinstance(recipient, Mapping):
+                continue
+            execution_row = deepcopy(row)
+            execution_row["recipients"] = [dict(recipient)]
+            execution_row["buyer_id"] = str(recipient.get("buyer_id", ""))
+            execution_row["buyer_name"] = str(recipient.get("buyer_name", ""))
+            execution_row["recipient"] = str(recipient.get("recipient", ""))
+            execution_row["recipient_type"] = str(recipient.get("recipient_type", ""))
+            execution_row["recipient_email"] = str(recipient.get("email", ""))
+            execution_row["recipient_phone"] = str(recipient.get("phone", ""))
+            execution_row["recipient_tracked_dwelyx_link"] = str(
+                recipient.get("tracked_dwelyx_link", "")
+            )
+            execution_rows.append(execution_row)
+
+    return execution_rows
+
+
 def enrich_launch_payload_with_buyer_audience(
     payload: dict[str, Any],
     matches: Sequence[BuyerPropertyMatch],
@@ -45,6 +89,10 @@ def enrich_launch_payload_with_buyer_audience(
     The normal property campaign is allowed to hand each consent-ready buyer to REI BlackBook.
     Reactivation remains isolated in the dedicated autopilot so the same buyer is not contacted
     twice from one property launch.
+
+    ``channels`` stays the 15-channel source-of-truth catalog. ``execution_rows`` is the
+    downstream automation list and expands email/SMS to one row per buyer. This prevents
+    Zapier from trying to map a list of phone numbers into a single-phone-number action.
     """
     email_recipients = [
         _recipient_row(match, match.email, recipient_type="email")
@@ -67,7 +115,8 @@ def enrich_launch_payload_with_buyer_audience(
         "cooldown_checked": True,
         "email_recipient_count": len(email_recipients),
         "sms_recipient_count": len(sms_recipients),
-        # Explicit simple arrays make these values easy to locate and map in Zapier.
+        # Explicit arrays are useful for audit/inspection; execution_rows below provides
+        # single-value aliases for Zapier actions that accept only one contact at a time.
         "email_recipient_addresses": email_addresses,
         "sms_recipient_phone_numbers": sms_phone_numbers,
         "reactivation_delegated_to_autopilot": True,
@@ -103,5 +152,10 @@ def enrich_launch_payload_with_buyer_audience(
         reactivation_row["recipients"] = []
         reactivation_row["posting_blocked"] = True
         reactivation_row["block_reason"] = BUYER_REACTIVATION_BLOCK_REASON
+
+    payload["execution_rows"] = _build_execution_rows(
+        [row for row in payload.get("channels", []) if isinstance(row, Mapping)]
+    )
+    payload["execution_row_count"] = len(payload["execution_rows"])
 
     return payload
