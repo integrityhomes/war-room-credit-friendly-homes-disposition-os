@@ -10,6 +10,8 @@ from cfh_disposition.automatic_launch import (
     AutomationDispatchSettings,
     build_automatic_launch_payload,
 )
+from cfh_disposition.buyer_handoff import enrich_launch_payload_with_buyer_audience
+from cfh_disposition.buyer_intent import BuyerIntentError, BuyerIntentStore, build_match_queue
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
 from cfh_disposition.launch_plan import build_launch_plan
@@ -64,9 +66,11 @@ if not settings.configured:
     st.stop()
 
 try:
-    properties = get_storage().list_properties()
+    storage = get_storage()
+    properties = storage.list_properties()
+    buyers = storage.list_buyers()
 except StorageError as exc:
-    st.error(f"Property storage is unavailable: {exc}")
+    st.error(f"Property or buyer storage is unavailable: {exc}")
     st.stop()
 
 if not properties:
@@ -103,6 +107,20 @@ package = (
     else build_fallback_campaign(selected, base_link)
 )
 
+buyer_matches = []
+buyer_audience_error = ""
+try:
+    intent_ledger = BuyerIntentStore(st.secrets).load()
+    buyer_matches = build_match_queue(
+        buyers,
+        [selected],
+        intent_ledger,
+        dwelyx_base_url(st.secrets),
+        minimum_score=35,
+    )
+except BuyerIntentError as exc:
+    buyer_audience_error = str(exc)
+
 full_payload = build_automatic_launch_payload(
     selected,
     package,
@@ -111,16 +129,36 @@ full_payload = build_automatic_launch_payload(
     approved_by=requested_by,
     approved_at=datetime.now(UTC),
 )
+full_payload = enrich_launch_payload_with_buyer_audience(full_payload, buyer_matches)
 safe_payload = build_safe_full_payload_test_payload(
     full_payload,
     requested_by=requested_by,
 )
 
-metrics = st.columns(4)
+email_count = full_payload["buyer_audience"]["email_recipient_count"]
+sms_count = full_payload["buyer_audience"]["sms_recipient_count"]
+metrics = st.columns(6)
 metrics[0].metric("Full payload channels", len(full_payload["channels"]))
 metrics[1].metric("Executable test channels", len(safe_payload["channels"]))
-metrics[2].metric("Email allowed", "No")
-metrics[3].metric("Ad spending allowed", "No")
+metrics[2].metric("Matched email buyers", email_count)
+metrics[3].metric("Matched SMS buyers", sms_count)
+metrics[4].metric("Email allowed", "No")
+metrics[5].metric("Ad spending allowed", "No")
+
+if buyer_audience_error:
+    st.warning(
+        "The buyer-intent ledger could not be read, so this test contains no buyer recipients. "
+        f"Reason: {buyer_audience_error}"
+    )
+elif not buyer_matches:
+    st.warning(
+        "No consent-ready buyers matched this property. Zapier will receive empty email/SMS recipient lists."
+    )
+else:
+    st.success(
+        f"Buyer handoff is populated: {email_count} consent-ready email recipient(s) and "
+        f"{sms_count} consent-ready phone recipient(s)."
+    )
 
 with st.expander("Preview exactly what Zapier will receive"):
     st.code(safe_payload_sample_json(safe_payload), language="json")
@@ -143,5 +181,6 @@ if st.button("Send Safe Full Payload Test to Zapier", type="primary"):
             st.caption(f"Webhook response: {receipt.response_text}")
         st.info(
             "Now open Zapier Test Zap / Zap runs and select the newest request. Confirm event = "
-            "credit_friendly_homes.campaign.full_payload_test and inspect full_campaign_payload."
+            "credit_friendly_homes.campaign.full_payload_test, inspect full_campaign_payload, and "
+            "confirm email.recipients / sms.recipients contain the consent-ready buyer contacts."
         )

@@ -23,6 +23,8 @@ from .automatic_launch import (
     dispatch_automatic_launch,
     launch_action_for_channel,
 )
+from .buyer_handoff import enrich_launch_payload_with_buyer_audience
+from .buyer_intent import BuyerIntentError, BuyerIntentStore, build_match_queue
 from .channel_tracking import build_channel_links
 from .channels import CHANNELS, CHANNELS_BY_KEY
 from .dwelyx import tracking_app_base_url
@@ -33,7 +35,7 @@ from .marketplace_calendar import (
     marketplace_month_status,
 )
 from .models import OwnerFinanceProperty
-from .storage import SupabaseSettings
+from .storage import StorageError, SupabaseSettings, build_storage
 
 LAUNCH_BUCKET = "cfh-campaign-launches"
 LAUNCH_MAX_BYTES = 128 * 1024
@@ -175,6 +177,52 @@ def _apply_marketplace_lock(
         notes=reason,
         now=now,
     )
+
+
+def _apply_payload_channel_blocks(
+    state: CampaignLaunchState,
+    payload: Mapping[str, Any],
+    *,
+    updated_by: str,
+    now: datetime,
+) -> CampaignLaunchState:
+    updated = state
+    for row in payload.get("channels", []):
+        if not isinstance(row, Mapping) or not row.get("posting_blocked"):
+            continue
+        channel_key = str(row.get("channel_key", "")).strip()
+        if channel_key not in CHANNELS_BY_KEY:
+            continue
+        reason = str(row.get("block_reason", "")).strip() or "Channel blocked by launch safety rules."
+        updated = set_channel_status(
+            updated,
+            channel_key,
+            LaunchStatus.PAUSED,
+            updated_by=updated_by,
+            notes=reason,
+            now=now,
+        )
+    return updated
+
+
+def _load_buyer_matches(
+    secrets: Mapping[str, Any],
+    property_record: OwnerFinanceProperty,
+    dwelyx_url: str,
+):
+    try:
+        buyers = build_storage(secrets).list_buyers()
+        ledger = BuyerIntentStore(secrets).load()
+        matches = build_match_queue(
+            buyers,
+            [property_record],
+            ledger,
+            dwelyx_url,
+            minimum_score=35,
+        )
+        return matches, ""
+    except (StorageError, BuyerIntentError) as exc:
+        return [], str(exc)
 
 
 def mark_automatic_launch_success(
@@ -507,6 +555,31 @@ def render_campaign_launch_center(
     )
     st.caption(f"Copy source: {campaign_source}")
 
+    buyer_matches, buyer_audience_error = _load_buyer_matches(
+        secrets,
+        selected,
+        dwelyx_url,
+    )
+    email_ready = sum(1 for match in buyer_matches if match.email_allowed and match.email)
+    sms_ready = sum(1 for match in buyer_matches if match.sms_allowed and match.phone)
+    audience_metrics = st.columns(3)
+    audience_metrics[0].metric("Consent-ready matches", len(buyer_matches))
+    audience_metrics[1].metric("Email recipients", email_ready)
+    audience_metrics[2].metric("SMS recipients", sms_ready)
+    if buyer_audience_error:
+        st.warning(
+            "Buyer audience could not be loaded, so email and SMS will be safety-blocked for this launch. "
+            f"Reason: {buyer_audience_error}"
+        )
+    elif not buyer_matches:
+        st.info(
+            "No consent-ready buyer matches were found for this property. Email and SMS will not send until matching buyers exist."
+        )
+    else:
+        st.success(
+            "Email and SMS will be handed to REI BlackBook one buyer at a time using the saved, consent-checked recipient information."
+        )
+
     if selected.photo_urls:
         st.image(str(selected.photo_urls[0]), width=420)
 
@@ -550,6 +623,7 @@ def render_campaign_launch_center(
             marketplace_blocked=marketplace_blocked,
             marketplace_block_reason=marketplace_block_reason,
         )
+        payload = enrich_launch_payload_with_buyer_audience(payload, buyer_matches)
         try:
             with st.spinner(
                 "Sending the approved campaign to the publishing workflow..."
@@ -565,10 +639,16 @@ def render_campaign_launch_center(
                 marketplace_blocked=marketplace_blocked,
                 marketplace_block_reason=marketplace_block_reason,
             )
+            state = _apply_payload_channel_blocks(
+                state,
+                payload,
+                updated_by=operator,
+                now=receipt.sent_at,
+            )
             _save_ui_state(store, state)
             st.success(
-                "Campaign accepted by the automatic publishing workflow. Restricted platforms "
-                "remain ready for a final human post unless the Marketplace safety gate locked them."
+                "Campaign accepted by the automatic publishing workflow. Restricted or safety-blocked "
+                "channels remain paused or ready instead of being falsely marked sent."
             )
         except (AutomationLaunchError, LaunchStoreError) as exc:
             state = mark_automatic_launch_failure(
@@ -578,6 +658,12 @@ def render_campaign_launch_center(
                 now=approved_at,
                 marketplace_blocked=marketplace_blocked,
                 marketplace_block_reason=marketplace_block_reason,
+            )
+            state = _apply_payload_channel_blocks(
+                state,
+                payload,
+                updated_by=operator,
+                now=approved_at,
             )
             try:
                 _save_ui_state(store, state)
