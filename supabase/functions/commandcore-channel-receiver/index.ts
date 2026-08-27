@@ -1,4 +1,5 @@
 const MAX_BODY_BYTES = 64 * 1024;
+const RECEIVER_VERSION = "2026-08-27.2";
 
 const CHANNEL_MODE_BY_KEY: Record<string, string> = {
   property_page: "Automatic",
@@ -96,6 +97,16 @@ Deno.serve(async (req) => {
     return new Response(null, { status: 204 });
   }
 
+  if (req.method === "GET") {
+    return jsonResponse(200, {
+      ok: true,
+      service: "commandcore-channel-receiver",
+      version: RECEIVER_VERSION,
+      status: "healthy",
+      external_execution_enabled: false,
+    });
+  }
+
   if (req.method !== "POST") {
     return jsonResponse(405, { ok: false, error: "method_not_allowed" });
   }
@@ -117,17 +128,10 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { ok: false, error: "invalid_json" });
   }
 
-  // Authentication is required before this receiver is ever allowed to execute
-  // an external action. During setup/testing, an unauthenticated Zapier request
-  // is permitted only in forced-safe inspection mode. It cannot execute, publish,
-  // send, spend money, or persist an external action.
   const secret = Deno.env.get("COMMANDCORE_ZAPIER_WEBHOOK_SECRET") || "";
   const suppliedSecret = getBasicPassword(req) || "";
   const authenticated = Boolean(secret && suppliedSecret && constantTimeEqual(suppliedSecret, secret));
 
-  // Automation-first full campaign handoff. This lets CommandCore accept the
-  // complete CFH launch payload in one POST rather than requiring dozens of
-  // Zapier key/value mappings.
   if (body.event === "credit_friendly_homes.campaign.approved" && Array.isArray(body.channels)) {
     const rows = (body.channels as unknown[])
       .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
@@ -158,8 +162,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Backward-compatible single-channel handoff. Missing mode/action fields are
-  // derived safely so Zapier setup does not require field-by-field manual work.
   const channelKey = String(body.channel_key || "").trim().toLowerCase();
   if (!CHANNEL_MODE_BY_KEY[channelKey]) {
     return jsonResponse(422, {
