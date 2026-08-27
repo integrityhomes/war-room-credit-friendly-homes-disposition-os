@@ -10,11 +10,13 @@ on:
       - agent/commandcore-dispatch-worker
       - agent/commandcore-market-seo-adapter
       - agent/commandcore-approval-engine
+      - agent/commandcore-communication-delivery-gate
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
       - "supabase/functions/commandcore-market-seo/**"
       - "supabase/functions/commandcore-approval-engine/**"
+      - "supabase/functions/commandcore-communication-gate/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -40,6 +42,7 @@ jobs:
           supabase functions deploy commandcore-market-seo --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-dispatch-worker --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-approval-engine --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
         env:
@@ -65,3 +68,4 @@ jobs:
           check_health commandcore-market-seo
           check_health commandcore-dispatch-worker
           check_health commandcore-approval-engine
+          check_health commandcore-communication-gate
