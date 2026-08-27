@@ -1,5 +1,5 @@
 const MAX_BODY_BYTES = 64 * 1024;
-const RECEIVER_VERSION = "2026-08-27.3";
+const RECEIVER_VERSION = "2026-08-27.4";
 
 const CHANNEL_MODE_BY_KEY: Record<string, string> = {
   property_page: "Automatic",
@@ -112,6 +112,39 @@ function normalizedChannelResult(row: Record<string, unknown>, authenticated: bo
   };
 }
 
+function routingDecision(row: ReturnType<typeof normalizedChannelResult>) {
+  if (row.posting_blocked) {
+    return { ...row, route: "blocked", next_step: "hold" };
+  }
+  if (row.requires_manual_post) {
+    return { ...row, route: "manual_final_post", next_step: "prepare_package" };
+  }
+  if (row.channel_mode === "Approval Required") {
+    return { ...row, route: "approval_queue", next_step: "await_approval" };
+  }
+  if (row.channel_mode === "Automatic") {
+    return {
+      ...row,
+      route: row.can_execute ? "automatic_execution" : "automatic_ready",
+      next_step: row.can_execute ? "execute_adapter" : "await_adapter_enablement",
+    };
+  }
+  return { ...row, route: "review", next_step: "review_configuration" };
+}
+
+function routingSummary(rows: ReturnType<typeof routingDecision>[]) {
+  const count = (route: string) => rows.filter((row) => row.route === route).length;
+  return {
+    total: rows.length,
+    automatic_execution: count("automatic_execution"),
+    automatic_ready: count("automatic_ready"),
+    approval_queue: count("approval_queue"),
+    manual_final_post: count("manual_final_post"),
+    blocked: count("blocked"),
+    review: count("review"),
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204 });
@@ -124,6 +157,7 @@ Deno.serve(async (req) => {
       version: RECEIVER_VERSION,
       status: "healthy",
       external_execution_enabled: false,
+      dispatcher_enabled: true,
     });
   }
 
@@ -151,11 +185,11 @@ Deno.serve(async (req) => {
   const authenticated = requestIsAuthenticated(req);
 
   if (body.event === "credit_friendly_homes.campaign.approved" && Array.isArray(body.channels)) {
-    const rows = (body.channels as unknown[])
+    const normalized = (body.channels as unknown[])
       .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
       .map((item) => normalizedChannelResult(item, authenticated));
 
-    const invalid = rows.filter(
+    const invalid = normalized.filter(
       (row) => !CHANNEL_MODE_BY_KEY[row.channel_key] || !row.channel_mode,
     );
     if (invalid.length) {
@@ -166,17 +200,20 @@ Deno.serve(async (req) => {
       });
     }
 
+    const rows = normalized.map(routingDecision);
     return jsonResponse(200, {
       ok: true,
-      status: "accepted_no_execution",
+      status: "accepted_and_routed",
       handoff_mode: "full_campaign_payload",
       authenticated,
+      dispatcher_enabled: true,
       channel_count: rows.length,
+      routing_summary: routingSummary(rows),
       channels: rows,
       external_action_started: false,
       message: authenticated
-        ? "CommandCore accepted the complete campaign payload directly from CFH. External execution remains disabled in this receiver version."
-        : "CommandCore accepted the complete campaign payload in forced-safe setup mode. No external action was started.",
+        ? "CommandCore accepted and routed the complete CFH campaign. External adapters remain disabled until individually enabled."
+        : "CommandCore accepted and routed the campaign in forced-safe setup mode. No external action was started.",
     });
   }
 
@@ -189,17 +226,14 @@ Deno.serve(async (req) => {
     });
   }
 
-  const result = normalizedChannelResult(body, authenticated);
+  const result = routingDecision(normalizedChannelResult(body, authenticated));
   return jsonResponse(200, {
     ok: true,
-    status: result.can_execute ? "accepted_for_execution" : "accepted_no_execution",
+    status: "accepted_and_routed",
     ...result,
     authenticated,
+    dispatcher_enabled: true,
     external_action_started: false,
-    message: result.can_execute
-      ? "Validated by CommandCore receiver. No external action is started by this endpoint yet."
-      : authenticated
-        ? "Validated safely. No external action was started."
-        : "Validated in forced-safe setup mode. Authentication will be required before any live execution is enabled.",
+    message: "CommandCore routed this channel safely. No external action was started by this endpoint.",
   });
 });
