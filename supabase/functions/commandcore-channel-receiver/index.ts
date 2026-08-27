@@ -1,5 +1,6 @@
 const MAX_BODY_BYTES = 64 * 1024;
-const RECEIVER_VERSION = "2026-08-27.4";
+const RECEIVER_VERSION = "2026-08-27.5";
+const DISPATCH_BUCKET = "commandcore-dispatch-queue";
 
 const CHANNEL_MODE_BY_KEY: Record<string, string> = {
   property_page: "Automatic",
@@ -145,6 +146,102 @@ function routingSummary(rows: ReturnType<typeof routingDecision>[]) {
   };
 }
 
+function storageHeaders(serviceRoleKey: string): HeadersInit {
+  return {
+    authorization: `Bearer ${serviceRoleKey}`,
+    apikey: serviceRoleKey,
+    "content-type": "application/json",
+  };
+}
+
+async function ensureDispatchBucket(supabaseUrl: string, serviceRoleKey: string): Promise<void> {
+  const bucketUrl = `${supabaseUrl}/storage/v1/bucket/${DISPATCH_BUCKET}`;
+  const check = await fetch(bucketUrl, {
+    method: "GET",
+    headers: storageHeaders(serviceRoleKey),
+  });
+  if (check.ok) return;
+  if (check.status !== 404) {
+    throw new Error(`queue_bucket_check_failed_${check.status}`);
+  }
+
+  const create = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
+    method: "POST",
+    headers: storageHeaders(serviceRoleKey),
+    body: JSON.stringify({
+      id: DISPATCH_BUCKET,
+      name: DISPATCH_BUCKET,
+      public: false,
+      file_size_limit: MAX_BODY_BYTES * 2,
+      allowed_mime_types: ["application/json"],
+    }),
+  });
+  if (!create.ok && create.status !== 409) {
+    throw new Error(`queue_bucket_create_failed_${create.status}`);
+  }
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function safePathPart(value: unknown, fallback: string): string {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+  return normalized || fallback;
+}
+
+async function persistDispatch(
+  raw: string,
+  body: Record<string, unknown>,
+  rows: ReturnType<typeof routingDecision>[],
+): Promise<{ dispatch_id: string; queue_object: string }> {
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") || "").replace(/\/$/, "");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("queue_storage_not_configured");
+  }
+
+  await ensureDispatchBucket(supabaseUrl, serviceRoleKey);
+  const dispatchId = (await sha256Hex(raw)).slice(0, 24);
+  const property = body.property && typeof body.property === "object" && !Array.isArray(body.property)
+    ? body.property as Record<string, unknown>
+    : {};
+  const propertyId = safePathPart(property.property_id, "unknown-property");
+  const queueObject = `dispatches/${propertyId}/${dispatchId}.json`;
+  const queuedPayload = {
+    dispatch_id: dispatchId,
+    queued_at: new Date().toISOString(),
+    status: "routed_waiting_for_adapters",
+    routing_summary: routingSummary(rows),
+    routes: rows,
+    campaign_payload: body,
+  };
+
+  const write = await fetch(
+    `${supabaseUrl}/storage/v1/object/${DISPATCH_BUCKET}/${queueObject}`,
+    {
+      method: "POST",
+      headers: {
+        ...storageHeaders(serviceRoleKey),
+        "x-upsert": "true",
+      },
+      body: JSON.stringify(queuedPayload),
+    },
+  );
+  if (!write.ok) {
+    throw new Error(`queue_write_failed_${write.status}`);
+  }
+  return { dispatch_id: dispatchId, queue_object: queueObject };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204 });
@@ -158,6 +255,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       external_execution_enabled: false,
       dispatcher_enabled: true,
+      durable_queue_enabled: true,
     });
   }
 
@@ -201,19 +299,38 @@ Deno.serve(async (req) => {
     }
 
     const rows = normalized.map(routingDecision);
+    let queue: { dispatch_id: string; queue_object: string } | null = null;
+    if (authenticated) {
+      try {
+        queue = await persistDispatch(raw, body, rows);
+      } catch (error) {
+        console.error("CommandCore dispatch queue persistence failed", error);
+        return jsonResponse(503, {
+          ok: false,
+          error: "dispatch_queue_unavailable",
+          authenticated: true,
+          external_action_started: false,
+        });
+      }
+    }
+
     return jsonResponse(200, {
       ok: true,
-      status: "accepted_and_routed",
+      status: authenticated ? "accepted_routed_and_queued" : "accepted_and_routed_safe_mode",
       handoff_mode: "full_campaign_payload",
       authenticated,
       dispatcher_enabled: true,
+      durable_queue_enabled: true,
+      queue_persisted: Boolean(queue),
+      dispatch_id: queue?.dispatch_id || "",
+      queue_object: queue?.queue_object || "",
       channel_count: rows.length,
       routing_summary: routingSummary(rows),
       channels: rows,
       external_action_started: false,
       message: authenticated
-        ? "CommandCore accepted and routed the complete CFH campaign. External adapters remain disabled until individually enabled."
-        : "CommandCore accepted and routed the campaign in forced-safe setup mode. No external action was started.",
+        ? "CommandCore accepted, routed, and durably queued the complete CFH campaign. External adapters remain disabled until individually enabled."
+        : "CommandCore accepted and routed the campaign in forced-safe setup mode. It was not persisted and no external action was started.",
     });
   }
 
@@ -233,7 +350,8 @@ Deno.serve(async (req) => {
     ...result,
     authenticated,
     dispatcher_enabled: true,
+    durable_queue_enabled: true,
     external_action_started: false,
-    message: "CommandCore routed this channel safely. No external action was started by this endpoint.",
+    message: "CommandCore routed this channel safely. Single-channel compatibility requests are not added to the durable campaign queue.",
   });
 });
