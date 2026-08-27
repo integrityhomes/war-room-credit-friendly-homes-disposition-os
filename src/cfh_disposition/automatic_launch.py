@@ -21,6 +21,7 @@ AUTOMATION_EVENT = "credit_friendly_homes.campaign.approved"
 AUTOMATION_SCHEMA_VERSION = "1.4"
 AUTOMATION_TIMEOUT_SECONDS = 30
 AUTOMATION_RESPONSE_LIMIT = 12_000
+COMMANDCORE_RECEIVER_PATH = "/functions/v1/commandcore-channel-receiver"
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds", "nextdoor"}
 FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace"}
@@ -42,6 +43,8 @@ class LaunchAction(StrEnum):
 class AutomationDispatchSettings:
     webhook_url: str
     signing_secret: str = ""
+    bearer_token: str = ""
+    route_name: str = "external"
     timeout_seconds: int = AUTOMATION_TIMEOUT_SECONDS
 
     @property
@@ -51,9 +54,29 @@ class AutomationDispatchSettings:
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> AutomationDispatchSettings:
+        supabase_url = str(values.get("SUPABASE_URL", "")).strip().rstrip("/")
+        supabase_token = str(
+            values.get("SUPABASE_SECRET_KEY")
+            or values.get("SUPABASE_SERVICE_ROLE_KEY")
+            or ""
+        ).strip()
+        route_override = str(values.get("AUTOMATION_ROUTE", "")).strip().lower()
+        use_external = route_override in {"external", "zapier", "make"}
+
+        if supabase_url and supabase_token and not use_external:
+            return cls(
+                webhook_url=f"{supabase_url}{COMMANDCORE_RECEIVER_PATH}",
+                bearer_token=supabase_token,
+                route_name="commandcore",
+            )
+
         webhook = values.get("AUTOMATION_WEBHOOK_URL") or values.get("MAKE_WEBHOOK_URL") or ""
         secret = values.get("AUTOMATION_WEBHOOK_SECRET") or values.get("MAKE_WEBHOOK_SECRET") or ""
-        return cls(webhook_url=str(webhook).strip(), signing_secret=str(secret).strip())
+        return cls(
+            webhook_url=str(webhook).strip(),
+            signing_secret=str(secret).strip(),
+            route_name="external",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +220,7 @@ def expected_automatic_channel_keys(payload: Mapping[str, Any]) -> set[str]:
 
 
 def parse_dispatch_response(response_text: str, payload: Mapping[str, Any]) -> tuple[str, tuple[AutomationChannelResult, ...]]:
-    """Treat a generic Zapier response as submission; validate explicit CFH confirmations strictly."""
+    """Treat a generic success as submission; validate explicit per-channel confirmations strictly."""
     if not response_text.strip():
         return "", ()
     try:
@@ -229,10 +252,12 @@ def parse_dispatch_response(response_text: str, payload: Mapping[str, Any]) -> t
 
 def dispatch_automatic_launch(payload: Mapping[str, Any], settings: AutomationDispatchSettings) -> AutomationDispatchReceipt:
     if not settings.configured:
-        raise AutomationLaunchError("Automatic publishing is not connected. Add AUTOMATION_WEBHOOK_URL in Streamlit Secrets.")
+        raise AutomationLaunchError("CommandCore publishing is not connected. Connect Supabase or configure an external automation webhook.")
     body = serialize_launch_payload(payload)
     headers = {"Content-Type": "application/json", "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
                "X-CFH-Event": AUTOMATION_EVENT}
+    if settings.bearer_token:
+        headers["Authorization"] = f"Bearer {settings.bearer_token}"
     signature = sign_launch_payload(body, settings.signing_secret)
     if signature:
         headers["X-CFH-Signature"] = signature
@@ -243,11 +268,11 @@ def dispatch_automatic_launch(payload: Mapping[str, Any], settings: AutomationDi
             response_text = response.read().decode("utf-8", errors="replace")[:AUTOMATION_RESPONSE_LIMIT]
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:AUTOMATION_RESPONSE_LIMIT]
-        raise AutomationLaunchError(f"The automatic publishing workflow rejected the campaign (HTTP {exc.code}). {detail}") from exc
+        raise AutomationLaunchError(f"The publishing workflow rejected the campaign (HTTP {exc.code}). {detail}") from exc
     except (URLError, TimeoutError) as exc:
-        raise AutomationLaunchError("The automatic publishing workflow could not be reached. No external channel was marked launched.") from exc
+        raise AutomationLaunchError("The publishing workflow could not be reached. No external channel was marked launched.") from exc
     if not 200 <= status_code < 300:
-        raise AutomationLaunchError(f"The automatic publishing workflow returned HTTP {status_code}. No external channel was marked launched.")
+        raise AutomationLaunchError(f"The publishing workflow returned HTTP {status_code}. No external channel was marked launched.")
     dispatch_id, channel_results = parse_dispatch_response(response_text, payload)
     return AutomationDispatchReceipt(status_code=status_code, sent_at=datetime.now(UTC), response_text=response_text,
                                      dispatch_id=dispatch_id, channel_results=channel_results, awaiting_confirmation=True)
@@ -266,6 +291,6 @@ def automation_plan_rows() -> list[dict[str, str]]:
         elif action == LaunchAction.MANUAL_FINAL_POST:
             result = "The complete package, including the tracked Dwelyx link where allowed, is delivered for a final human post."
         else:
-            result = "The approved package is submitted to the connected publishing workflow. Submission is not counted as publication; the channel remains awaiting confirmation until a confirmed result is recorded."
+            result = "The approved package is submitted to CommandCore. Submission is not counted as publication; the channel remains awaiting confirmation until a confirmed result is recorded."
         rows.append({"Channel": channel.name, "Launch action": action.value, "What happens": result})
     return rows
