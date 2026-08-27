@@ -1,5 +1,5 @@
 const MAX_BODY_BYTES = 64 * 1024;
-const RECEIVER_VERSION = "2026-08-27.2";
+const RECEIVER_VERSION = "2026-08-27.3";
 
 const CHANNEL_MODE_BY_KEY: Record<string, string> = {
   property_page: "Automatic",
@@ -56,6 +56,26 @@ function getBasicPassword(req: Request): string | null {
   } catch {
     return null;
   }
+}
+
+function getBearerToken(req: Request): string | null {
+  const auth = req.headers.get("authorization") || "";
+  if (!auth.startsWith("Bearer ")) return null;
+  return auth.slice(7).trim() || null;
+}
+
+function requestIsAuthenticated(req: Request): boolean {
+  const webhookSecret = Deno.env.get("COMMANDCORE_ZAPIER_WEBHOOK_SECRET") || "";
+  const suppliedBasic = getBasicPassword(req) || "";
+  if (webhookSecret && suppliedBasic && constantTimeEqual(suppliedBasic, webhookSecret)) {
+    return true;
+  }
+
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const suppliedBearer = getBearerToken(req) || "";
+  return Boolean(
+    serviceRoleKey && suppliedBearer && constantTimeEqual(suppliedBearer, serviceRoleKey),
+  );
 }
 
 function asBoolean(value: unknown): boolean {
@@ -128,9 +148,7 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { ok: false, error: "invalid_json" });
   }
 
-  const secret = Deno.env.get("COMMANDCORE_ZAPIER_WEBHOOK_SECRET") || "";
-  const suppliedSecret = getBasicPassword(req) || "";
-  const authenticated = Boolean(secret && suppliedSecret && constantTimeEqual(suppliedSecret, secret));
+  const authenticated = requestIsAuthenticated(req);
 
   if (body.event === "credit_friendly_homes.campaign.approved" && Array.isArray(body.channels)) {
     const rows = (body.channels as unknown[])
@@ -157,7 +175,7 @@ Deno.serve(async (req) => {
       channels: rows,
       external_action_started: false,
       message: authenticated
-        ? "CommandCore accepted the complete campaign payload. External execution remains disabled in this receiver version."
+        ? "CommandCore accepted the complete campaign payload directly from CFH. External execution remains disabled in this receiver version."
         : "CommandCore accepted the complete campaign payload in forced-safe setup mode. No external action was started.",
     });
   }
