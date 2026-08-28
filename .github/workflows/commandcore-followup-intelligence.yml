@@ -1,0 +1,65 @@
+name: CommandCore Follow-up Intelligence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 12 * * *"
+  push:
+    branches:
+      - agent/commandcore-followup-intelligence
+      - main
+    paths:
+      - "supabase/functions/commandcore-followup-intelligence/**"
+      - ".github/workflows/commandcore-followup-intelligence.yml"
+
+jobs:
+  deploy-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy follow-up intelligence
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          supabase functions deploy commandcore-followup-intelligence --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+
+      - name: Verify health
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-followup-intelligence"
+          for attempt in 1 2 3 4 5; do
+            RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+            if echo "$RESPONSE" | grep -q '"status":"healthy"'; then
+              echo "Follow-up intelligence health check passed."
+              exit 0
+            fi
+            echo "Service not ready yet (attempt $attempt/5)."
+            sleep 3
+          done
+          echo "Follow-up intelligence health check failed."
+          exit 1
+
+      - name: Create missing internal follow-ups
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          curl --silent --show-error --fail \
+            -X POST \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-followup-intelligence"
