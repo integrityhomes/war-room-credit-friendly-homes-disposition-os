@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-28.2";
 const MAX_BODY_BYTES = 64 * 1024;
 const BUCKET = "commandcore-coverage-exceptions";
 
@@ -53,6 +53,77 @@ async function writeException(supabaseUrl: string, serviceKey: string, record: R
   if (!response.ok) throw new Error(`exception_write_failed_${response.status}`);
 }
 
+async function listPrefix(supabaseUrl: string, serviceKey: string, prefix: string): Promise<RecordValue[]> {
+  const response = await fetch(`${supabaseUrl}/storage/v1/object/list/${BUCKET}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ prefix, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } }),
+  });
+  if (!response.ok) throw new Error(`exception_list_failed_${response.status}`);
+  const parsed = await response.json();
+  return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === "object") as RecordValue[] : [];
+}
+
+async function readException(supabaseUrl: string, serviceKey: string, path: string): Promise<RecordValue | null> {
+  const response = await fetch(`${supabaseUrl}/storage/v1/object/${BUCKET}/${path}`, {
+    headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+  });
+  if (!response.ok) return null;
+  const parsed = await response.json();
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as RecordValue : null;
+}
+
+function dayKeys(days: number): string[] {
+  const keys: string[] = [];
+  const now = new Date();
+  for (let offset = 0; offset < days; offset += 1) {
+    const day = new Date(now.getTime() - offset * 86_400_000);
+    keys.push(day.toISOString().slice(0, 10));
+  }
+  return keys;
+}
+
+async function listExceptions(
+  supabaseUrl: string,
+  serviceKey: string,
+  days: number,
+  statusFilter: string,
+): Promise<RecordValue[]> {
+  const results: RecordValue[] = [];
+  for (const day of dayKeys(days)) {
+    let owners: RecordValue[] = [];
+    try {
+      owners = await listPrefix(supabaseUrl, serviceKey, day);
+    } catch {
+      continue;
+    }
+    for (const owner of owners) {
+      const ownerName = text(owner.name);
+      if (!ownerName) continue;
+      let files: RecordValue[] = [];
+      try {
+        files = await listPrefix(supabaseUrl, serviceKey, `${day}/${ownerName}`);
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        const fileName = text(file.name);
+        if (!fileName.endsWith(".json")) continue;
+        const record = await readException(supabaseUrl, serviceKey, `${day}/${ownerName}/${fileName}`);
+        if (!record) continue;
+        const status = text(record.status || "open").toLowerCase();
+        if (statusFilter && statusFilter !== "all" && status !== statusFilter) continue;
+        results.push(record);
+      }
+    }
+  }
+  return results.sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -79,16 +150,37 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { ok: false, error: "invalid_json" });
   }
 
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") || "").replace(/\/$/, "");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!supabaseUrl || !serviceKey) return jsonResponse(500, { ok: false, error: "service_not_configured" });
+
+  const action = text(body.action || "write").toLowerCase();
+  if (action === "list") {
+    const requestedDays = Number(body.days ?? 14);
+    const days = Number.isFinite(requestedDays) ? Math.min(Math.max(Math.floor(requestedDays), 1), 60) : 14;
+    const statusFilter = text(body.status || "open").toLowerCase();
+    const exceptions = await listExceptions(supabaseUrl, serviceKey, days, statusFilter);
+    return jsonResponse(200, {
+      ok: true,
+      days,
+      status_filter: statusFilter,
+      exception_count: exceptions.length,
+      critical_count: exceptions.filter((item) => text(item.severity).toLowerCase() === "critical").length,
+      warning_count: exceptions.filter((item) => text(item.severity).toLowerCase() === "warning").length,
+      exceptions,
+      readiness_changed: false,
+      approval_changed: false,
+      consent_changed: false,
+      external_action_started: false,
+    });
+  }
+
   const records = Array.isArray(body.exceptions)
     ? body.exceptions.filter((item) => item && typeof item === "object") as RecordValue[]
     : body.exception && typeof body.exception === "object" && !Array.isArray(body.exception)
     ? [body.exception as RecordValue]
     : [];
   if (!records.length) return jsonResponse(422, { ok: false, error: "exception_required" });
-
-  const supabaseUrl = (Deno.env.get("SUPABASE_URL") || "").replace(/\/$/, "");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!supabaseUrl || !serviceKey) return jsonResponse(500, { ok: false, error: "service_not_configured" });
 
   let written = 0;
   const failed: RecordValue[] = [];
