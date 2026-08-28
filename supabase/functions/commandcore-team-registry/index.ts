@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-28.2";
 const BUCKET = "commandcore-team-registry";
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -40,6 +40,21 @@ function normalizeAvailability(value: unknown): string {
   return ["available", "away", "unavailable"].includes(normalized) ? normalized : "available";
 }
 
+function normalizeTime(value: unknown, fallback: string): string {
+  const raw = String(value || fallback).trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(raw) ? raw : fallback;
+}
+
+function normalizeTimezone(value: unknown): string {
+  const raw = String(value || "America/New_York").trim();
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: raw }).format(new Date());
+    return raw;
+  } catch {
+    return "America/New_York";
+  }
+}
+
 function normalizeMember(member: TeamMember): TeamMember {
   const id = memberId(member);
   const maxLoadRaw = Number(member.max_load ?? 20);
@@ -52,6 +67,12 @@ function normalizeMember(member: TeamMember): TeamMember {
     active: member.active !== false,
     availability: normalizeAvailability(member.availability),
     unavailable_until: unavailableUntil || null,
+    timezone: normalizeTimezone(member.timezone),
+    shift_days: cleanList(member.shift_days).length ? cleanList(member.shift_days) : ["mon", "tue", "wed", "thu", "fri"],
+    shift_start: normalizeTime(member.shift_start, "09:00"),
+    shift_end: normalizeTime(member.shift_end, "17:00"),
+    after_hours_eligible: member.after_hours_eligible === true,
+    backup_owner_ids: cleanList(member.backup_owner_ids),
     roles: cleanList(member.roles),
     skills: cleanList(member.skills),
     channels: cleanList(member.channels),
@@ -131,6 +152,7 @@ Deno.serve(async (req) => {
       public_registry: false,
       external_execution_enabled: false,
       availability_tracking_enabled: true,
+      shift_coverage_enabled: true,
     });
   }
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
