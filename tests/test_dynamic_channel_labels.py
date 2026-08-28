@@ -5,6 +5,7 @@ from cfh_disposition.simple_flow import PRIMARY_NAVIGATION
 
 UI_FILES = (
     Path("app.py"),
+    Path("pages/90_CFH_Marketing_Dispo.py"),
     Path("src/cfh_disposition/auth.py"),
     Path("src/cfh_disposition/public_pages.py"),
     Path("src/cfh_disposition/campaign_launch.py"),
@@ -24,8 +25,15 @@ def test_key_ui_files_do_not_hard_code_the_old_channel_count() -> None:
         assert "all 14 channels" not in source
 
 
-def test_home_uses_live_channel_count_and_simple_default_flow() -> None:
-    source = Path("app.py").read_text(encoding="utf-8")
+def test_marketing_workspace_uses_live_channel_count_and_simple_default_flow() -> None:
+    source = Path("pages/90_CFH_Marketing_Dispo.py").read_text(encoding="utf-8")
     assert 'st.subheader(f"Simple {len(CHANNELS)}-Channel Marketing Flow")' in source
     assert PRIMARY_NAVIGATION[0] == "Simple Marketing Flow"
     assert "height=max(420, len(CHANNELS) * 35 + 45)" not in source
+
+
+def test_commandcore_is_primary_navigation() -> None:
+    source = Path("app.py").read_text(encoding="utf-8")
+    assert "st.navigation" in source
+    assert '"Home / Command Center"' in source
+    assert '"Marketing & Dispo"' in source
