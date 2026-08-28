@@ -1,6 +1,22 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-28.2";
 
 type Row = Record<string, unknown>;
+
+const STAGE_RANK: Record<string, number> = {
+  "": 0,
+  new: 10,
+  new_lead: 10,
+  lead: 10,
+  contacted: 20,
+  follow_up: 25,
+  nurture: 25,
+  negotiation: 30,
+  offer_made: 40,
+  under_contract: 50,
+  closing: 60,
+  closed: 70,
+  sold: 70,
+};
 
 function jsonResponse(status: number, payload: Row): Response {
   return new Response(JSON.stringify(payload), {
@@ -60,9 +76,13 @@ function normalizedStage(value: unknown): string {
   return text(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
+function rank(stage: string): number {
+  return STAGE_RANK[stage] ?? 0;
+}
+
 function inferStage(deal: Row, related: Record<string, Row[]>): { stage: string; reason: string; confidence: string } | null {
   const current = normalizedStage(deal.stage || deal.pipeline_stage || deal.status);
-  const closed = new Set(["closed", "sold", "dead", "cancelled", "canceled", "lost"]);
+  const closed = new Set(["closed", "sold", "dead", "cancelled", "canceled", "lost", "archived"]);
   if (closed.has(current)) return null;
 
   const documents = related.documents || [];
@@ -72,17 +92,21 @@ function inferStage(deal: Row, related: Record<string, Row[]>): { stage: string;
   const tasks = related.tasks || [];
   const transactions = related.transactions || [];
 
+  if (transactions.length) {
+    const transactionText = transactions
+      .map((record) => `${text(record.status)} ${text(record.type)} ${text(record.title)}`.toLowerCase())
+      .join(" ");
+    if (/closing|title|escrow|transaction|settlement/.test(transactionText)) {
+      return { stage: "closing", reason: "transaction_or_closing_activity_recorded", confidence: "high" };
+    }
+  }
+
   const contractEvidence = documents.some((record) => {
     const joined = `${text(record.type)} ${text(record.name)} ${text(record.title)}`.toLowerCase();
     return joined.includes("contract") && (joined.includes("signed") || joined.includes("executed"));
   });
-  if (contractEvidence) return { stage: "under_contract", reason: "signed_or_executed_contract_recorded", confidence: "high" };
-
-  if (transactions.length) {
-    const transactionText = transactions.map((record) => `${text(record.status)} ${text(record.type)} ${text(record.title)}`.toLowerCase()).join(" ");
-    if (/closing|title|escrow|transaction|settlement/.test(transactionText)) {
-      return { stage: "closing", reason: "transaction_or_closing_activity_recorded", confidence: "high" };
-    }
+  if (contractEvidence) {
+    return { stage: "under_contract", reason: "signed_or_executed_contract_recorded", confidence: "high" };
   }
 
   const offerEvidence = offers.some((record) => {
@@ -122,6 +146,7 @@ Deno.serve(async (req) => {
       version: SERVICE_VERSION,
       status: "healthy",
       automatic_safe_stage_updates: true,
+      forward_only_stage_updates: true,
       external_execution_enabled: false,
     });
   }
@@ -159,8 +184,19 @@ Deno.serve(async (req) => {
 
     const current = normalizedStage(deal.stage || deal.pipeline_stage || deal.status);
     if (current === inference.stage) continue;
-    const proposal = { deal_id: dealId, from_stage: current || null, to_stage: inference.stage, reason: inference.reason, confidence: inference.confidence };
+    const proposal = {
+      deal_id: dealId,
+      from_stage: current || null,
+      to_stage: inference.stage,
+      reason: inference.reason,
+      confidence: inference.confidence,
+    };
     proposals.push(proposal);
+
+    if (current && rank(inference.stage) <= rank(current)) {
+      skipped.push({ ...proposal, skip_reason: "non_forward_stage_change_blocked" });
+      continue;
+    }
 
     const autoSafe = inference.confidence === "high" && ["offer_made", "under_contract", "closing"].includes(inference.stage);
     if (!autoSafe) {
@@ -169,7 +205,16 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const updated = { ...deal, stage: inference.stage, stage_intelligence: { reason: inference.reason, confidence: inference.confidence, applied_at: new Date().toISOString() } };
+      const updated = {
+        ...deal,
+        stage: inference.stage,
+        stage_intelligence: {
+          reason: inference.reason,
+          confidence: inference.confidence,
+          previous_stage: current || null,
+          applied_at: new Date().toISOString(),
+        },
+      };
       await callService(url, key, "commandcore-crm-core", { action: "upsert", entity: "deals", record: updated });
       applied.push(proposal);
     } catch (error) {
@@ -182,6 +227,7 @@ Deno.serve(async (req) => {
     proposals_count: proposals.length,
     applied_count: applied.length,
     recommendation_only_count: skipped.filter((item) => item.skip_reason === "recommendation_only").length,
+    non_forward_blocked_count: skipped.filter((item) => item.skip_reason === "non_forward_stage_change_blocked").length,
     proposals,
     applied,
     skipped,
