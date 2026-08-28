@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib import request
 
@@ -68,7 +68,7 @@ def member_label(member: dict[str, Any]) -> str:
 
 def iso_from_inputs(day_value: Any, time_value: Any) -> str:
     combined = datetime.combine(day_value, time_value)
-    return combined.replace(tzinfo=timezone.utc).isoformat()
+    return combined.replace(tzinfo=UTC).isoformat()
 
 
 def show_detection(detection: dict[str, Any]) -> None:
