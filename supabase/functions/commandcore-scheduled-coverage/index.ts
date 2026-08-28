@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-28.2";
 const MAX_BODY_BYTES = 64 * 1024;
 
 type RecordValue = Record<string, unknown>;
@@ -98,6 +98,29 @@ async function postJson(url: string, serviceKey: string, payload: RecordValue): 
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as RecordValue : {};
 }
 
+function stableExceptionId(ownerId: string, shiftStartedAt: string, kind: string, dispatchId = ""): string {
+  const shiftKey = shiftStartedAt.replace(/[^0-9a-z]+/gi, "-").replace(/^-+|-+$/g, "");
+  const dispatchKey = dispatchId ? `-${dispatchId.replace(/[^0-9a-z._-]+/gi, "-")}` : "";
+  return `${ownerId}-${shiftKey}-${kind}${dispatchKey}`.toLowerCase();
+}
+
+async function recordException(
+  supabaseUrl: string,
+  serviceKey: string,
+  record: RecordValue,
+): Promise<boolean> {
+  try {
+    const result = await postJson(
+      `${supabaseUrl}/functions/v1/commandcore-coverage-exception-ledger`,
+      serviceKey,
+      { exception: record },
+    );
+    return result.ok === true || Number(result.written || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -107,6 +130,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       schedule_driven: true,
       assignment_only: true,
+      exception_ledger_enabled: true,
       external_execution_enabled: false,
     });
   }
@@ -145,8 +169,12 @@ Deno.serve(async (req) => {
     : [];
 
   const evaluations: RecordValue[] = [];
+  let exceptionsRecorded = 0;
+  let exceptionWriteFailures = 0;
+
   for (const member of members) {
     const ownerId = text(member.id || member.user_id || member.email || member.name);
+    const ownerName = text(member.name || ownerId);
     if (!ownerId || member.active === false) continue;
     const elapsed = shiftElapsedMinutes(member, now);
     if (elapsed === null || elapsed < graceMinutes) continue;
@@ -163,22 +191,88 @@ Deno.serve(async (req) => {
           auto_apply: autoApply,
         },
       );
+
+      const applied = Array.isArray(result.applied_dispatches)
+        ? result.applied_dispatches.filter((item) => item && typeof item === "object") as RecordValue[]
+        : [];
+      const failedDispatches = applied.filter((item) => item.ok !== true || item.applied !== true);
+      const backup = result.backup && typeof result.backup === "object" && !Array.isArray(result.backup)
+        ? result.backup as RecordValue
+        : {};
+      const noBackup = result.requires_attention === true && backup.backup_available !== true;
+
+      if (noBackup) {
+        const recorded = await recordException(supabaseUrl, serviceKey, {
+          exception_id: stableExceptionId(ownerId, shiftStartedAt, "no-eligible-backup"),
+          owner_id: ownerId,
+          owner_name: ownerName,
+          severity: "critical",
+          source: "commandcore-scheduled-coverage",
+          status: "open",
+          exception_type: "no_eligible_backup",
+          shift_started_at: shiftStartedAt,
+          created_at: shiftStartedAt,
+          uncovered_dispatch_count: Number(result.uncovered_dispatch_count || 0),
+          handoff_status: text((result.detection as RecordValue | undefined)?.handoff_status),
+          recommended_action: text(backup.recommended_action) || "Manager coverage review required.",
+        });
+        if (recorded) exceptionsRecorded += 1;
+        else exceptionWriteFailures += 1;
+      }
+
+      for (const failed of failedDispatches) {
+        const dispatchId = text(failed.dispatch_id);
+        const recorded = await recordException(supabaseUrl, serviceKey, {
+          exception_id: stableExceptionId(ownerId, shiftStartedAt, "reassignment-failed", dispatchId),
+          owner_id: ownerId,
+          owner_name: ownerName,
+          severity: "critical",
+          source: "commandcore-scheduled-coverage",
+          status: "open",
+          exception_type: "reassignment_failed",
+          dispatch_id: dispatchId,
+          shift_started_at: shiftStartedAt,
+          created_at: shiftStartedAt,
+          context: failed,
+          recommended_action: "Confirm coverage for this dispatch and review why automatic reassignment failed.",
+        });
+        if (recorded) exceptionsRecorded += 1;
+        else exceptionWriteFailures += 1;
+      }
+
       evaluations.push({
         owner_id: ownerId,
-        owner_name: text(member.name || ownerId),
+        owner_name: ownerName,
         shift_started_at: shiftStartedAt,
         elapsed_minutes: elapsed,
         requires_attention: result.requires_attention === true,
         uncovered_dispatch_count: Number(result.uncovered_dispatch_count || 0),
         applied_dispatches: result.applied_dispatches || [],
+        exception_count: (noBackup ? 1 : 0) + failedDispatches.length,
         ok: result.ok === true,
       });
-    } catch {
+    } catch (error) {
+      const recorded = await recordException(supabaseUrl, serviceKey, {
+        exception_id: stableExceptionId(ownerId, shiftStartedAt, "coverage-processing-failed"),
+        owner_id: ownerId,
+        owner_name: ownerName,
+        severity: "critical",
+        source: "commandcore-scheduled-coverage",
+        status: "open",
+        exception_type: "coverage_processing_failed",
+        shift_started_at: shiftStartedAt,
+        created_at: shiftStartedAt,
+        error: String(error),
+        recommended_action: "Review the scheduled coverage service and confirm this shift is safely covered.",
+      });
+      if (recorded) exceptionsRecorded += 1;
+      else exceptionWriteFailures += 1;
       evaluations.push({
         owner_id: ownerId,
-        owner_name: text(member.name || ownerId),
+        owner_name: ownerName,
         shift_started_at: shiftStartedAt,
         elapsed_minutes: elapsed,
+        exception_count: 1,
         ok: false,
       });
     }
@@ -191,6 +285,8 @@ Deno.serve(async (req) => {
     auto_apply: autoApply,
     active_shift_members_evaluated: evaluations.length,
     attention_required_count: evaluations.filter((item) => item.requires_attention === true).length,
+    exceptions_recorded: exceptionsRecorded,
+    exception_write_failures: exceptionWriteFailures,
     evaluations,
     assignment_only: true,
     readiness_changed: false,
