@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import streamlit as st
@@ -80,7 +80,7 @@ def parse_time(value: Any) -> datetime | None:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 require_password()
@@ -113,83 +113,47 @@ c1.metric("Audit Runs", len(runs))
 c2.metric("Eligible Safe Moves", eligible_total)
 c3.metric("Automatically Applied", applied_total)
 c4.metric("Skipped / Rejected", skipped_total)
+st.caption(f"Latest automatic rebalance run: {latest_label}")
 
-st.caption(f"Latest recorded run: {latest_label}")
-
-summary_rows: list[dict[str, Any]] = []
-for run in runs:
-    generated = parse_time(run.get("generated_at"))
-    summary_rows.append(
-        {
-            "Run Time": generated.astimezone().strftime("%Y-%m-%d %I:%M %p") if generated else "Unknown",
-            "Open Work": int(run.get("open_items", 0) or 0),
-            "Advisor Recommendations": int(run.get("advisor_recommendations", 0) or 0),
-            "Eligible": int(run.get("eligible_low_risk_high_confidence", 0) or 0),
-            "Applied": int(run.get("applied_count", 0) or 0),
-            "Skipped": len(run.get("skipped", [])) if isinstance(run.get("skipped"), list) else 0,
-            "Audit File": text(run.get("audit_file")),
-        }
-    )
-
-st.subheader("Recent Automatic Runs")
-st.dataframe(summary_rows, use_container_width=True, hide_index=True)
-
-st.subheader("Run Details")
+st.subheader("Recent Automatic Rebalance Runs")
 for index, run in enumerate(runs[:50]):
-    generated = parse_time(run.get("generated_at"))
-    run_label = generated.astimezone().strftime("%b %d, %Y %I:%M %p") if generated else text(run.get("audit_file"))
-    applied = run.get("applied") if isinstance(run.get("applied"), list) else []
+    generated_at = parse_time(run.get("generated_at"))
+    generated_label = generated_at.astimezone().strftime("%b %d, %Y %I:%M %p") if generated_at else text(run.get("generated_at"))
+    eligible = int(run.get("eligible_low_risk_high_confidence", 0) or 0)
+    applied = int(run.get("applied_count", 0) or 0)
     skipped = run.get("skipped") if isinstance(run.get("skipped"), list) else []
-    eligible = run.get("eligible") if isinstance(run.get("eligible"), list) else []
+    label = f"{generated_label} • Eligible {eligible} • Applied {applied} • Skipped {len(skipped)}"
 
-    with st.expander(
-        f"{run_label} — {len(applied)} applied / {len(skipped)} skipped",
-        expanded=index == 0,
-    ):
-        st.write(
-            f"**Open work:** {int(run.get('open_items', 0) or 0)}  |  "
-            f"**Advisor recommendations:** {int(run.get('advisor_recommendations', 0) or 0)}  |  "
-            f"**Eligible low-risk moves:** {len(eligible)}"
-        )
+    with st.expander(label, expanded=index == 0):
+        st.write(f"**Open work scanned:** {int(run.get('open_items', 0) or 0)}")
+        st.write(f"**Advisor recommendations:** {int(run.get('advisor_recommendations', 0) or 0)}")
 
-        if applied:
-            st.write("**Automatically applied**")
-            applied_rows = []
-            for item in applied:
+        applied_rows = run.get("applied") if isinstance(run.get("applied"), list) else []
+        if applied_rows:
+            st.markdown("**Automatically moved**")
+            for item in applied_rows:
                 if not isinstance(item, dict):
                     continue
-                applied_rows.append(
-                    {
-                        "Dispatch": text(item.get("dispatch_id")),
-                        "Action": text(item.get("action_id")),
-                        "From": text(item.get("from_owner_id")),
-                        "To": text(item.get("to_owner_id")),
-                        "Applied": item.get("applied") is True,
-                    }
+                st.write(
+                    f"• {text(item.get('from_owner_id')) or 'Unknown'} → {text(item.get('to_owner_id')) or 'Unknown'} "
+                    f"| Dispatch {text(item.get('dispatch_id')) or 'Unknown'} "
+                    f"| Action {text(item.get('action_id')) or 'Unknown'}"
                 )
-            if applied_rows:
-                st.dataframe(applied_rows, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No internal assignments were automatically moved in this run.")
 
         if skipped:
-            st.write("**Skipped or rejected after revalidation**")
-            skipped_rows = []
+            st.markdown("**Skipped or rejected during live revalidation**")
             for item in skipped:
                 if not isinstance(item, dict):
                     continue
-                skipped_rows.append(
-                    {
-                        "Dispatch": text(item.get("dispatch_id")),
-                        "Action": text(item.get("action_id")),
-                        "Reason": text(item.get("reason")).replace("_", " "),
-                    }
+                reason = text(item.get("reason")).replace("_", " ") or "Unknown reason"
+                st.write(
+                    f"• Dispatch {text(item.get('dispatch_id')) or 'Unknown'} "
+                    f"| Action {text(item.get('action_id')) or 'Unknown'} | {reason}"
                 )
-            if skipped_rows:
-                st.dataframe(skipped_rows, use_container_width=True, hide_index=True)
-
-        if not applied and not skipped:
-            st.caption("This run did not make or reject any automatic assignment move.")
 
 st.divider()
 st.caption(
-    "Read-only audit visibility. This page cannot change assignments, readiness, approvals, consent, budgets, legal terms, payments, communications, or external execution."
+    "Read-only audit visibility. This page cannot change assignments, deal readiness, approvals, consent, budgets, legal terms, payments, communications, or external execution."
 )
