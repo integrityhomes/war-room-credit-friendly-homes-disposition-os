@@ -11,6 +11,7 @@ from supabase import create_client
 st.set_page_config(page_title="CommandCore My Work", page_icon="👤", layout="wide")
 
 ACTION_BUCKET = "commandcore-action-queue"
+HANDOFF_BUCKET = "commandcore-handoff-ledger"
 
 
 def require_password() -> None:
@@ -56,11 +57,41 @@ def load_items() -> list[dict[str, Any]]:
             continue
         if not isinstance(snapshot, dict):
             continue
+        dispatch_id = str(snapshot.get("dispatch_id", "") or name.removesuffix(".json")).strip()
         queue_items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
         for item in queue_items:
             if isinstance(item, dict):
-                items.append(item)
+                normalized = dict(item)
+                normalized.setdefault("dispatch_id", dispatch_id)
+                items.append(normalized)
     return items
+
+
+@st.cache_data(ttl=60)
+def load_handoffs(dispatch_id: str) -> list[dict[str, Any]]:
+    dispatch_id = dispatch_id.strip()
+    if not dispatch_id:
+        return []
+    client = get_supabase()
+    prefix = f"dispatches/{dispatch_id}"
+    try:
+        rows = client.storage.from_(HANDOFF_BUCKET).list(prefix) or []
+    except Exception:
+        return []
+    handoffs: list[dict[str, Any]] = []
+    for row in rows:
+        name = str(row.get("name", "")).strip()
+        if not name.endswith(".json"):
+            continue
+        try:
+            raw = client.storage.from_(HANDOFF_BUCKET).download(f"{prefix}/{name}")
+            record = json.loads(raw.decode("utf-8"))
+        except Exception:
+            continue
+        if isinstance(record, dict):
+            handoffs.append(record)
+    handoffs.sort(key=lambda record: str(record.get("handoff_at", "")), reverse=True)
+    return handoffs
 
 
 def owner_name(item: dict[str, Any]) -> str:
@@ -69,6 +100,15 @@ def owner_name(item: dict[str, Any]) -> str:
 
 def owner_id(item: dict[str, Any]) -> str:
     return str(item.get("owner_id", "") or "").strip()
+
+
+def action_id(item: dict[str, Any]) -> str:
+    explicit = str(item.get("action_id", "") or "").strip()
+    if explicit:
+        return explicit
+    dispatch_id = str(item.get("dispatch_id", "") or "").strip()
+    channel = str(item.get("channel_key", "") or "").strip()
+    return f"{dispatch_id}_{channel}".strip("_")
 
 
 def table_row(item: dict[str, Any]) -> dict[str, Any]:
@@ -86,6 +126,18 @@ def table_row(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def matching_handoffs(item: dict[str, Any]) -> list[dict[str, Any]]:
+    dispatch_id = str(item.get("dispatch_id", "") or "").strip()
+    target_action_id = action_id(item)
+    if not dispatch_id:
+        return []
+    return [
+        record
+        for record in load_handoffs(dispatch_id)
+        if str(record.get("action_id", "") or "").strip() == target_action_id
+    ]
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
@@ -93,7 +145,9 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
     st.rerun()
 
 st.title("CommandCore My Work")
-st.caption("Shows human-required work assigned by CommandCore, including automatic reassignments when capacity or availability changes.")
+st.caption(
+    "Shows human-required work assigned by CommandCore, including automatic reassignments and the full handoff chain."
+)
 
 try:
     items = load_items()
@@ -156,5 +210,23 @@ for item in filtered:
             for action in actions:
                 st.write(f"• {action}")
 
+        history = matching_handoffs(item)
+        st.write("**Handoff history:**")
+        if not history:
+            st.caption("No automatic handoffs have been recorded for this task yet.")
+        else:
+            for record in history:
+                previous = str(record.get("previous_owner_name", "") or "Unassigned").strip()
+                new_owner = str(record.get("new_owner_name", "") or record.get("new_owner_id", "")).strip()
+                handoff_at = str(record.get("handoff_at", "") or "").strip()
+                handoff_reason = str(record.get("handoff_reason", "") or "routing change").replace("_", " ")
+                routing_reason = str(record.get("routing_reason", "") or "").replace("_", " ")
+                st.markdown(f"**{previous} → {new_owner}**")
+                st.caption(f"{handoff_at} • {handoff_reason}")
+                if routing_reason:
+                    st.caption(f"Replacement selected because: {routing_reason}")
+
 st.divider()
-st.caption("Assignment and rebalancing only. These controls never change readiness, approvals, consent, budgets, or external execution permissions.")
+st.caption(
+    "Assignment, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, or external execution permissions."
+)
