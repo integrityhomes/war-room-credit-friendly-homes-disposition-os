@@ -1,9 +1,10 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-28.2";
 const MAX_BODY_BYTES = 128 * 1024;
 const ACTION_BUCKET = "commandcore-action-queue";
 
 type QueueItem = Record<string, unknown>;
 type TeamMember = Record<string, unknown>;
+type CoverageMember = Record<string, unknown>;
 
 type Reassignment = {
   action_id: string;
@@ -63,36 +64,41 @@ function maxLoad(member: TeamMember): number {
   return Number.isFinite(value) && value > 0 ? value : 20;
 }
 
-function availability(member: TeamMember): string {
-  return String(member.availability || "available").trim().toLowerCase();
+function coverageAvailable(coverage: CoverageMember | undefined): boolean {
+  return coverage?.available === true;
 }
 
-function unavailableUntil(member: TeamMember): number | null {
-  const parsed = Date.parse(String(member.unavailable_until || ""));
-  return Number.isFinite(parsed) ? parsed : null;
+function coverageState(coverage: CoverageMember | undefined): string {
+  return String(coverage?.coverage_state || "unknown").trim().toLowerCase();
 }
 
-function isAvailable(member: TeamMember, nowMs: number): boolean {
-  if (member.active === false || !memberId(member)) return false;
-  const status = availability(member);
-  if (status === "available") return true;
-  const until = unavailableUntil(member);
-  if (until !== null && until <= nowMs) return true;
-  return false;
-}
-
-function ownerNeedsReassignment(item: QueueItem, membersById: Map<string, TeamMember>, nowMs: number): string | null {
+function ownerNeedsReassignment(
+  item: QueueItem,
+  membersById: Map<string, TeamMember>,
+  coverageById: Map<string, CoverageMember>,
+): string | null {
   const ownerId = String(item.owner_id || "").trim();
   if (!ownerId) return "unassigned";
-  const member = membersById.get(ownerId.toLowerCase());
+  const key = ownerId.toLowerCase();
+  const member = membersById.get(key);
   if (!member) return "owner_missing_from_registry";
   if (member.active === false) return "owner_inactive";
-  if (!isAvailable(member, nowMs)) return "owner_unavailable";
+  const coverage = coverageById.get(key);
+  if (!coverageAvailable(coverage)) {
+    const state = coverageState(coverage);
+    if (state === "off_shift") return "owner_off_shift";
+    return "owner_unavailable";
+  }
   if (currentLoad(member) >= maxLoad(member)) return "owner_at_capacity";
   return null;
 }
 
-function scoreMember(item: QueueItem, member: TeamMember, assignedLoad: number): { score: number; reason: string } {
+function scoreMember(
+  item: QueueItem,
+  member: TeamMember,
+  assignedLoad: number,
+  coverage: CoverageMember | undefined,
+): { score: number; reason: string } {
   const skills = stringList(member.skills);
   const channels = stringList(member.channels);
   const roles = stringList(member.roles);
@@ -125,6 +131,15 @@ function scoreMember(item: QueueItem, member: TeamMember, assignedLoad: number):
     why.push("approver_match");
   }
 
+  const state = coverageState(coverage);
+  if (state === "on_shift") {
+    score += 30;
+    why.push("on_shift_priority");
+  } else if (state === "after_hours_backup") {
+    score += 15;
+    why.push("after_hours_backup");
+  }
+
   const capacity = Math.max(0, 1 - assignedLoad / maxLoad(member));
   score += capacity * 30;
   why.push("capacity_weighted");
@@ -134,13 +149,16 @@ function scoreMember(item: QueueItem, member: TeamMember, assignedLoad: number):
 function chooseReplacement(
   item: QueueItem,
   members: TeamMember[],
+  coverageById: Map<string, CoverageMember>,
   mutableLoads: Map<string, number>,
   currentOwnerId: string,
-  nowMs: number,
 ): { member: TeamMember; id: string; newLoad: number; reason: string } | null {
   const candidates = members.filter((member) => {
     const id = memberId(member);
-    if (!isAvailable(member, nowMs) || id.toLowerCase() === currentOwnerId.toLowerCase()) return false;
+    if (!id || id.toLowerCase() === currentOwnerId.toLowerCase()) return false;
+    if (member.active === false) return false;
+    const coverage = coverageById.get(id.toLowerCase());
+    if (!coverageAvailable(coverage)) return false;
     const load = mutableLoads.get(id) ?? currentLoad(member);
     return load < maxLoad(member);
   });
@@ -149,7 +167,8 @@ function chooseReplacement(
   const ranked = candidates.map((member) => {
     const id = memberId(member);
     const load = mutableLoads.get(id) ?? currentLoad(member);
-    const scored = scoreMember(item, member, load);
+    const coverage = coverageById.get(id.toLowerCase());
+    const scored = scoreMember(item, member, load, coverage);
     return { member, id, load, ...scored };
   }).sort((left, right) => right.score - left.score || left.load - right.load || left.id.localeCompare(right.id));
 
@@ -169,6 +188,19 @@ async function loadRegistryMembers(supabaseUrl: string, serviceKey: string): Pro
   const parsed = await response.json() as Record<string, unknown>;
   return Array.isArray(parsed.members)
     ? parsed.members.filter((item) => item && typeof item === "object") as TeamMember[]
+    : [];
+}
+
+async function loadCoverage(supabaseUrl: string, serviceKey: string): Promise<CoverageMember[]> {
+  const response = await fetch(`${supabaseUrl}/functions/v1/commandcore-team-coverage`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) throw new Error("team_coverage_unavailable");
+  const parsed = await response.json() as Record<string, unknown>;
+  return Array.isArray(parsed.coverage)
+    ? parsed.coverage.filter((item) => item && typeof item === "object") as CoverageMember[]
     : [];
 }
 
@@ -210,6 +242,7 @@ Deno.serve(async (req) => {
       version: SERVICE_VERSION,
       status: "healthy",
       assignment_only: true,
+      coverage_aware: true,
       external_execution_enabled: false,
       readiness_mutation_enabled: false,
     });
@@ -249,8 +282,12 @@ Deno.serve(async (req) => {
   }
   if (!items.length) return jsonResponse(422, { ok: false, error: "items_or_dispatch_id_required" });
 
-  const members = await loadRegistryMembers(supabaseUrl, serviceKey);
+  const [members, coverage] = await Promise.all([
+    loadRegistryMembers(supabaseUrl, serviceKey),
+    loadCoverage(supabaseUrl, serviceKey),
+  ]);
   const membersById = new Map(members.map((member) => [memberId(member).toLowerCase(), member]));
+  const coverageById = new Map(coverage.map((member) => [String(member.id || "").toLowerCase(), member]));
   const mutableLoads = new Map<string, number>();
   const nowMs = Date.now();
   const reassignments: Reassignment[] = [];
@@ -258,7 +295,7 @@ Deno.serve(async (req) => {
   const unresolvedActionIds: string[] = [];
 
   const updatedItems = items.map((item) => {
-    const reason = ownerNeedsReassignment(item, membersById, nowMs);
+    const reason = ownerNeedsReassignment(item, membersById, coverageById);
     if (!reason) {
       unchangedActionIds.push(actionId(item));
       return item;
@@ -266,7 +303,7 @@ Deno.serve(async (req) => {
 
     const previousOwnerId = String(item.owner_id || "").trim();
     const previousOwnerName = String(item.owner_name || "").trim();
-    const replacement = chooseReplacement(item, members, mutableLoads, previousOwnerId, nowMs);
+    const replacement = chooseReplacement(item, members, coverageById, mutableLoads, previousOwnerId);
     if (!replacement) {
       unresolvedActionIds.push(actionId(item));
       return { ...item, assignment_status: "unassigned", reassignment_reason: reason };
@@ -308,6 +345,7 @@ Deno.serve(async (req) => {
         reassigned: reassignments.length,
         unchanged: unchangedActionIds.length,
         unresolved: unresolvedActionIds.length,
+        coverage_aware: true,
       },
     };
     await persistQueue(supabaseUrl, serviceKey, dispatchId, updatedQueue);
@@ -320,6 +358,7 @@ Deno.serve(async (req) => {
     reassigned_items: reassignments.length,
     unchanged_items: unchangedActionIds.length,
     unresolved_items: unresolvedActionIds.length,
+    coverage_member_count: coverage.length,
     reassignments,
     unchanged_action_ids: unchangedActionIds,
     unresolved_action_ids: unresolvedActionIds,
