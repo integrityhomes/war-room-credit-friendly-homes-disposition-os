@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-27.1";
+const SERVICE_VERSION = "2026-08-27.2";
 const MAX_BODY_BYTES = 64 * 1024;
 
 type QueueItem = Record<string, unknown>;
@@ -58,6 +58,26 @@ function memberId(member: TeamMember): string {
 
 function isActive(member: TeamMember): boolean {
   return member.active !== false && memberId(member).length > 0;
+}
+
+async function loadRegistryMembers(): Promise<TeamMember[]> {
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") || "").replace(/\/$/, "");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!supabaseUrl || !serviceKey) return [];
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/commandcore-team-registry`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ action: "list" }),
+  });
+  if (!response.ok) return [];
+  const parsed = await response.json() as Record<string, unknown>;
+  return Array.isArray(parsed.members)
+    ? parsed.members.filter((item) => item && typeof item === "object") as TeamMember[]
+    : [];
 }
 
 function scoreMember(item: QueueItem, member: TeamMember, dealOwner: string): { score: number; reason: string } {
@@ -148,6 +168,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       external_execution_enabled: false,
       assignment_only: true,
+      team_registry_fallback_enabled: true,
     });
   }
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
@@ -164,12 +185,23 @@ Deno.serve(async (req) => {
   }
 
   const items = Array.isArray(body.items) ? body.items.filter((item) => item && typeof item === "object") as QueueItem[] : [];
-  const members = Array.isArray(body.team_members) ? body.team_members.filter((item) => item && typeof item === "object") as TeamMember[] : [];
+  const suppliedMembers = Array.isArray(body.team_members)
+    ? body.team_members.filter((item) => item && typeof item === "object") as TeamMember[]
+    : [];
+  const registryMembers = suppliedMembers.length ? [] : await loadRegistryMembers();
+  const members = suppliedMembers.length ? suppliedMembers : registryMembers;
+  const teamSource = suppliedMembers.length ? "request" : "registry";
   const dealOwners = body.deal_owners && typeof body.deal_owners === "object" && !Array.isArray(body.deal_owners)
     ? body.deal_owners as Record<string, string>
     : {};
 
-  if (!members.some(isActive)) return jsonResponse(422, { ok: false, error: "no_active_team_members" });
+  if (!members.some(isActive)) {
+    return jsonResponse(422, {
+      ok: false,
+      error: "no_active_team_members",
+      team_source: teamSource,
+    });
+  }
 
   const mutableLoads = new Map<string, number>();
   const assignments: Assignment[] = [];
@@ -190,6 +222,8 @@ Deno.serve(async (req) => {
     unassigned_items: unassigned.length,
     assignments,
     unassigned_action_ids: unassigned,
+    team_source: teamSource,
+    registry_member_count: registryMembers.length,
     routing_mutated_readiness: false,
     approval_changed: false,
     consent_changed: false,
