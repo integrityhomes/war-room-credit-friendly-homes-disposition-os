@@ -228,5 +228,9 @@ for item in filtered:
 
 st.divider()
 st.caption(
-    "Internal operational tracking only. This screen cannot approve deals, change task assignments, change readiness, modify consent, authorize spending, alter legal terms, move money, send communications, or execute externally. If the same underlying scheduled-coverage failure still exists, CommandCore's recurring monitor can write the same deterministic exception back to Open on a later run."
+    "Internal operational tracking only. This screen cannot approve deals, change task assignments, "
+    "change readiness, modify consent, authorize spending, alter legal terms, move money, send "
+    "communications, or execute externally. If the same underlying scheduled-coverage failure still "
+    "exists, CommandCore's recurring monitor can write the same deterministic exception back to Open "
+    "on a later run."
 )
