@@ -9,7 +9,7 @@ jobs:
   rebalance:
     runs-on: ubuntu-latest
     steps:
-      - name: Rebalance active CommandCore queues
+      - name: Run strict safe automatic rebalance
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -19,38 +19,17 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
 
           BASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co"
-          LIST_RESPONSE="$(curl --silent --show-error --fail \
-            -X POST "${BASE_URL}/storage/v1/object/list/commandcore-action-queue" \
+          RESPONSE="$(curl --silent --show-error --fail \
+            -X POST "${BASE_URL}/functions/v1/commandcore-auto-rebalance" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Content-Type: application/json" \
-            --data '{"prefix":"dispatches","limit":1000,"offset":0,"sortBy":{"column":"updated_at","order":"desc"}}')"
+            --data '{"apply":true}')"
 
-          DISPATCH_IDS="$(printf '%s' "$LIST_RESPONSE" | python -c 'import json,sys; rows=json.load(sys.stdin); print("\n".join(str(r.get("name", ""))[:-5] for r in rows if str(r.get("name", "")).endswith(".json")))')"
-
-          if [ -z "$DISPATCH_IDS" ]; then
-            echo "No CommandCore action queues found."
-            exit 0
-          fi
-
-          processed=0
-          failed=0
-          while IFS= read -r dispatch_id; do
-            [ -n "$dispatch_id" ] || continue
-            payload="$(python -c 'import json,sys; print(json.dumps({"dispatch_id":sys.argv[1],"apply":True}))' "$dispatch_id")"
-            response="$(curl --silent --show-error \
-              -X POST "${BASE_URL}/functions/v1/commandcore-workload-rebalancer" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Content-Type: application/json" \
-              --data "$payload")"
-            if printf '%s' "$response" | grep -q '"ok":true'; then
-              echo "Rebalanced ${dispatch_id}."
-              processed=$((processed + 1))
-            else
-              echo "Rebalance failed for ${dispatch_id}: ${response}"
-              failed=$((failed + 1))
-            fi
-          done <<< "$DISPATCH_IDS"
-
-          echo "Processed: ${processed}; Failed: ${failed}"
-          test "$failed" -eq 0
+          printf '%s\n' "$RESPONSE"
+          printf '%s' "$RESPONSE" | python -c '
+import json, sys
+result = json.load(sys.stdin)
+if result.get("ok") is not True:
+    raise SystemExit("CommandCore auto rebalance did not return ok=true")
+print(f"Eligible: {result.get(chr(101)+chr(108)+chr(105)+chr(103)+chr(105)+chr(98)+chr(108)+chr(101)+chr(95)+chr(108)+chr(111)+chr(119)+chr(95)+chr(114)+chr(105)+chr(115)+chr(107)+chr(95)+chr(104)+chr(105)+chr(103)+chr(104)+chr(95)+chr(99)+chr(111)+chr(110)+chr(102)+chr(105)+chr(100)+chr(101)+chr(110)+chr(99)+chr(101), 0)}; Applied: {result.get(chr(97)+chr(112)+chr(112)+chr(108)+chr(105)+chr(101)+chr(100)+chr(95)+chr(99)+chr(111)+chr(117)+chr(110)+chr(116), 0)}; Skipped: {len(result.get(chr(115)+chr(107)+chr(105)+chr(112)+chr(112)+chr(101)+chr(100), []))}")
+'
