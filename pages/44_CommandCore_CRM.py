@@ -120,7 +120,18 @@ def deal_form(existing: dict[str, Any]) -> dict[str, Any] | None:
         repairs = st.text_input("Estimated repairs", value=text(existing.get("estimated_repairs")))
         notes = st.text_area("Deal notes", value=text(existing.get("notes")), height=140)
         if st.form_submit_button("Save deal", type="primary"):
-            return {**existing, "title": title, "status": status, "stage": stage, "assigned_to": owner, "asking_price": asking, "offer_price": offer, "arv": arv, "estimated_repairs": repairs, "notes": notes}
+            return {
+                **existing,
+                "title": title,
+                "status": status,
+                "stage": stage,
+                "assigned_to": owner,
+                "asking_price": asking,
+                "offer_price": offer,
+                "arv": arv,
+                "estimated_repairs": repairs,
+                "notes": notes,
+            }
     return None
 
 
