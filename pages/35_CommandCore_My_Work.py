@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib import request
 
 import streamlit as st
 
@@ -57,7 +58,9 @@ def load_items() -> list[dict[str, Any]]:
             continue
         if not isinstance(snapshot, dict):
             continue
-        dispatch_id = str(snapshot.get("dispatch_id", "") or name.removesuffix(".json")).strip()
+        dispatch_id = str(
+            snapshot.get("dispatch_id", "") or name.removesuffix(".json")
+        ).strip()
         queue_items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
         for item in queue_items:
             if isinstance(item, dict):
@@ -94,6 +97,33 @@ def load_handoffs(dispatch_id: str) -> list[dict[str, Any]]:
     return handoffs
 
 
+@st.cache_data(ttl=60)
+def load_shift_brief(owner_id_value: str) -> dict[str, Any]:
+    owner_id_value = owner_id_value.strip()
+    if not owner_id_value:
+        return {}
+    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not supabase_url or not service_key:
+        return {}
+    payload = json.dumps({"owner_id": owner_id_value}).encode("utf-8")
+    req = request.Request(
+        f"{supabase_url}/functions/v1/commandcore-shift-brief",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=20) as response:  # noqa: S310
+            parsed = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def owner_name(item: dict[str, Any]) -> str:
     return str(item.get("owner_name", "") or "Unassigned").strip() or "Unassigned"
 
@@ -112,15 +142,22 @@ def action_id(item: dict[str, Any]) -> str:
 
 
 def table_row(item: dict[str, Any]) -> dict[str, Any]:
+    required_actions = item.get("required_actions", [])
     return {
         "Assigned To": owner_name(item),
         "Priority": str(item.get("priority", "medium")).upper(),
         "Status": str(item.get("readiness", "HOLD")).upper(),
         "Channel": str(item.get("channel_key", "")).replace("_", " ").title(),
         "Property": str(item.get("property_id", "") or ""),
-        "Next Action": " • ".join(str(v) for v in item.get("required_actions", []) if str(v).strip()),
-        "Routing Reason": str(item.get("routing_reason", "") or "").replace("_", " "),
-        "Reassignment Reason": str(item.get("reassignment_reason", "") or "").replace("_", " "),
+        "Next Action": " • ".join(
+            str(value) for value in required_actions if str(value).strip()
+        ),
+        "Routing Reason": str(item.get("routing_reason", "") or "").replace(
+            "_", " "
+        ),
+        "Reassignment Reason": str(
+            item.get("reassignment_reason", "") or ""
+        ).replace("_", " "),
         "Reassigned At": str(item.get("reassigned_at", "") or ""),
         "Workload After": item.get("workload_after_assignment"),
     }
@@ -138,6 +175,42 @@ def matching_handoffs(item: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def show_shift_brief(brief: dict[str, Any], selected_name: str) -> None:
+    if not brief:
+        st.caption("Shift brief is not available yet for this team member.")
+        return
+    st.subheader(f"{selected_name} Shift Brief")
+    st.caption(
+        "What was inherited, what needs attention first, and what CommandCore says to do next."
+    )
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Open Work", int(brief.get("total_open_work", 0) or 0))
+    c2.metric("Urgent", int(brief.get("urgent_count", 0) or 0))
+    c3.metric("Inherited", int(brief.get("inherited_count", 0) or 0))
+    c4.metric("Blocked", int(brief.get("blocked_count", 0) or 0))
+    c5.metric("Manual", int(brief.get("manual_count", 0) or 0))
+
+    brief_items = brief.get("items") if isinstance(brief.get("items"), list) else []
+    urgent_items = [item for item in brief_items if isinstance(item, dict) and item.get("urgent")]
+    if urgent_items:
+        st.warning("These items need attention first.")
+        for item in urgent_items:
+            property_id = str(item.get("property_id", "") or "No property ID")
+            channel = str(item.get("channel_key", "") or "").replace("_", " ").title()
+            readiness = str(item.get("readiness", "HOLD") or "HOLD").upper()
+            st.markdown(f"**{property_id} • {channel} • {readiness}**")
+            actions = item.get("required_actions")
+            if isinstance(actions, list) and actions:
+                st.write("Next: " + " • ".join(str(value) for value in actions))
+            last_handoff = item.get("last_handoff")
+            if isinstance(last_handoff, dict):
+                previous = str(last_handoff.get("previous_owner_name", "") or "Unassigned")
+                reason = str(last_handoff.get("handoff_reason", "") or "routing change").replace(
+                    "_", " "
+                )
+                st.caption(f"Inherited from {previous} because: {reason}")
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
@@ -146,7 +219,7 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
 
 st.title("CommandCore My Work")
 st.caption(
-    "Shows human-required work assigned by CommandCore, including automatic reassignments and the full handoff chain."
+    "Shows assigned work, automatic reassignments, full handoff history, and shift briefs."
 )
 
 try:
@@ -163,10 +236,21 @@ filtered = items
 if selected_owner != "All Team" and my_work_only:
     filtered = [item for item in items if owner_name(item) == selected_owner]
 
+if selected_owner != "All Team":
+    selected_owner_id = next(
+        (owner_id(item) for item in items if owner_name(item) == selected_owner and owner_id(item)),
+        "",
+    )
+    show_shift_brief(load_shift_brief(selected_owner_id), selected_owner)
+
 assigned_count = sum(1 for item in filtered if owner_id(item))
 unassigned_count = sum(1 for item in filtered if not owner_id(item))
-high_count = sum(1 for item in filtered if str(item.get("priority", "")).lower() == "high")
-reassigned_count = sum(1 for item in filtered if str(item.get("reassigned_at", "")).strip())
+high_count = sum(
+    1 for item in filtered if str(item.get("priority", "")).lower() == "high"
+)
+reassigned_count = sum(
+    1 for item in filtered if str(item.get("reassigned_at", "")).strip()
+)
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Visible Work", len(filtered))
@@ -190,9 +274,13 @@ for item in filtered:
         st.write(f"**Assigned to:** {assigned}")
         if owner_id(item):
             st.caption(f"Owner ID: {owner_id(item)}")
-        reason = str(item.get("routing_reason", "") or "No routing reason recorded").replace("_", " ")
+        reason = str(
+            item.get("routing_reason", "") or "No routing reason recorded"
+        ).replace("_", " ")
         st.write(f"**Why CommandCore routed it here:** {reason}")
-        reassignment_reason = str(item.get("reassignment_reason", "") or "").replace("_", " ")
+        reassignment_reason = str(
+            item.get("reassignment_reason", "") or ""
+        ).replace("_", " ")
         reassigned_at = str(item.get("reassigned_at", "") or "").strip()
         if reassignment_reason:
             st.info(f"Automatically reassigned because: {reassignment_reason}")
@@ -204,8 +292,8 @@ for item in filtered:
         workload = item.get("workload_after_assignment")
         if workload is not None:
             st.caption(f"Projected workload after assignment: {workload}")
-        actions = item.get("required_actions") if isinstance(item.get("required_actions"), list) else []
-        if actions:
+        actions = item.get("required_actions")
+        if isinstance(actions, list) and actions:
             st.write("**What needs to happen:**")
             for action in actions:
                 st.write(f"• {action}")
@@ -216,11 +304,19 @@ for item in filtered:
             st.caption("No automatic handoffs have been recorded for this task yet.")
         else:
             for record in history:
-                previous = str(record.get("previous_owner_name", "") or "Unassigned").strip()
-                new_owner = str(record.get("new_owner_name", "") or record.get("new_owner_id", "")).strip()
+                previous = str(
+                    record.get("previous_owner_name", "") or "Unassigned"
+                ).strip()
+                new_owner = str(
+                    record.get("new_owner_name", "") or record.get("new_owner_id", "")
+                ).strip()
                 handoff_at = str(record.get("handoff_at", "") or "").strip()
-                handoff_reason = str(record.get("handoff_reason", "") or "routing change").replace("_", " ")
-                routing_reason = str(record.get("routing_reason", "") or "").replace("_", " ")
+                handoff_reason = str(
+                    record.get("handoff_reason", "") or "routing change"
+                ).replace("_", " ")
+                routing_reason = str(record.get("routing_reason", "") or "").replace(
+                    "_", " "
+                )
                 st.markdown(f"**{previous} → {new_owner}**")
                 st.caption(f"{handoff_at} • {handoff_reason}")
                 if routing_reason:
@@ -228,5 +324,5 @@ for item in filtered:
 
 st.divider()
 st.caption(
-    "Assignment, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, or external execution permissions."
+    "Assignment, shift briefing, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, or external execution permissions."
 )
