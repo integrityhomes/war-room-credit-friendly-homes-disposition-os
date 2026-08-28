@@ -26,6 +26,7 @@ on:
       - agent/commandcore-outbound-prep-dispatch-integration
       - agent/commandcore-adapter-connection-registry
       - agent/commandcore-outbound-connection-gate
+      - agent/commandcore-execution-readiness-engine
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
@@ -42,6 +43,7 @@ on:
       - "supabase/functions/commandcore-marketing-copy/**"
       - "supabase/functions/commandcore-outbound-prep/**"
       - "supabase/functions/commandcore-adapter-registry/**"
+      - "supabase/functions/commandcore-execution-readiness/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -77,6 +79,7 @@ jobs:
           supabase functions deploy commandcore-marketing-copy --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-outbound-prep --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-adapter-registry --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-execution-readiness --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -113,4 +116,5 @@ jobs:
           check_health commandcore-marketing-copy
           check_health commandcore-outbound-prep
           check_health commandcore-adapter-registry
+          check_health commandcore-execution-readiness
           check_health commandcore-communication-gate
