@@ -80,6 +80,8 @@ def table_row(item: dict[str, Any]) -> dict[str, Any]:
         "Property": str(item.get("property_id", "") or ""),
         "Next Action": " • ".join(str(v) for v in item.get("required_actions", []) if str(v).strip()),
         "Routing Reason": str(item.get("routing_reason", "") or "").replace("_", " "),
+        "Reassignment Reason": str(item.get("reassignment_reason", "") or "").replace("_", " "),
+        "Reassigned At": str(item.get("reassigned_at", "") or ""),
         "Workload After": item.get("workload_after_assignment"),
     }
 
@@ -91,7 +93,7 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
     st.rerun()
 
 st.title("CommandCore My Work")
-st.caption("Shows human-required work already assigned by CommandCore. This page cannot approve, send, post, or spend money.")
+st.caption("Shows human-required work assigned by CommandCore, including automatic reassignments when capacity or availability changes.")
 
 try:
     items = load_items()
@@ -110,12 +112,14 @@ if selected_owner != "All Team" and my_work_only:
 assigned_count = sum(1 for item in filtered if owner_id(item))
 unassigned_count = sum(1 for item in filtered if not owner_id(item))
 high_count = sum(1 for item in filtered if str(item.get("priority", "")).lower() == "high")
+reassigned_count = sum(1 for item in filtered if str(item.get("reassigned_at", "")).strip())
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Visible Work", len(filtered))
 c2.metric("Assigned", assigned_count)
 c3.metric("Unassigned", unassigned_count)
 c4.metric("High Priority", high_count)
+c5.metric("Auto Reassigned", reassigned_count)
 
 if not filtered:
     st.success("No work is currently assigned for this view.")
@@ -134,6 +138,12 @@ for item in filtered:
             st.caption(f"Owner ID: {owner_id(item)}")
         reason = str(item.get("routing_reason", "") or "No routing reason recorded").replace("_", " ")
         st.write(f"**Why CommandCore routed it here:** {reason}")
+        reassignment_reason = str(item.get("reassignment_reason", "") or "").replace("_", " ")
+        reassigned_at = str(item.get("reassigned_at", "") or "").strip()
+        if reassignment_reason:
+            st.info(f"Automatically reassigned because: {reassignment_reason}")
+        if reassigned_at:
+            st.caption(f"Last automatically reassigned: {reassigned_at}")
         score = item.get("routing_score")
         if score is not None:
             st.caption(f"Routing score: {score}")
@@ -147,4 +157,4 @@ for item in filtered:
                 st.write(f"• {action}")
 
 st.divider()
-st.caption("Assignment is routing only. It never changes readiness, approvals, consent, budgets, or external execution permissions.")
+st.caption("Assignment and rebalancing only. These controls never change readiness, approvals, consent, budgets, or external execution permissions.")
