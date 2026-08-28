@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.3";
+const SERVICE_VERSION = "2026-08-28.4";
 const MAX_BODY_BYTES = 64 * 1024;
 const BUCKET = "commandcore-coverage-exceptions";
 
@@ -31,6 +31,54 @@ function text(value: unknown): string {
 
 function safeKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+}
+
+function agingFor(record: RecordValue, nowMs = Date.now()): RecordValue {
+  const status = text(record.status || "open").toLowerCase();
+  if (status === "resolved") {
+    return { age_hours: 0, aging_level: "resolved", aging_rank: 99, management_attention: false };
+  }
+
+  const createdMs = Date.parse(text(record.created_at));
+  const ageHours = Number.isFinite(createdMs)
+    ? Math.max(0, Math.round(((nowMs - createdMs) / 3_600_000) * 10) / 10)
+    : 0;
+  const severity = text(record.severity || "warning").toLowerCase();
+
+  let agingLevel = "current";
+  let agingRank = 3;
+  if (severity === "critical") {
+    if (ageHours >= 12) {
+      agingLevel = "executive";
+      agingRank = 0;
+    } else if (ageHours >= 4) {
+      agingLevel = "escalated";
+      agingRank = 1;
+    } else if (ageHours >= 1) {
+      agingLevel = "overdue";
+      agingRank = 2;
+    }
+  } else if (ageHours >= 24) {
+    agingLevel = "executive";
+    agingRank = 0;
+  } else if (ageHours >= 12) {
+    agingLevel = "escalated";
+    agingRank = 1;
+  } else if (ageHours >= 4) {
+    agingLevel = "overdue";
+    agingRank = 2;
+  }
+
+  return {
+    age_hours: ageHours,
+    aging_level: agingLevel,
+    aging_rank: agingRank,
+    management_attention: agingLevel !== "current",
+  };
+}
+
+function withAging(record: RecordValue): RecordValue {
+  return { ...record, ...agingFor(record) };
 }
 
 async function writeException(supabaseUrl: string, serviceKey: string, record: RecordValue): Promise<void> {
@@ -117,11 +165,15 @@ async function listExceptions(
         if (!record) continue;
         const status = text(record.status || "open").toLowerCase();
         if (statusFilter && statusFilter !== "all" && status !== statusFilter) continue;
-        results.push(record);
+        results.push(withAging(record));
       }
     }
   }
-  return results.sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)));
+  return results.sort((a, b) => {
+    const agingDiff = Number(a.aging_rank ?? 9) - Number(b.aging_rank ?? 9);
+    if (agingDiff !== 0) return agingDiff;
+    return text(a.created_at).localeCompare(text(b.created_at));
+  });
 }
 
 async function updateExceptionStatus(
@@ -145,6 +197,11 @@ async function updateExceptionStatus(
     resolution_note: note,
   };
 
+  delete updated.age_hours;
+  delete updated.aging_level;
+  delete updated.aging_rank;
+  delete updated.management_attention;
+
   if (status === "acknowledged") {
     updated.acknowledged_at = now;
     updated.acknowledged_by = actor || "CommandCore manager";
@@ -157,7 +214,7 @@ async function updateExceptionStatus(
   }
 
   await writeException(supabaseUrl, serviceKey, updated);
-  return updated;
+  return withAging(updated);
 }
 
 Deno.serve(async (req) => {
@@ -169,6 +226,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       internal_audit_only: true,
       resolution_tracking_enabled: true,
+      aging_escalation_enabled: true,
       external_execution_enabled: false,
     });
   }
@@ -204,6 +262,10 @@ Deno.serve(async (req) => {
       exception_count: exceptions.length,
       critical_count: exceptions.filter((item) => text(item.severity).toLowerCase() === "critical").length,
       warning_count: exceptions.filter((item) => text(item.severity).toLowerCase() === "warning").length,
+      overdue_count: exceptions.filter((item) => text(item.aging_level) === "overdue").length,
+      escalated_count: exceptions.filter((item) => text(item.aging_level) === "escalated").length,
+      executive_count: exceptions.filter((item) => text(item.aging_level) === "executive").length,
+      management_attention_count: exceptions.filter((item) => item.management_attention === true).length,
       exceptions,
       readiness_changed: false,
       approval_changed: false,
