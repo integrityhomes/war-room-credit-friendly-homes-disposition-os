@@ -1,5 +1,5 @@
 const DISPATCH_BUCKET = "commandcore-dispatch-queue";
-const WORKER_VERSION = "2026-08-27.5";
+const WORKER_VERSION = "2026-08-27.6";
 const MAX_BODY_BYTES = 16 * 1024;
 
 function jsonResponse(status: number, payload: Record<string, unknown>): Response {
@@ -42,6 +42,13 @@ function campaignProperty(queued: Record<string, unknown>): Record<string, unkno
   const payload = campaignPayload(queued);
   return payload.property && typeof payload.property === "object" && !Array.isArray(payload.property)
     ? payload.property as Record<string, unknown>
+    : {};
+}
+
+function campaignGates(queued: Record<string, unknown>): Record<string, unknown> {
+  const payload = campaignPayload(queued);
+  return payload.execution_gates && typeof payload.execution_gates === "object" && !Array.isArray(payload.execution_gates)
+    ? payload.execution_gates as Record<string, unknown>
     : {};
 }
 
@@ -148,6 +155,36 @@ async function attachOutboundHandoffs(workOrders: Record<string, unknown>[]): Pr
   return prepared;
 }
 
+async function attachReadinessDecisions(workOrders: Record<string, unknown>[], gates: Record<string, unknown>): Promise<Record<string, unknown>[]> {
+  const decided: Record<string, unknown>[] = [];
+  for (const order of workOrders) {
+    const channelKey = String(order.channel_key || "").trim();
+    const blocked = String(order.result_status || "").trim() === "blocked" || String(order.state || "").trim() === "blocked";
+    if (blocked) {
+      decided.push({ ...order, execution_readiness: "BLOCKED", readiness_reasons: ["channel_blocked"], readiness_checked: true });
+      continue;
+    }
+    if (order.external_action_required === false && String(order.result_status || "").trim() === "live") {
+      decided.push({ ...order, execution_readiness: "READY", readiness_reasons: ["internal_no_external_action"], readiness_checked: true });
+      continue;
+    }
+    if (!order.outbound_handoff_ready) {
+      decided.push({ ...order, execution_readiness: "HOLD", readiness_reasons: ["outbound_handoff_not_ready"], readiness_checked: true });
+      continue;
+    }
+    try {
+      const result = await callInternalFunction("commandcore-execution-readiness", { work_order: order, gates });
+      const readiness = String(result.readiness || "HOLD").trim().toUpperCase();
+      const reasons = Array.isArray(result.reasons) ? result.reasons.map((item) => String(item).trim()).filter(Boolean) : ["readiness_reason_unavailable"];
+      decided.push({ ...order, execution_readiness: readiness, readiness_reasons: reasons, readiness_checked: true, readiness_required_gates: Array.isArray(result.required_gates) ? result.required_gates : [] });
+    } catch (error) {
+      console.error(`CommandCore readiness check failed for ${channelKey}`, error);
+      decided.push({ ...order, execution_readiness: "HOLD", readiness_reasons: ["readiness_engine_unavailable"], readiness_checked: false, external_action_started: false });
+    }
+  }
+  return decided;
+}
+
 async function buildWorkOrders(queued: Record<string, unknown>, leadLink: Record<string, unknown> | null, marketing: Record<string, unknown> | null) {
   const routes = Array.isArray(queued.routes) ? queued.routes : [];
   const orders: Record<string, unknown>[] = [];
@@ -187,7 +224,7 @@ async function buildWorkOrders(queued: Record<string, unknown>, leadLink: Record
       continue;
     }
     if (routeName === "manual_final_post") {
-      orders.push(enrich({ channel_key: channelKey, adapter: "manual_final_post", state: "package_ready_for_human", external_action_required: true, external_action_started: false, result_status: "ready" }, channelKey));
+      orders.push(enrich({ channel_key: channelKey, adapter: "manual_final_post", state: "package_ready_for_human", external_action_required: true, external_action_started: false, result_status: "ready", human_final_post_required: true }, channelKey));
       continue;
     }
     if (routeName === "blocked") {
@@ -200,7 +237,7 @@ async function buildWorkOrders(queued: Record<string, unknown>, leadLink: Record
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "GET") return jsonResponse(200, { ok: true, service: "commandcore-dispatch-worker", version: WORKER_VERSION, status: "healthy", external_execution_enabled: false, market_seo_adapter_enabled: true, property_lead_links_enabled: true, marketing_copy_packages_enabled: true, outbound_handoff_preparation_enabled: true });
+  if (req.method === "GET") return jsonResponse(200, { ok: true, service: "commandcore-dispatch-worker", version: WORKER_VERSION, status: "healthy", external_execution_enabled: false, market_seo_adapter_enabled: true, property_lead_links_enabled: true, marketing_copy_packages_enabled: true, outbound_handoff_preparation_enabled: true, execution_readiness_enabled: true });
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
   if (!isAuthenticated(req)) return jsonResponse(401, { ok: false, error: "unauthorized" });
 
@@ -220,7 +257,8 @@ Deno.serve(async (req) => {
     const leadLink = await generatePropertyLeadLink(queued);
     const marketing = await generateMarketingPackages(queued, leadLink);
     const baseWorkOrders = await buildWorkOrders(queued, leadLink, marketing);
-    const workOrders = await attachOutboundHandoffs(baseWorkOrders);
+    const handedOffWorkOrders = await attachOutboundHandoffs(baseWorkOrders);
+    const workOrders = await attachReadinessDecisions(handedOffWorkOrders, campaignGates(queued));
     const payload = campaignPayload(queued);
     const enrichedCampaignPayload = {
       ...payload,
@@ -228,19 +266,25 @@ Deno.serve(async (req) => {
       ...(marketing?.packages ? { marketing_packages: marketing.packages } : {}),
     };
     const handoffCount = workOrders.filter((item) => Boolean(item.outbound_handoff_ready)).length;
-    const updated = { ...queued, campaign_payload: enrichedCampaignPayload, status: "adapter_handoffs_prepared", worker_version: WORKER_VERSION, worker_processed_at: new Date().toISOString(), property_lead_link: leadLink, marketing_copy_result: marketing, work_orders: workOrders, outbound_handoff_count: handoffCount, external_action_started: false };
+    const readinessCounts = workOrders.reduce((acc: Record<string, number>, item) => {
+      const key = String(item.execution_readiness || "HOLD").toUpperCase();
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const updated = { ...queued, campaign_payload: enrichedCampaignPayload, status: "readiness_evaluated", worker_version: WORKER_VERSION, worker_processed_at: new Date().toISOString(), property_lead_link: leadLink, marketing_copy_result: marketing, work_orders: workOrders, outbound_handoff_count: handoffCount, readiness_counts: readinessCounts, external_action_started: false };
     await writeQueueObject(queueObject, updated);
     return jsonResponse(200, {
       ok: true,
       accepted: true,
       dispatch_id: String(queued.dispatch_id || dispatchId),
       queue_object: queueObject,
-      status: "adapter_handoffs_prepared",
+      status: "readiness_evaluated",
       work_order_count: workOrders.length,
       outbound_handoff_count: handoffCount,
+      readiness_counts: readinessCounts,
       lead_form_url: leadLink?.lead_form_url || null,
       marketing_package_count: Array.isArray(marketing?.packages) ? marketing?.packages.length : 0,
-      channel_results: workOrders.map((item) => ({ channel_key: item.channel_key, status: item.result_status, lead_form_url: item.lead_form_url || null, copy_ready: Boolean(item.copy_ready), outbound_handoff_ready: Boolean(item.outbound_handoff_ready) })),
+      channel_results: workOrders.map((item) => ({ channel_key: item.channel_key, status: item.result_status, readiness: item.execution_readiness, readiness_reasons: item.readiness_reasons || [], lead_form_url: item.lead_form_url || null, copy_ready: Boolean(item.copy_ready), outbound_handoff_ready: Boolean(item.outbound_handoff_ready) })),
       external_action_started: false,
     });
   } catch (error) {
