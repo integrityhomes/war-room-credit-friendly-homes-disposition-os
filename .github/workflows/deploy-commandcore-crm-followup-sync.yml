@@ -1,0 +1,38 @@
+name: Deploy CommandCore CRM Follow-up Sync
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/commandcore-pipeline-followup
+    paths:
+      - "supabase/functions/commandcore-crm-followup-sync/**"
+      - ".github/workflows/deploy-commandcore-crm-followup-sync.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_PROJECT_REF"
+          supabase functions deploy commandcore-crm-followup-sync --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Verify health
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-followup-sync"
+          for attempt in 1 2 3 4 5; do
+            RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+            if echo "$RESPONSE" | grep -q '"status":"healthy"'; then exit 0; fi
+            sleep 3
+          done
+          exit 1
