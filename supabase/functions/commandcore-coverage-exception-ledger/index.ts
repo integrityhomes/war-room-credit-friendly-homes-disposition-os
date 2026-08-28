@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.2";
+const SERVICE_VERSION = "2026-08-28.3";
 const MAX_BODY_BYTES = 64 * 1024;
 const BUCKET = "commandcore-coverage-exceptions";
 
@@ -124,6 +124,42 @@ async function listExceptions(
   return results.sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)));
 }
 
+async function updateExceptionStatus(
+  supabaseUrl: string,
+  serviceKey: string,
+  exceptionId: string,
+  status: string,
+  actor: string,
+  note: string,
+): Promise<RecordValue | null> {
+  const exceptions = await listExceptions(supabaseUrl, serviceKey, 60, "all");
+  const existing = exceptions.find((item) => text(item.exception_id) === exceptionId);
+  if (!existing) return null;
+
+  const now = new Date().toISOString();
+  const updated: RecordValue = {
+    ...existing,
+    status,
+    status_updated_at: now,
+    status_updated_by: actor || "CommandCore manager",
+    resolution_note: note,
+  };
+
+  if (status === "acknowledged") {
+    updated.acknowledged_at = now;
+    updated.acknowledged_by = actor || "CommandCore manager";
+  } else if (status === "resolved") {
+    updated.resolved_at = now;
+    updated.resolved_by = actor || "CommandCore manager";
+  } else if (status === "open") {
+    updated.reopened_at = now;
+    updated.reopened_by = actor || "CommandCore manager";
+  }
+
+  await writeException(supabaseUrl, serviceKey, updated);
+  return updated;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -132,6 +168,7 @@ Deno.serve(async (req) => {
       version: SERVICE_VERSION,
       status: "healthy",
       internal_audit_only: true,
+      resolution_tracking_enabled: true,
       external_execution_enabled: false,
     });
   }
@@ -171,6 +208,31 @@ Deno.serve(async (req) => {
       readiness_changed: false,
       approval_changed: false,
       consent_changed: false,
+      external_action_started: false,
+    });
+  }
+
+  if (action === "update_status") {
+    const exceptionId = text(body.exception_id);
+    const status = text(body.status).toLowerCase();
+    const actor = text(body.actor);
+    const note = text(body.note);
+    if (!exceptionId) return jsonResponse(422, { ok: false, error: "exception_id_required" });
+    if (!["open", "acknowledged", "resolved"].includes(status)) {
+      return jsonResponse(422, { ok: false, error: "invalid_status" });
+    }
+    const updated = await updateExceptionStatus(supabaseUrl, serviceKey, exceptionId, status, actor, note);
+    if (!updated) return jsonResponse(404, { ok: false, error: "exception_not_found" });
+    return jsonResponse(200, {
+      ok: true,
+      exception: updated,
+      assignment_changed: false,
+      readiness_changed: false,
+      approval_changed: false,
+      consent_changed: false,
+      budget_changed: false,
+      legal_terms_changed: false,
+      payment_started: false,
       external_action_started: false,
     });
   }
