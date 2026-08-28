@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import streamlit as st
 
@@ -75,6 +77,43 @@ def normalize_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def retry_internal_dispatch(item: dict[str, Any]) -> dict[str, Any]:
+    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
+    service_role_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not supabase_url or not service_role_key:
+        raise RuntimeError("CommandCore operator action is not configured.")
+
+    payload: dict[str, str] = {"action": "retry_internal_dispatch"}
+    queue_object = str(item.get("queue_object", "") or "").strip()
+    if queue_object:
+        payload["queue_object"] = queue_object
+    else:
+        payload["dispatch_id"] = str(item.get("dispatch_id", "") or "").strip()
+        payload["property_id"] = str(item.get("property_id", "") or "").strip()
+
+    request = Request(
+        f"{supabase_url}/functions/v1/commandcore-operator-action",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {service_role_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            parsed = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"CommandCore retry was rejected ({exc.code}): {detail[:240]}") from exc
+    except URLError as exc:
+        raise RuntimeError("CommandCore retry service could not be reached.") from exc
+
+    if not isinstance(parsed, dict) or not parsed.get("ok"):
+        raise RuntimeError("CommandCore did not confirm the safe retry.")
+    return parsed
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="commandcore_operator_logout"):
@@ -116,7 +155,8 @@ status_filter = st.multiselect("Show statuses", ["HOLD", "MANUAL", "BLOCKED"], d
 priority_filter = st.multiselect("Show priorities", ["HIGH", "MEDIUM", "LOW"], default=["HIGH", "MEDIUM", "LOW"])
 
 filtered = [
-    item for item in items
+    item
+    for item in items
     if str(item.get("readiness", "")).upper() in status_filter
     and str(item.get("priority", "medium")).upper() in priority_filter
 ]
@@ -134,6 +174,7 @@ else:
         readiness = str(item.get("readiness", "HOLD")).upper()
         priority = str(item.get("priority", "medium")).upper()
         property_id = str(item.get("property_id", "") or "No property ID")
+        action_id = str(item.get("action_id", "") or f"{item.get('dispatch_id', '')}_{item.get('channel_key', '')}")
         with st.expander(f"{priority} • {readiness} • {channel} • {property_id}"):
             actions = item.get("required_actions") if isinstance(item.get("required_actions"), list) else []
             for action in actions:
@@ -141,13 +182,27 @@ else:
             reasons = item.get("reasons") if isinstance(item.get("reasons"), list) else []
             if reasons:
                 st.caption("Why: " + ", ".join(str(r).replace("_", " ") for r in reasons))
+
+            if readiness == "HOLD":
+                st.caption("Safe option: retry CommandCore's internal processing. This cannot approve, send, post, or spend money.")
+                if st.button("Retry internal processing", key=f"retry_{action_id}"):
+                    with st.spinner("CommandCore is retrying the internal workflow..."):
+                        try:
+                            result = retry_internal_dispatch(item)
+                        except Exception as exc:
+                            st.error(str(exc))
+                        else:
+                            st.success("Internal retry completed. No external action was started.")
+                            if result.get("safe_internal_retry_completed"):
+                                st.rerun()
+
             lead_url = str(item.get("lead_form_url", "") or "").strip()
             if lead_url:
                 st.link_button("Open buyer lead form", lead_url)
             marketing = item.get("marketing_package") if isinstance(item.get("marketing_package"), dict) else {}
             copy = str(marketing.get("copy", marketing.get("body", marketing.get("text", ""))) or "").strip()
             if copy:
-                st.text_area("Prepared marketing copy", copy, height=160, disabled=True, key=f"copy_{item.get('action_id','')}")
+                st.text_area("Prepared marketing copy", copy, height=160, disabled=True, key=f"copy_{action_id}")
 
 st.divider()
-st.caption("External execution remains disabled. This page is for visibility and human-required actions only.")
+st.caption("External execution remains disabled. Safe internal retries are allowed; approvals, sends, posts, consent changes, connection changes, and ad spend remain gated.")
