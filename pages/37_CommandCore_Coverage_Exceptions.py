@@ -82,6 +82,17 @@ def update_status(exception_id: str, status: str, actor: str, note: str) -> bool
     return result.get("ok") is True
 
 
+def aging_label(item: dict[str, Any]) -> str:
+    value = text(item.get("aging_level") or "current").lower()
+    return {
+        "executive": "EXECUTIVE ATTENTION",
+        "escalated": "ESCALATED",
+        "overdue": "OVERDUE",
+        "current": "CURRENT",
+        "resolved": "RESOLVED",
+    }.get(value, value.upper())
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="commandcore_coverage_exceptions_logout"):
@@ -90,7 +101,7 @@ if st.sidebar.button("Log out", key="commandcore_coverage_exceptions_logout"):
 
 st.title("CommandCore Coverage Exceptions")
 st.caption(
-    "Shows missed-shift coverage failures and tracks management acknowledgment/resolution so operational problems cannot disappear."
+    "Shows missed-shift coverage failures, management status, and automatic aging so unresolved problems become harder to miss."
 )
 
 c1, c2, c3 = st.columns([1, 1, 2])
@@ -115,11 +126,19 @@ if not result.get("ok"):
 exceptions = result.get("exceptions") if isinstance(result.get("exceptions"), list) else []
 exceptions = [item for item in exceptions if isinstance(item, dict)]
 
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Shown", len(exceptions))
-m2.metric("Critical", sum(text(item.get("severity")).lower() == "critical" for item in exceptions))
-m3.metric("Warnings", sum(text(item.get("severity")).lower() == "warning" for item in exceptions))
-m4.metric("Resolved", sum(text(item.get("status")).lower() == "resolved" for item in exceptions))
+m2.metric("Executive", int(result.get("executive_count", 0) or 0))
+m3.metric("Escalated", int(result.get("escalated_count", 0) or 0))
+m4.metric("Overdue", int(result.get("overdue_count", 0) or 0))
+m5.metric("Critical", sum(text(item.get("severity")).lower() == "critical" for item in exceptions))
+
+executive_count = int(result.get("executive_count", 0) or 0)
+escalated_count = int(result.get("escalated_count", 0) or 0)
+if executive_count:
+    st.error(f"{executive_count} unresolved coverage exception(s) have reached EXECUTIVE ATTENTION aging.")
+elif escalated_count:
+    st.warning(f"{escalated_count} unresolved coverage exception(s) have aged into ESCALATED status.")
 
 if not exceptions:
     st.success(f"No {status_label.lower()} coverage exceptions were found in this period.")
@@ -133,27 +152,33 @@ owners = sorted(
     }
 )
 severities = sorted({text(item.get("severity")).lower() for item in exceptions if text(item.get("severity"))})
+aging_values = ["Executive", "Escalated", "Overdue", "Current", "Resolved"]
 
-f1, f2 = st.columns(2)
+f1, f2, f3 = st.columns(3)
 with f1:
     owner_filter = st.selectbox("Affected owner", ["All"] + owners)
 with f2:
     severity_filter = st.selectbox("Severity", ["All"] + [value.title() for value in severities])
+with f3:
+    aging_filter = st.selectbox("Aging", ["All"] + aging_values)
 
 filtered = []
 for item in exceptions:
     owner = text(item.get("owner_name") or item.get("owner_id"))
     severity = text(item.get("severity")).lower()
+    aging = text(item.get("aging_level") or "current").lower()
     if owner_filter != "All" and owner != owner_filter:
         continue
     if severity_filter != "All" and severity != severity_filter.lower():
         continue
+    if aging_filter != "All" and aging != aging_filter.lower():
+        continue
     filtered.append(item)
 
-priority = {"critical": 0, "warning": 1, "info": 2}
 filtered.sort(
     key=lambda item: (
-        priority.get(text(item.get("severity")).lower(), 9),
+        int(item.get("aging_rank", 9) or 9),
+        0 if text(item.get("severity")).lower() == "critical" else 1,
         text(item.get("created_at")),
     )
 )
@@ -162,15 +187,23 @@ st.subheader("Coverage Exception Queue")
 for item in filtered:
     severity = text(item.get("severity") or "warning").upper()
     status = text(item.get("status") or "open").upper()
+    aging = aging_label(item)
     owner = text(item.get("owner_name") or item.get("owner_id") or "Unknown owner")
     exception_type = text(item.get("type") or item.get("exception_type") or "coverage_exception").replace("_", " ").title()
     created_at = text(item.get("created_at"))
     dispatch_id = text(item.get("dispatch_id"))
     shift_started_at = text(item.get("shift_started_at"))
-    title = f"{severity} — {status} — {owner} — {exception_type}"
-    with st.expander(title, expanded=severity == "CRITICAL" and status != "RESOLVED"):
+    age_hours = item.get("age_hours")
+    title = f"{aging} — {severity} — {status} — {owner} — {exception_type}"
+    with st.expander(title, expanded=aging in {"EXECUTIVE ATTENTION", "ESCALATED"}):
         if status == "RESOLVED":
             st.success("This exception is marked resolved.")
+        elif aging == "EXECUTIVE ATTENTION":
+            st.error("Executive attention: this unresolved coverage problem has aged past the highest escalation threshold.")
+        elif aging == "ESCALATED":
+            st.error("Escalated: management action is overdue and this item should be handled now.")
+        elif aging == "OVERDUE":
+            st.warning("Overdue: this coverage exception has remained unresolved past its normal response window.")
         elif status == "ACKNOWLEDGED":
             st.info("Management has acknowledged this exception; resolution is still pending.")
         elif severity == "CRITICAL":
@@ -178,9 +211,10 @@ for item in filtered:
         else:
             st.warning("Management review needed.")
 
-        d1, d2 = st.columns(2)
+        d1, d2, d3 = st.columns(3)
         d1.write(f"**Created:** {created_at or 'Not recorded'}")
         d2.write(f"**Shift started:** {shift_started_at or 'Not recorded'}")
+        d3.write(f"**Age:** {age_hours if age_hours is not None else 'Unknown'} hours")
         if dispatch_id:
             st.write(f"**Dispatch:** {dispatch_id}")
         reason = text(item.get("reason") or item.get("message") or item.get("context") or item.get("error"))
@@ -228,9 +262,9 @@ for item in filtered:
 
 st.divider()
 st.caption(
-    "Internal operational tracking only. This screen cannot approve deals, change task assignments, "
-    "change readiness, modify consent, authorize spending, alter legal terms, move money, send "
-    "communications, or execute externally. If the same underlying scheduled-coverage failure still "
-    "exists, CommandCore's recurring monitor can write the same deterministic exception back to Open "
-    "on a later run."
+    "Internal operational tracking only. Aging is calculated automatically from the original exception time. "
+    "For critical exceptions: 1 hour = overdue, 4 hours = escalated, and 12 hours = executive attention. "
+    "For warnings: 4 hours = overdue, 12 hours = escalated, and 24 hours = executive attention. "
+    "This screen cannot approve deals, change assignments, alter readiness or consent, authorize spending, "
+    "change legal terms, move money, send communications, or execute externally."
 )
