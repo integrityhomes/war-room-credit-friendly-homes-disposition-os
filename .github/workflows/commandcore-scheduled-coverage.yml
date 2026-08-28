@@ -1,0 +1,66 @@
+name: CommandCore Scheduled Coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/commandcore-scheduled-coverage/**"
+      - ".github/workflows/commandcore-scheduled-coverage.yml"
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-scheduled-coverage/**"
+      - ".github/workflows/commandcore-scheduled-coverage.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  validate:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check scheduled coverage function
+        run: deno check supabase/functions/commandcore-scheduled-coverage/index.ts
+
+  deploy:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy scheduled coverage function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy commandcore-scheduled-coverage --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Health check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: curl --fail --silent --show-error "$SUPABASE_URL/functions/v1/commandcore-scheduled-coverage"
+
+  monitor:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate live team shifts and apply safe coverage
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          response="$(curl --silent --show-error --fail \
+            -X POST "$SUPABASE_URL/functions/v1/commandcore-scheduled-coverage" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{"grace_minutes":15,"auto_apply":true}')"
+          printf '%s\n' "$response"
+          printf '%s' "$response" | grep -q '"ok":true'
