@@ -141,7 +141,11 @@ if area == "Home / Command Center":
         new_leads = [deal for deal in deals if text(deal.get("stage")).lower() == "new lead"]
         overdue = [task for task in tasks if due_date(task) and due_date(task) < today]
         due_today = [task for task in tasks if due_date(task) == today]
-        high_priority = [task for task in tasks if text(task.get("priority")).lower() in {"high", "urgent", "critical"}]
+        high_priority = [
+            task
+            for task in tasks
+            if text(task.get("priority")).lower() in {"high", "urgent", "critical"}
+        ]
 
         metrics = st.columns(5)
         metrics[0].metric("Active deals", len(deals))
@@ -217,65 +221,95 @@ elif area == "Deals":
 elif area == "Tasks & Follow-Up":
     st.subheader("Tasks & Follow-Up")
     st.caption("What the team needs to do now, who owns it, and what is overdue.")
-    link(
-        "pages/46_CommandCore_Pipeline_Followup.py",
-        "Follow-Up Queue",
-        "Overdue, due-today, and upcoming CRM follow-ups.",
-    )
-    st.info(
-        "Existing My Work, Action Queue, coverage, and escalation tools remain available in the current "
-        "application while they are consolidated into this area."
-    )
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        link(
+            "pages/35_CommandCore_My_Work.py",
+            "My Work",
+            "Assigned work, handoffs, shift briefs, and takeover tracking.",
+        )
+    with c2:
+        link(
+            "pages/46_CommandCore_Pipeline_Followup.py",
+            "Follow-Up Queue",
+            "Overdue, due-today, and upcoming CRM follow-ups.",
+        )
+    with c3:
+        link(
+            "pages/36_CommandCore_Coverage.py",
+            "Coverage",
+            "Find missed handoffs and safely route uncovered internal work.",
+        )
 
 elif area == "Marketing & Dispo":
     st.subheader("Marketing & Dispo")
-    st.caption(
-        "The existing Credit Friendly Homes marketing and disposition engine remains intact while it is "
-        "consolidated under this area."
-    )
+    st.caption("The existing Credit Friendly Homes marketing and disposition engine remains intact here.")
     c1, c2, c3 = st.columns(3)
     with c1:
+        link(
+            "pages/90_CFH_Marketing_Dispo.py",
+            "CFH Marketing Flow",
+            "Open the preserved owner-finance marketing and launch workspace.",
+        )
+    with c2:
         link(
             "pages/01_Record_Manager.py",
             "Property Records",
             "Manage owner-finance property records used by marketing.",
         )
-    with c2:
-        link(
-            "pages/19_Dwelyx_Results_Attribution.py",
-            "Buyer & Dwelyx Results",
-            "Review buyer traffic and attribution.",
-        )
     with c3:
         link(
             "pages/23_Daily_Executive_Disposition_Command.py",
             "Disposition Command",
-            "Open the existing executive disposition workspace.",
+            "Open the executive disposition workspace.",
         )
-    st.info(
-        "The current 15/16-channel CFH tools are being preserved, not rebuilt. They will be grouped here in "
-        "later shell passes."
+    link(
+        "pages/19_Dwelyx_Results_Attribution.py",
+        "Buyer & Dwelyx Results",
+        "Review buyer traffic and attribution.",
     )
 
 else:
     st.subheader("Management")
-    st.caption("Operations visibility, workload, coverage, audits, migration, integrations, and settings.")
-    c1, c2 = st.columns(2)
+    st.caption("Operations visibility, workload, coverage, audits, migration, and exceptions.")
+    c1, c2, c3 = st.columns(3)
     with c1:
         link(
-            "pages/43_CommandCore_CRM_Migration.py",
-            "CRM Migration",
-            "Controlled import and migration tools.",
+            "pages/39_CommandCore_Operations_Hub.py",
+            "Operations Hub",
+            "See human-work escalations and aged coverage failures first.",
+        )
+        link(
+            "pages/38_CommandCore_Management_Alerts.py",
+            "Management Alerts",
+            "Review management-level alerts and exceptions.",
         )
     with c2:
         link(
-            "pages/46_CommandCore_Pipeline_Followup.py",
-            "Pipeline Health",
-            "Deal and follow-up operating visibility.",
+            "pages/40_CommandCore_Team_Health.py",
+            "Team Health",
+            "See team capacity and workload health.",
         )
-    st.info(
-        "Existing Operations Hub, Team Health, Workload Balance, Rebalance Audit, Coverage, and Management "
-        "Alerts remain active while their exact page routes are consolidated into this Management area."
+        link(
+            "pages/41_CommandCore_Workload_Balance.py",
+            "Workload Balance",
+            "Review safe internal balancing recommendations.",
+        )
+    with c3:
+        link(
+            "pages/37_CommandCore_Coverage_Exceptions.py",
+            "Coverage Exceptions",
+            "Review unresolved coverage failures.",
+        )
+        link(
+            "pages/42_CommandCore_Rebalance_Audit.py",
+            "Rebalance Audit",
+            "See automatic internal workload moves and skipped actions.",
+        )
+    link(
+        "pages/43_CommandCore_CRM_Migration.py",
+        "CRM Migration",
+        "Controlled import and migration tools.",
     )
 
 st.divider()
