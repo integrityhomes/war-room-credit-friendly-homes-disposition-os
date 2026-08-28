@@ -40,10 +40,7 @@ def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
         f"{supabase_url}/functions/v1/{function_name}",
         data=json.dumps(payload).encode("utf-8"),
         method="POST",
-        headers={
-            "Authorization": f"Bearer {service_key}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {service_key}", "Content-Type": "application/json"},
     )
     try:
         with request.urlopen(req, timeout=20) as response:  # noqa: S310
@@ -58,6 +55,11 @@ def load_team() -> list[dict[str, Any]]:
     result = call_commandcore("commandcore-team-registry", {"action": "list"})
     members = result.get("members") if isinstance(result, dict) else []
     return [item for item in members if isinstance(item, dict)] if isinstance(members, list) else []
+
+
+@st.cache_data(ttl=20)
+def load_uncovered_work(owner_id: str) -> dict[str, Any]:
+    return call_commandcore("commandcore-uncovered-work", {"owner_id": owner_id})
 
 
 def member_label(member: dict[str, Any]) -> str:
@@ -83,11 +85,17 @@ def show_detection(detection: dict[str, Any]) -> None:
         st.info(f"Awaiting takeover acknowledgment — {elapsed} minutes since shift start")
     else:
         st.success(f"Handoff status: {status}")
-    if elapsed is not None:
-        st.caption(f"Elapsed since shift start: {elapsed} minutes")
     recommendation = str(detection.get("recommended_action", "") or "").strip()
     if recommendation:
         st.write(f"**CommandCore recommendation:** {recommendation}")
+
+
+def dispatch_label(dispatch: dict[str, Any]) -> str:
+    dispatch_id = str(dispatch.get("dispatch_id", "") or "").strip()
+    property_id = str(dispatch.get("property_id", "") or "No property ID").strip()
+    open_count = int(dispatch.get("open_item_count", 0) or 0)
+    urgent = int(dispatch.get("urgent_count", 0) or 0)
+    return f"{property_id} • {dispatch_id} • {open_count} open • {urgent} urgent"
 
 
 require_password()
@@ -97,9 +105,7 @@ if st.sidebar.button("Log out", key="commandcore_coverage_logout"):
     st.rerun()
 
 st.title("CommandCore Coverage")
-st.caption(
-    "Checks whether an incoming shift was acknowledged and safely routes uncovered internal work to a designated backup when needed."
-)
+st.caption("Detects missed shift takeovers and automatically finds the internal work that needs safe backup coverage.")
 
 team = load_team()
 active_team = [member for member in team if member.get("active") is not False]
@@ -123,19 +129,13 @@ shift_started_at = iso_from_inputs(shift_date, shift_time)
 
 detection = call_commandcore(
     "commandcore-missed-handoff",
-    {
-        "owner_id": owner_id,
-        "shift_started_at": shift_started_at,
-        "grace_minutes": int(grace_minutes),
-    },
+    {"owner_id": owner_id, "shift_started_at": shift_started_at, "grace_minutes": int(grace_minutes)},
 )
-
 if not detection.get("ok"):
     st.error("Coverage status could not be checked. Nothing was changed.")
     st.stop()
 
 show_detection(detection)
-
 handoff_status = str(detection.get("handoff_status", "") or "").lower()
 requires_attention = detection.get("requires_attention") is True
 
@@ -144,11 +144,7 @@ if not requires_attention:
 else:
     recommendation = call_commandcore(
         "commandcore-coverage-escalation",
-        {
-            "owner_id": owner_id,
-            "handoff_status": handoff_status,
-            "apply": False,
-        },
+        {"owner_id": owner_id, "handoff_status": handoff_status, "apply": False},
     )
     if recommendation.get("backup_available") is True:
         backup_name = str(recommendation.get("backup_owner_name", "") or "Designated backup")
@@ -157,30 +153,73 @@ else:
         if backup_id:
             st.caption(f"Backup owner ID: {backup_id}")
 
-        dispatch_id = st.text_input(
-            "Dispatch ID to cover",
-            placeholder="Paste the dispatch ID for the uncovered internal work",
-        ).strip()
-        st.caption(
-            "Applying coverage changes internal assignment only. It cannot approve a deal, change consent, alter readiness, authorize spending, or send anything externally."
-        )
-        if st.button("Route uncovered work to backup", type="primary"):
-            if not dispatch_id:
-                st.error("A dispatch ID is required before CommandCore can change internal assignment.")
-            else:
-                result = call_commandcore(
-                    "commandcore-coverage-escalation",
+        uncovered = load_uncovered_work(owner_id)
+        dispatches = uncovered.get("dispatches") if isinstance(uncovered, dict) else []
+        dispatches = [item for item in dispatches if isinstance(item, dict)] if isinstance(dispatches, list) else []
+
+        if not dispatches:
+            st.success("No still-open dispatches are currently assigned to this person.")
+        else:
+            st.subheader("Uncovered Work")
+            st.caption("CommandCore found these automatically. No dispatch ID entry is needed.")
+            st.dataframe(
+                [
                     {
-                        "owner_id": owner_id,
-                        "dispatch_id": dispatch_id,
-                        "handoff_status": handoff_status,
-                        "apply": True,
-                    },
-                )
-                if result.get("ok") and result.get("applied"):
-                    st.success("Coverage reassignment was requested through the safe workload rebalancer.")
+                        "Property": item.get("property_id", ""),
+                        "Dispatch": item.get("dispatch_id", ""),
+                        "Open": item.get("open_item_count", 0),
+                        "Urgent": item.get("urgent_count", 0),
+                        "Blocked": item.get("blocked_count", 0),
+                        "Manual": item.get("manual_count", 0),
+                        "Channels": ", ".join(item.get("channels", []) or []),
+                    }
+                    for item in dispatches
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            labels = [dispatch_label(item) for item in dispatches]
+            selected_dispatches = st.multiselect(
+                "Work to route to backup",
+                labels,
+                default=labels,
+                help="All uncovered work is selected by default. Remove anything you do not want reassigned.",
+            )
+            selected_ids = {
+                str(item.get("dispatch_id", "") or "").strip()
+                for item in dispatches
+                if dispatch_label(item) in selected_dispatches
+            }
+
+            st.caption(
+                "Applying coverage changes internal assignment only. It cannot approve a deal, change consent, alter readiness, authorize spending, change legal terms, or send anything externally."
+            )
+            if st.button("Route selected uncovered work to backup", type="primary"):
+                if not selected_ids:
+                    st.error("Select at least one uncovered dispatch to route.")
                 else:
-                    st.error("Coverage could not be applied. No external action was taken.")
+                    success_count = 0
+                    failure_count = 0
+                    for dispatch_id in selected_ids:
+                        result = call_commandcore(
+                            "commandcore-coverage-escalation",
+                            {
+                                "owner_id": owner_id,
+                                "dispatch_id": dispatch_id,
+                                "handoff_status": handoff_status,
+                                "apply": True,
+                            },
+                        )
+                        if result.get("ok") and result.get("applied"):
+                            success_count += 1
+                        else:
+                            failure_count += 1
+                    load_uncovered_work.clear()
+                    if success_count:
+                        st.success(f"Coverage reassignment requested for {success_count} dispatch(es).")
+                    if failure_count:
+                        st.error(f"{failure_count} dispatch(es) could not be safely reassigned. No external action was taken.")
     elif recommendation.get("escalation_required"):
         st.error("No eligible designated backup is available. Manager review is required.")
         message = str(recommendation.get("recommended_action", "") or "").strip()
