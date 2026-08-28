@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - agent/commandcore-stage-intelligence
+      - commandcore-stage-forward-only
+      - main
     paths:
       - "supabase/functions/commandcore-stage-intelligence/**"
       - ".github/workflows/deploy-commandcore-stage-intelligence.yml"
