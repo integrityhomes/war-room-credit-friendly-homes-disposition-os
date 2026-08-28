@@ -33,3 +33,27 @@ if result.get("ok") is not True:
     raise SystemExit("CommandCore auto rebalance did not return ok=true")
 print(f"Eligible: {result.get(chr(101)+chr(108)+chr(105)+chr(103)+chr(105)+chr(98)+chr(108)+chr(101)+chr(95)+chr(108)+chr(111)+chr(119)+chr(95)+chr(114)+chr(105)+chr(115)+chr(107)+chr(95)+chr(104)+chr(105)+chr(103)+chr(104)+chr(95)+chr(99)+chr(111)+chr(110)+chr(102)+chr(105)+chr(100)+chr(101)+chr(110)+chr(99)+chr(101), 0)}; Applied: {result.get(chr(97)+chr(112)+chr(112)+chr(108)+chr(105)+chr(101)+chr(100)+chr(95)+chr(99)+chr(111)+chr(117)+chr(110)+chr(116), 0)}; Skipped: {len(result.get(chr(115)+chr(107)+chr(105)+chr(112)+chr(112)+chr(101)+chr(100), []))}")
 '
+
+          BUCKET="commandcore-auto-rebalance-audit"
+          CREATE_STATUS="$(curl --silent --output /tmp/commandcore_bucket_create.txt --write-out '%{http_code}' \
+            -X POST "${BASE_URL}/storage/v1/bucket" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            --data "{\"id\":\"${BUCKET}\",\"name\":\"${BUCKET}\",\"public\":false}")"
+          if [ "$CREATE_STATUS" != "200" ] && [ "$CREATE_STATUS" != "201" ] && [ "$CREATE_STATUS" != "409" ]; then
+            echo "Could not ensure audit bucket: HTTP ${CREATE_STATUS}"
+            cat /tmp/commandcore_bucket_create.txt
+            exit 1
+          fi
+
+          RUN_AT="$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          AUDIT_PATH="runs/${RUN_AT}-${GITHUB_RUN_ID}.json"
+          curl --silent --show-error --fail \
+            -X POST "${BASE_URL}/storage/v1/object/${BUCKET}/${AUDIT_PATH}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "x-upsert: false" \
+            --data "$RESPONSE" >/dev/null
+          echo "Audit saved: ${AUDIT_PATH}"
