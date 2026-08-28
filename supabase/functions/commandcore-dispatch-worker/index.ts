@@ -1,5 +1,5 @@
 const DISPATCH_BUCKET = "commandcore-dispatch-queue";
-const WORKER_VERSION = "2026-08-27.6";
+const WORKER_VERSION = "2026-08-27.7";
 const MAX_BODY_BYTES = 16 * 1024;
 
 function jsonResponse(status: number, payload: Record<string, unknown>): Response {
@@ -185,6 +185,24 @@ async function attachReadinessDecisions(workOrders: Record<string, unknown>[], g
   return decided;
 }
 
+async function generateActionQueue(dispatchId: string, propertyId: string, workOrders: Record<string, unknown>[]): Promise<Record<string, unknown> | null> {
+  try {
+    const result = await callInternalFunction("commandcore-action-queue", {
+      dispatch: {
+        dispatch_id: dispatchId,
+        property_id: propertyId || null,
+        work_orders: workOrders,
+      },
+    });
+    return result.queue && typeof result.queue === "object" && !Array.isArray(result.queue)
+      ? result.queue as Record<string, unknown>
+      : null;
+  } catch (error) {
+    console.error("CommandCore action queue generation failed", error);
+    return null;
+  }
+}
+
 async function buildWorkOrders(queued: Record<string, unknown>, leadLink: Record<string, unknown> | null, marketing: Record<string, unknown> | null) {
   const routes = Array.isArray(queued.routes) ? queued.routes : [];
   const orders: Record<string, unknown>[] = [];
@@ -237,7 +255,7 @@ async function buildWorkOrders(queued: Record<string, unknown>, leadLink: Record
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "GET") return jsonResponse(200, { ok: true, service: "commandcore-dispatch-worker", version: WORKER_VERSION, status: "healthy", external_execution_enabled: false, market_seo_adapter_enabled: true, property_lead_links_enabled: true, marketing_copy_packages_enabled: true, outbound_handoff_preparation_enabled: true, execution_readiness_enabled: true });
+  if (req.method === "GET") return jsonResponse(200, { ok: true, service: "commandcore-dispatch-worker", version: WORKER_VERSION, status: "healthy", external_execution_enabled: false, market_seo_adapter_enabled: true, property_lead_links_enabled: true, marketing_copy_packages_enabled: true, outbound_handoff_preparation_enabled: true, execution_readiness_enabled: true, action_queue_enabled: true });
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
   if (!isAuthenticated(req)) return jsonResponse(401, { ok: false, error: "unauthorized" });
 
@@ -254,11 +272,14 @@ Deno.serve(async (req) => {
 
   try {
     const queued = await readQueueObject(queueObject);
+    const resolvedDispatchId = safePart(queued.dispatch_id || dispatchId);
+    const resolvedPropertyId = safePart(queued.property_id || propertyId);
     const leadLink = await generatePropertyLeadLink(queued);
     const marketing = await generateMarketingPackages(queued, leadLink);
     const baseWorkOrders = await buildWorkOrders(queued, leadLink, marketing);
     const handedOffWorkOrders = await attachOutboundHandoffs(baseWorkOrders);
     const workOrders = await attachReadinessDecisions(handedOffWorkOrders, campaignGates(queued));
+    const actionQueue = await generateActionQueue(resolvedDispatchId, resolvedPropertyId, workOrders);
     const payload = campaignPayload(queued);
     const enrichedCampaignPayload = {
       ...payload,
@@ -271,17 +292,37 @@ Deno.serve(async (req) => {
       acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
-    const updated = { ...queued, campaign_payload: enrichedCampaignPayload, status: "readiness_evaluated", worker_version: WORKER_VERSION, worker_processed_at: new Date().toISOString(), property_lead_link: leadLink, marketing_copy_result: marketing, work_orders: workOrders, outbound_handoff_count: handoffCount, readiness_counts: readinessCounts, external_action_started: false };
+    const actionQueueSummary = actionQueue?.summary && typeof actionQueue.summary === "object" && !Array.isArray(actionQueue.summary)
+      ? actionQueue.summary as Record<string, unknown>
+      : null;
+    const updated = {
+      ...queued,
+      campaign_payload: enrichedCampaignPayload,
+      status: "action_queue_generated",
+      worker_version: WORKER_VERSION,
+      worker_processed_at: new Date().toISOString(),
+      property_lead_link: leadLink,
+      marketing_copy_result: marketing,
+      work_orders: workOrders,
+      outbound_handoff_count: handoffCount,
+      readiness_counts: readinessCounts,
+      action_queue: actionQueue,
+      action_queue_ready: Boolean(actionQueue),
+      action_queue_summary: actionQueueSummary,
+      external_action_started: false,
+    };
     await writeQueueObject(queueObject, updated);
     return jsonResponse(200, {
       ok: true,
       accepted: true,
       dispatch_id: String(queued.dispatch_id || dispatchId),
       queue_object: queueObject,
-      status: "readiness_evaluated",
+      status: "action_queue_generated",
       work_order_count: workOrders.length,
       outbound_handoff_count: handoffCount,
       readiness_counts: readinessCounts,
+      action_queue_ready: Boolean(actionQueue),
+      action_queue_summary: actionQueueSummary,
       lead_form_url: leadLink?.lead_form_url || null,
       marketing_package_count: Array.isArray(marketing?.packages) ? marketing?.packages.length : 0,
       channel_results: workOrders.map((item) => ({ channel_key: item.channel_key, status: item.result_status, readiness: item.execution_readiness, readiness_reasons: item.readiness_reasons || [], lead_form_url: item.lead_form_url || null, copy_ready: Boolean(item.copy_ready), outbound_handoff_ready: Boolean(item.outbound_handoff_ready) })),

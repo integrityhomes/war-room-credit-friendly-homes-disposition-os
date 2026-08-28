@@ -29,6 +29,7 @@ on:
       - agent/commandcore-execution-readiness-engine
       - agent/commandcore-readiness-dispatch-integration
       - agent/commandcore-action-queue
+      - agent/commandcore-action-queue-dispatch-integration
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
