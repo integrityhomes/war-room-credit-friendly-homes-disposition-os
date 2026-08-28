@@ -30,6 +30,7 @@ on:
       - agent/commandcore-readiness-dispatch-integration
       - agent/commandcore-action-queue
       - agent/commandcore-action-queue-dispatch-integration
+      - agent/commandcore-operator-actions
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
@@ -48,6 +49,7 @@ on:
       - "supabase/functions/commandcore-adapter-registry/**"
       - "supabase/functions/commandcore-execution-readiness/**"
       - "supabase/functions/commandcore-action-queue/**"
+      - "supabase/functions/commandcore-operator-action/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -85,6 +87,7 @@ jobs:
           supabase functions deploy commandcore-adapter-registry --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-execution-readiness --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-action-queue --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-operator-action --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -123,4 +126,5 @@ jobs:
           check_health commandcore-adapter-registry
           check_health commandcore-execution-readiness
           check_health commandcore-action-queue
+          check_health commandcore-operator-action
           check_health commandcore-communication-gate
