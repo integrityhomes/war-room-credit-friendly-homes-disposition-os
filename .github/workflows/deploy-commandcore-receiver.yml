@@ -32,6 +32,7 @@ on:
       - agent/commandcore-action-queue-dispatch-integration
       - agent/commandcore-operator-actions
       - agent/commandcore-operator-acknowledgment
+      - agent/commandcore-aging-escalation
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
@@ -52,6 +53,7 @@ on:
       - "supabase/functions/commandcore-action-queue/**"
       - "supabase/functions/commandcore-operator-action/**"
       - "supabase/functions/commandcore-operator-state/**"
+      - "supabase/functions/commandcore-aging-escalation/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -91,6 +93,7 @@ jobs:
           supabase functions deploy commandcore-action-queue --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-operator-action --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-operator-state --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-aging-escalation --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -131,4 +134,5 @@ jobs:
           check_health commandcore-action-queue
           check_health commandcore-operator-action
           check_health commandcore-operator-state
+          check_health commandcore-aging-escalation
           check_health commandcore-communication-gate
