@@ -43,6 +43,28 @@ def get_supabase():
     return create_client(url, key)
 
 
+def call_commandcore_function(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not supabase_url or not service_key:
+        return {}
+    req = request.Request(
+        f"{supabase_url}/functions/v1/{function_name}",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=20) as response:  # noqa: S310
+            parsed = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def load_items() -> list[dict[str, Any]]:
     client = get_supabase()
     rows = client.storage.from_(ACTION_BUCKET).list("dispatches") or []
@@ -102,26 +124,18 @@ def load_shift_brief(owner_id_value: str) -> dict[str, Any]:
     owner_id_value = owner_id_value.strip()
     if not owner_id_value:
         return {}
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
-    if not supabase_url or not service_key:
+    return call_commandcore_function("commandcore-shift-brief", {"owner_id": owner_id_value})
+
+
+@st.cache_data(ttl=30)
+def load_takeover_history(owner_id_value: str) -> dict[str, Any]:
+    owner_id_value = owner_id_value.strip()
+    if not owner_id_value:
         return {}
-    payload = json.dumps({"owner_id": owner_id_value}).encode("utf-8")
-    req = request.Request(
-        f"{supabase_url}/functions/v1/commandcore-shift-brief",
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {service_key}",
-            "Content-Type": "application/json",
-        },
+    return call_commandcore_function(
+        "commandcore-shift-takeover",
+        {"action": "list", "owner_id": owner_id_value},
     )
-    try:
-        with request.urlopen(req, timeout=20) as response:  # noqa: S310
-            parsed = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
 
 
 def owner_name(item: dict[str, Any]) -> str:
@@ -175,7 +189,83 @@ def matching_handoffs(item: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def show_shift_brief(brief: dict[str, Any], selected_name: str) -> None:
+def record_shift_takeover(
+    owner_id_value: str,
+    selected_name: str,
+    brief: dict[str, Any],
+    note: str,
+) -> dict[str, Any]:
+    payload = {
+        "action": "takeover",
+        "owner_id": owner_id_value,
+        "owner_name": selected_name,
+        "brief_generated_at": brief.get("generated_at"),
+        "open_work_count": brief.get("total_open_work", 0),
+        "urgent_count": brief.get("urgent_count", 0),
+        "inherited_count": brief.get("inherited_count", 0),
+        "blocked_count": brief.get("blocked_count", 0),
+        "manual_count": brief.get("manual_count", 0),
+        "note": note,
+        "source": "commandcore_my_work",
+    }
+    return call_commandcore_function("commandcore-shift-takeover", payload)
+
+
+def show_shift_takeover_controls(
+    owner_id_value: str,
+    selected_name: str,
+    brief: dict[str, Any],
+) -> None:
+    history = load_takeover_history(owner_id_value)
+    latest = history.get("latest_takeover") if isinstance(history, dict) else None
+    if isinstance(latest, dict):
+        taken_at = str(latest.get("taken_over_at", "") or "").strip()
+        st.success(f"Last shift takeover recorded: {taken_at}")
+        prior_note = str(latest.get("note", "") or "").strip()
+        if prior_note:
+            st.caption(f"Takeover note: {prior_note}")
+    else:
+        st.info("No shift takeover has been recorded for this person yet.")
+
+    note = st.text_input(
+        "Optional takeover note",
+        key=f"takeover_note_{owner_id_value}",
+        placeholder="Anything the next person should know",
+    )
+    if st.button(
+        "I received and reviewed this shift",
+        type="primary",
+        key=f"takeover_{owner_id_value}",
+    ):
+        result = record_shift_takeover(owner_id_value, selected_name, brief, note)
+        if result.get("ok"):
+            load_takeover_history.clear()
+            st.success("Shift takeover recorded.")
+            st.rerun()
+        else:
+            st.error("Shift takeover could not be recorded. Nothing else was changed.")
+
+    records = history.get("takeovers") if isinstance(history, dict) else []
+    if isinstance(records, list) and records:
+        with st.expander("Shift takeover history"):
+            for record in records[:20]:
+                if not isinstance(record, dict):
+                    continue
+                taken_at = str(record.get("taken_over_at", "") or "").strip()
+                counts = (
+                    f"Open {int(record.get('open_work_count', 0) or 0)} • "
+                    f"Urgent {int(record.get('urgent_count', 0) or 0)} • "
+                    f"Inherited {int(record.get('inherited_count', 0) or 0)}"
+                )
+                st.markdown(f"**{taken_at}**")
+                st.caption(counts)
+
+
+def show_shift_brief(
+    brief: dict[str, Any],
+    selected_name: str,
+    owner_id_value: str,
+) -> None:
     if not brief:
         st.caption("Shift brief is not available yet for this team member.")
         return
@@ -191,7 +281,9 @@ def show_shift_brief(brief: dict[str, Any], selected_name: str) -> None:
     c5.metric("Manual", int(brief.get("manual_count", 0) or 0))
 
     brief_items = brief.get("items") if isinstance(brief.get("items"), list) else []
-    urgent_items = [item for item in brief_items if isinstance(item, dict) and item.get("urgent")]
+    urgent_items = [
+        item for item in brief_items if isinstance(item, dict) and item.get("urgent")
+    ]
     if urgent_items:
         st.warning("These items need attention first.")
         for item in urgent_items:
@@ -205,10 +297,13 @@ def show_shift_brief(brief: dict[str, Any], selected_name: str) -> None:
             last_handoff = item.get("last_handoff")
             if isinstance(last_handoff, dict):
                 previous = str(last_handoff.get("previous_owner_name", "") or "Unassigned")
-                reason = str(last_handoff.get("handoff_reason", "") or "routing change").replace(
-                    "_", " "
-                )
+                reason = str(
+                    last_handoff.get("handoff_reason", "") or "routing change"
+                ).replace("_", " ")
                 st.caption(f"Inherited from {previous} because: {reason}")
+
+    st.divider()
+    show_shift_takeover_controls(owner_id_value, selected_name, brief)
 
 
 require_password()
@@ -219,7 +314,7 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
 
 st.title("CommandCore My Work")
 st.caption(
-    "Shows assigned work, automatic reassignments, full handoff history, and shift briefs."
+    "Shows assigned work, automatic reassignments, full handoff history, shift briefs, and takeover tracking."
 )
 
 try:
@@ -238,10 +333,18 @@ if selected_owner != "All Team" and my_work_only:
 
 if selected_owner != "All Team":
     selected_owner_id = next(
-        (owner_id(item) for item in items if owner_name(item) == selected_owner and owner_id(item)),
+        (
+            owner_id(item)
+            for item in items
+            if owner_name(item) == selected_owner and owner_id(item)
+        ),
         "",
     )
-    show_shift_brief(load_shift_brief(selected_owner_id), selected_owner)
+    show_shift_brief(
+        load_shift_brief(selected_owner_id),
+        selected_owner,
+        selected_owner_id,
+    )
 
 assigned_count = sum(1 for item in filtered if owner_id(item))
 unassigned_count = sum(1 for item in filtered if not owner_id(item))
@@ -324,5 +427,5 @@ for item in filtered:
 
 st.divider()
 st.caption(
-    "Assignment, shift briefing, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, or external execution permissions."
+    "Assignment, shift briefing, takeover tracking, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, or external execution permissions."
 )
