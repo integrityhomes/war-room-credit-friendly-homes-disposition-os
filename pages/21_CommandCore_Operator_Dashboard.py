@@ -303,5 +303,7 @@ else:
 
 st.divider()
 st.caption(
-    "Acknowledgment is tracking only. It never changes READY/HOLD/MANUAL/BLOCKED status. Safe internal retries are allowed; approvals, sends, posts, consent changes, connection changes, and ad spend remain gated."
+    "Acknowledgment is tracking only. It never changes READY/HOLD/MANUAL/BLOCKED status. "
+    "Safe internal retries are allowed; approvals, sends, posts, consent changes, connection changes, "
+    "and ad spend remain gated."
 )
