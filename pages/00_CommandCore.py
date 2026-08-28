@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+from typing import Any
+
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from supabase import create_client
 
 st.set_page_config(page_title="CommandCore", page_icon="🧭", layout="wide")
 
@@ -24,6 +28,68 @@ def require_password() -> None:
     if submitted:
         st.error("Incorrect password.")
     st.stop()
+
+
+@st.cache_resource
+def get_supabase():
+    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
+    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not url or not key:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
+    return create_client(url, key)
+
+
+def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
+    response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
+    if isinstance(response, dict):
+        return response
+    data = getattr(response, "data", None)
+    return data if isinstance(data, dict) else {}
+
+
+def list_records(entity: str) -> list[dict[str, Any]]:
+    result = call_crm({"action": "list", "entity": entity, "limit": 500})
+    records = result.get("records", [])
+    return records if isinstance(records, list) else []
+
+
+def text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def due_date(record: dict[str, Any]) -> date | None:
+    raw = text(record.get("due_date") or record.get("due_at"))
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+
+
+def open_task(record: dict[str, Any]) -> bool:
+    return text(record.get("status")).lower() not in {
+        "done",
+        "completed",
+        "closed",
+        "cancelled",
+        "canceled",
+    }
+
+
+def active_deal(record: dict[str, Any]) -> bool:
+    return text(record.get("status")).lower() not in {
+        "closed",
+        "sold",
+        "dead",
+        "lost",
+        "cancelled",
+        "canceled",
+        "archived",
+    }
 
 
 def link(path: str, label: str, caption: str = "") -> None:
@@ -67,7 +133,33 @@ area = area or "Home / Command Center"
 
 if area == "Home / Command Center":
     st.subheader("Today")
-    st.caption("Start here. CommandCore should surface exceptions and the work that matters now.")
+    st.caption("Start here. CommandCore surfaces the work and exceptions that matter now.")
+    try:
+        deals = [deal for deal in list_records("deals") if active_deal(deal)]
+        tasks = [task for task in list_records("tasks") if open_task(task)]
+        today = date.today()
+        new_leads = [deal for deal in deals if text(deal.get("stage")).lower() == "new lead"]
+        overdue = [task for task in tasks if due_date(task) and due_date(task) < today]
+        due_today = [task for task in tasks if due_date(task) == today]
+        high_priority = [task for task in tasks if text(task.get("priority")).lower() in {"high", "urgent", "critical"}]
+
+        metrics = st.columns(5)
+        metrics[0].metric("Active deals", len(deals))
+        metrics[1].metric("New leads", len(new_leads))
+        metrics[2].metric("Overdue", len(overdue))
+        metrics[3].metric("Due today", len(due_today))
+        metrics[4].metric("High priority", len(high_priority))
+
+        if overdue or due_today or high_priority:
+            st.warning(
+                f"Needs attention: {len(overdue)} overdue, {len(due_today)} due today, "
+                f"and {len(high_priority)} high-priority open task(s)."
+            )
+        else:
+            st.success("No overdue, due-today, or high-priority CRM tasks are currently waiting.")
+    except RuntimeError as exc:
+        st.error(f"CommandCore home data could not be loaded: {exc}")
+
     c1, c2, c3 = st.columns(3)
     with c1:
         link(
@@ -87,7 +179,6 @@ if area == "Home / Command Center":
             "Leads & CRM",
             "Contacts, properties, and deal records.",
         )
-    st.info("The next shell milestone will pull live counts and exceptions directly onto this Command Center.")
 
 elif area == "Leads & CRM":
     st.subheader("Leads & CRM")
