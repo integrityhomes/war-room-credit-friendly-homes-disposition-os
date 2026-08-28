@@ -1,4 +1,5 @@
-const SERVICE_VERSION = "2026-08-27.1";
+const SERVICE_VERSION = "2026-08-27.2";
+const FORM_VERSION = "cfh-property-interest-v1";
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_BUCKET = "commandcore-public-ingress";
 const RATE_LIMIT = 12;
@@ -10,14 +11,18 @@ function jsonResponse(status:number,payload:Record<string,unknown>,origin=""):Re
   if(origin){headers["access-control-allow-origin"]=origin;headers["vary"]="Origin";headers["access-control-allow-methods"]="POST, OPTIONS";headers["access-control-allow-headers"]="content-type";}
   return new Response(JSON.stringify(payload),{status,headers});
 }
+function htmlResponse(html:string):Response{return new Response(html,{status:200,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff","content-security-policy":"default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors *"}})}
 function normalized(v:unknown):string{return String(v??"").trim()}
 function lower(v:unknown):string{return normalized(v).toLowerCase()}
+function escapeHtml(v:unknown):string{return normalized(v).replace(/[&<>'"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[ch]||ch))}
 function configuredOrigins():Set<string>{return new Set((Deno.env.get("CFH_PUBLIC_LEAD_ORIGINS")||"").split(",").map(v=>v.trim()).filter(Boolean))}
 function allowedOrigin(req:Request):string{
   const origin=req.headers.get("origin")||"";
+  if(!origin)return "";
+  const selfOrigin=new URL(req.url).origin;
+  if(origin===selfOrigin)return origin;
   const allowed=configuredOrigins();
-  if(!origin||allowed.size===0||!allowed.has(origin))return "";
-  return origin;
+  return allowed.has(origin)?origin:"";
 }
 function clientIp(req:Request):string{return normalized(req.headers.get("cf-connecting-ip")||req.headers.get("x-forwarded-for")?.split(",")[0]||"unknown")}
 async function sha256(value:string):Promise<string>{const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return Array.from(new Uint8Array(d)).map(b=>b.toString(16).padStart(2,"0")).join("")}
@@ -29,8 +34,19 @@ async function writeObject(path:string,payload:Record<string,unknown>){const{sup
 async function rateAllowed(ip:string):Promise<boolean>{await ensureBucket();const hash=(await sha256(ip)).slice(0,32);const path=`rates/${hash}.json`;const now=Date.now();const current=await readObject(path)||{};const start=Number(current.window_start||0);let count=Number(current.count||0);if(!start||now-start>RATE_WINDOW_MS){count=0;}count+=1;await writeObject(path,{window_start:(!start||now-start>RATE_WINDOW_MS)?now:start,count,updated_at:new Date().toISOString()});return count<=RATE_LIMIT}
 async function forward(body:Record<string,unknown>):Promise<{status:number;body:unknown}>{const{supabaseUrl,key}=storageConfig();const r=await fetch(`${supabaseUrl}/functions/v1/commandcore-lead-source-adapter`,{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(body)});let parsed:unknown={};try{parsed=await r.json()}catch{parsed={ok:false,error:"invalid_adapter_response"}}return{status:r.status,body:parsed}}
 
+function renderPropertyForm(url:URL):string{
+  const propertyId=escapeHtml(url.searchParams.get("property_id")||"");
+  const address=escapeHtml(url.searchParams.get("address")||"This Home");
+  const city=escapeHtml(url.searchParams.get("city")||"");
+  const state=escapeHtml(url.searchParams.get("state")||"");
+  const displayLocation=[city,state].filter(Boolean).join(", ");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>I'm Interested - Credit Friendly Homes</title><style>body{font-family:Arial,sans-serif;background:#f6f7f8;margin:0;color:#1f2937}.wrap{max-width:620px;margin:0 auto;padding:24px}.card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 8px 30px rgba(0,0,0,.08)}h1{margin:0 0 8px;font-size:28px}.sub{color:#6b7280;margin-bottom:22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}label{display:block;font-size:14px;font-weight:700;margin-bottom:5px}input,textarea{box-sizing:border-box;width:100%;padding:12px;border:1px solid #d1d5db;border-radius:9px;font-size:16px}textarea{min-height:95px}.consent{display:flex;gap:9px;align-items:flex-start;margin-top:14px;font-size:13px;color:#4b5563}.consent input{width:auto;margin-top:3px}button{width:100%;padding:14px;border:0;border-radius:10px;background:#111827;color:white;font-size:16px;font-weight:700;margin-top:18px;cursor:pointer}.msg{margin-top:14px;font-weight:700}.hidden{position:absolute;left:-9999px}@media(max-width:560px){.grid{grid-template-columns:1fr}}</style></head><body><div class="wrap"><div class="card"><h1>Interested in ${address}?</h1><div class="sub">${displayLocation||"Tell us how to reach you and what payment range works for you."}</div><form id="leadForm"><div class="grid"><div><label>First name</label><input name="first_name" autocomplete="given-name"></div><div><label>Last name</label><input name="last_name" autocomplete="family-name"></div><div><label>Phone</label><input name="phone" type="tel" autocomplete="tel"></div><div><label>Email</label><input name="email" type="email" autocomplete="email"></div><div><label>Down payment available</label><input name="down_payment" inputmode="numeric" placeholder="$"></div><div><label>Target monthly payment</label><input name="monthly_payment" inputmode="numeric" placeholder="$"></div><div class="full"><label>Questions or notes</label><textarea name="message" placeholder="Tell us anything that would help us match you with the right home."></textarea></div></div><input class="hidden" tabindex="-1" autocomplete="off" name="website"><input type="hidden" name="property_id" value="${propertyId}"><input type="hidden" name="property_address" value="${address}"><label class="consent"><input id="smsConsent" type="checkbox"><span>I agree to receive text messages about this property and similar Credit Friendly Homes opportunities. Message/data rates may apply. Reply STOP to opt out.</span></label><label class="consent"><input id="emailConsent" type="checkbox"><span>I agree to receive email updates about this property and similar home opportunities.</span></label><button type="submit">Send My Information</button><div id="msg" class="msg" aria-live="polite"></div></form></div></div><script>const form=document.getElementById('leadForm'),msg=document.getElementById('msg');form.addEventListener('submit',async(e)=>{e.preventDefault();msg.textContent='Sending...';const data=Object.fromEntries(new FormData(form).entries());if(!data.phone&&!data.email){msg.textContent='Please enter a phone number or email.';return;}data.source_type='property_page';data.source_event_id=crypto.randomUUID();const sms=document.getElementById('smsConsent').checked,email=document.getElementById('emailConsent').checked;data.sms_consent_state=sms?'granted':'unknown';data.email_consent_state=email?'granted':'unknown';if(sms||email)data.consent_evidence_reference='${FORM_VERSION}:'+data.source_event_id;try{const r=await fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'submit_failed');msg.textContent='Got it. Your information was saved.';form.reset();}catch(err){msg.textContent='We could not save this right now. Please try again.';}});</script></body></html>`;
+}
+
 Deno.serve(async (req) => {
-  if(req.method==="GET")return jsonResponse(200,{ok:true,service:"commandcore-public-lead-gateway",version:SERVICE_VERSION,status:"healthy",public_ingress_enabled:true,allowed_sources:Array.from(ALLOWED_SOURCES),external_action_started:false});
+  const url=new URL(req.url);
+  if(req.method==="GET"&&url.pathname.endsWith("/form"))return htmlResponse(renderPropertyForm(url));
+  if(req.method==="GET")return jsonResponse(200,{ok:true,service:"commandcore-public-lead-gateway",version:SERVICE_VERSION,status:"healthy",public_ingress_enabled:true,hosted_property_form:true,form_path:"/form",allowed_sources:Array.from(ALLOWED_SOURCES),external_action_started:false});
   const origin=allowedOrigin(req);
   if(req.method==="OPTIONS")return origin?new Response(null,{status:204,headers:{"access-control-allow-origin":origin,"access-control-allow-methods":"POST, OPTIONS","access-control-allow-headers":"content-type","access-control-max-age":"600","vary":"Origin"}}):jsonResponse(403,{ok:false,error:"origin_not_allowed"});
   if(req.method!=="POST")return jsonResponse(405,{ok:false,error:"method_not_allowed"},origin);
