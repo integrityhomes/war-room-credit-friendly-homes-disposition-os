@@ -1,0 +1,43 @@
+name: Deploy CommandCore Auto Rebalance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/commandcore-auto-rebalance/**"
+      - ".github/workflows/deploy-commandcore-auto-rebalance.yml"
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-auto-rebalance/**"
+      - ".github/workflows/deploy-commandcore-auto-rebalance.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check function
+        run: deno check supabase/functions/commandcore-auto-rebalance/index.ts
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy commandcore-auto-rebalance --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Health check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: curl --fail --silent --show-error "$SUPABASE_URL/functions/v1/commandcore-auto-rebalance"
