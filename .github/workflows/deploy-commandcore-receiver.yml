@@ -21,6 +21,7 @@ on:
       - agent/commandcore-property-link-generator
       - agent/commandcore-campaign-lead-links
       - agent/commandcore-marketing-copy-packages
+      - agent/commandcore-dispatch-copy-packages
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
