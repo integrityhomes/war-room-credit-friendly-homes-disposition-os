@@ -34,6 +34,7 @@ on:
       - agent/commandcore-operator-acknowledgment
       - agent/commandcore-aging-escalation
       - agent/commandcore-owner-routing
+      - agent/commandcore-routing-registry-integration
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
