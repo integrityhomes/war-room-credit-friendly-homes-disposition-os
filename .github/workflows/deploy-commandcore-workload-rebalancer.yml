@@ -6,11 +6,13 @@ on:
     branches:
       - agent/commandcore-workload-rebalancer
       - agent/commandcore-coverage-rebalancer-integration
+      - agent/commandcore-handoff-ledger-integration
       - main
     paths:
       - "supabase/functions/commandcore-workload-rebalancer/**"
       - "supabase/functions/commandcore-team-registry/**"
       - "supabase/functions/commandcore-team-coverage/**"
+      - "supabase/functions/commandcore-handoff-ledger/**"
       - ".github/workflows/deploy-commandcore-workload-rebalancer.yml"
 
 jobs:
@@ -34,6 +36,7 @@ jobs:
           test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
           supabase functions deploy commandcore-team-registry --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-team-coverage --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-handoff-ledger --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-workload-rebalancer --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify workload routing health
@@ -58,4 +61,5 @@ jobs:
 
           check_health commandcore-team-registry
           check_health commandcore-team-coverage
+          check_health commandcore-handoff-ledger
           check_health commandcore-workload-rebalancer

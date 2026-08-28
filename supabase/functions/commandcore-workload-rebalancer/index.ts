@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.2";
+const SERVICE_VERSION = "2026-08-28.3";
 const MAX_BODY_BYTES = 128 * 1024;
 const ACTION_BUCKET = "commandcore-action-queue";
 
@@ -8,6 +8,9 @@ type CoverageMember = Record<string, unknown>;
 
 type Reassignment = {
   action_id: string;
+  dispatch_id: string;
+  property_id: string;
+  channel_key: string;
   previous_owner_id: string | null;
   previous_owner_name: string | null;
   owner_id: string;
@@ -234,6 +237,37 @@ async function persistQueue(
   if (!response.ok) throw new Error(`action_queue_write_failed_${response.status}`);
 }
 
+async function appendHandoffs(
+  supabaseUrl: string,
+  serviceKey: string,
+  reassignments: Reassignment[],
+): Promise<number> {
+  if (!reassignments.length) return 0;
+  const handoffAt = new Date().toISOString();
+  const handoffs = reassignments.map((item) => ({
+    action_id: item.action_id,
+    dispatch_id: item.dispatch_id,
+    property_id: item.property_id,
+    channel_key: item.channel_key,
+    previous_owner_id: item.previous_owner_id,
+    previous_owner_name: item.previous_owner_name,
+    new_owner_id: item.owner_id,
+    new_owner_name: item.owner_name,
+    handoff_reason: item.reassignment_reason,
+    routing_reason: item.routing_reason,
+    handoff_at: handoffAt,
+    source: "commandcore-workload-rebalancer",
+  }));
+  const response = await fetch(`${supabaseUrl}/functions/v1/commandcore-handoff-ledger`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ action: "append", handoffs }),
+  });
+  if (!response.ok) throw new Error(`handoff_ledger_append_failed_${response.status}`);
+  const parsed = await response.json() as Record<string, unknown>;
+  return Number(parsed.appended || 0);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -243,6 +277,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       assignment_only: true,
       coverage_aware: true,
+      handoff_ledger_enabled: true,
       external_execution_enabled: false,
       readiness_mutation_enabled: false,
     });
@@ -311,6 +346,9 @@ Deno.serve(async (req) => {
 
     const reassignment: Reassignment = {
       action_id: actionId(item),
+      dispatch_id: String(item.dispatch_id || dispatchId).trim(),
+      property_id: String(item.property_id || "").trim(),
+      channel_key: String(item.channel_key || "").trim(),
       previous_owner_id: previousOwnerId || null,
       previous_owner_name: previousOwnerName || null,
       owner_id: replacement.id,
@@ -333,6 +371,8 @@ Deno.serve(async (req) => {
   });
 
   let persisted = false;
+  let handoffsRecorded = 0;
+  let handoffLedgerError: string | null = null;
   if (apply) {
     if (!dispatchId || !Object.keys(queue).length) {
       return jsonResponse(422, { ok: false, error: "dispatch_id_required_to_apply" });
@@ -346,10 +386,16 @@ Deno.serve(async (req) => {
         unchanged: unchangedActionIds.length,
         unresolved: unresolvedActionIds.length,
         coverage_aware: true,
+        handoff_ledger_enabled: true,
       },
     };
     await persistQueue(supabaseUrl, serviceKey, dispatchId, updatedQueue);
     persisted = true;
+    try {
+      handoffsRecorded = await appendHandoffs(supabaseUrl, serviceKey, reassignments);
+    } catch (error) {
+      handoffLedgerError = error instanceof Error ? error.message : "handoff_ledger_unknown_error";
+    }
   }
 
   return jsonResponse(200, {
@@ -363,6 +409,9 @@ Deno.serve(async (req) => {
     unchanged_action_ids: unchangedActionIds,
     unresolved_action_ids: unresolvedActionIds,
     applied: persisted,
+    handoffs_recorded: handoffsRecorded,
+    handoff_ledger_ok: handoffLedgerError === null,
+    handoff_ledger_error: handoffLedgerError,
     readiness_changed: false,
     approval_changed: false,
     consent_changed: false,
