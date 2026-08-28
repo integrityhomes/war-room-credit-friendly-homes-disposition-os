@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-27.1";
+const SERVICE_VERSION = "2026-08-28.1";
 const BUCKET = "commandcore-team-registry";
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -35,15 +35,23 @@ function cleanList(value: unknown): string[] {
     : [];
 }
 
+function normalizeAvailability(value: unknown): string {
+  const normalized = String(value || "available").trim().toLowerCase();
+  return ["available", "away", "unavailable"].includes(normalized) ? normalized : "available";
+}
+
 function normalizeMember(member: TeamMember): TeamMember {
   const id = memberId(member);
   const maxLoadRaw = Number(member.max_load ?? 20);
   const currentLoadRaw = Number(member.current_load ?? 0);
+  const unavailableUntil = String(member.unavailable_until || "").trim();
   return {
     id,
     name: String(member.name || id).trim(),
     email: String(member.email || "").trim().toLowerCase(),
     active: member.active !== false,
+    availability: normalizeAvailability(member.availability),
+    unavailable_until: unavailableUntil || null,
     roles: cleanList(member.roles),
     skills: cleanList(member.skills),
     channels: cleanList(member.channels),
@@ -122,6 +130,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       public_registry: false,
       external_execution_enabled: false,
+      availability_tracking_enabled: true,
     });
   }
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
