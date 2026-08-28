@@ -25,6 +25,7 @@ on:
       - agent/commandcore-outbound-prep
       - agent/commandcore-outbound-prep-dispatch-integration
       - agent/commandcore-adapter-connection-registry
+      - agent/commandcore-outbound-connection-gate
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
