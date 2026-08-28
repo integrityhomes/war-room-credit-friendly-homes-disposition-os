@@ -98,22 +98,6 @@ def operator_state_for(item: dict[str, Any], states: dict[str, dict[str, Any]]) 
     return str(state.get("state", "unacknowledged") or "unacknowledged").strip().lower()
 
 
-def normalize_item(item: dict[str, Any], states: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    actions = item.get("required_actions") if isinstance(item.get("required_actions"), list) else []
-    reasons = item.get("reasons") if isinstance(item.get("reasons"), list) else []
-    state = operator_state_for(item, states)
-    return {
-        "Priority": str(item.get("priority", "medium")).upper(),
-        "Status": str(item.get("readiness", "HOLD")).upper(),
-        "Review State": state.replace("_", " ").title(),
-        "Channel": str(item.get("channel_key", "")).replace("_", " ").title(),
-        "Property ID": str(item.get("property_id", "") or ""),
-        "What needs attention": " • ".join(str(a) for a in actions) or "Review item",
-        "Reason": ", ".join(str(r).replace("_", " ") for r in reasons),
-        "Dispatch ID": str(item.get("dispatch_id", "")),
-    }
-
-
 def post_commandcore_function(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     supabase_url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
     service_role_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
@@ -141,6 +125,49 @@ def post_commandcore_function(function_name: str, payload: dict[str, Any]) -> di
     if not isinstance(parsed, dict) or not parsed.get("ok"):
         raise RuntimeError("CommandCore did not confirm the requested internal action.")
     return parsed
+
+
+def evaluate_escalations(
+    items: list[dict[str, Any]], operator_states: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    result = post_commandcore_function(
+        "commandcore-aging-escalation",
+        {"items": items, "operator_states": operator_states},
+    )
+    escalations = result.get("escalations") if isinstance(result.get("escalations"), list) else []
+    return {
+        str(record.get("action_id", "")): record
+        for record in escalations
+        if isinstance(record, dict) and str(record.get("action_id", "")).strip()
+    }
+
+
+def escalation_for(item: dict[str, Any], escalations: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return escalations.get(
+        action_id_for(item),
+        {"escalation_level": "normal", "escalation_reasons": [], "recommended_action": "No escalation"},
+    )
+
+
+def normalize_item(
+    item: dict[str, Any], states: dict[str, dict[str, Any]], escalations: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    actions = item.get("required_actions") if isinstance(item.get("required_actions"), list) else []
+    reasons = item.get("reasons") if isinstance(item.get("reasons"), list) else []
+    state = operator_state_for(item, states)
+    escalation = escalation_for(item, escalations)
+    return {
+        "Escalation": str(escalation.get("escalation_level", "normal")).upper(),
+        "Priority": str(item.get("priority", "medium")).upper(),
+        "Status": str(item.get("readiness", "HOLD")).upper(),
+        "Review State": state.replace("_", " ").title(),
+        "Channel": str(item.get("channel_key", "")).replace("_", " ").title(),
+        "Property ID": str(item.get("property_id", "") or ""),
+        "What needs attention": " • ".join(str(a) for a in actions) or "Review item",
+        "Reason": ", ".join(str(r).replace("_", " ") for r in reasons),
+        "Age Hours": escalation.get("age_hours"),
+        "Dispatch ID": str(item.get("dispatch_id", "")),
+    }
 
 
 def retry_internal_dispatch(item: dict[str, Any]) -> dict[str, Any]:
@@ -193,12 +220,32 @@ for snapshot in snapshots:
         if isinstance(raw, dict):
             items.append(raw)
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Needs Attention", summary["needs_attention"])
-c2.metric("HOLD", summary["hold"])
-c3.metric("MANUAL", summary["manual"])
-c4.metric("BLOCKED", summary["blocked"])
-c5.metric("READY / Handled", summary["ready"])
+try:
+    escalations = evaluate_escalations(items, operator_states) if items else {}
+except Exception as exc:
+    st.warning(f"Aging and escalation could not be refreshed: {exc}")
+    escalations = {}
+
+critical_count = sum(
+    1 for item in items if str(escalation_for(item, escalations).get("escalation_level", "normal")) == "critical"
+)
+overdue_count = sum(
+    1 for item in items if str(escalation_for(item, escalations).get("escalation_level", "normal")) == "overdue"
+)
+
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+c1.metric("CRITICAL", critical_count)
+c2.metric("OVERDUE", overdue_count)
+c3.metric("Needs Attention", summary["needs_attention"])
+c4.metric("HOLD", summary["hold"])
+c5.metric("MANUAL", summary["manual"])
+c6.metric("BLOCKED", summary["blocked"])
+c7.metric("READY / Handled", summary["ready"])
+
+if critical_count:
+    st.error(f"{critical_count} critical item(s) need review now.")
+elif overdue_count:
+    st.warning(f"{overdue_count} overdue item(s) need follow-up.")
 
 if not snapshots:
     st.info("No CommandCore action-queue snapshots exist yet. The dashboard will populate automatically after campaigns are dispatched.")
@@ -211,6 +258,11 @@ review_filter = st.multiselect(
     ["UNACKNOWLEDGED", "NEEDS FOLLOW UP", "ACKNOWLEDGED"],
     default=["UNACKNOWLEDGED", "NEEDS FOLLOW UP", "ACKNOWLEDGED"],
 )
+escalation_filter = st.multiselect(
+    "Show escalation levels",
+    ["CRITICAL", "OVERDUE", "NORMAL"],
+    default=["CRITICAL", "OVERDUE", "NORMAL"],
+)
 
 filtered = [
     item
@@ -218,9 +270,12 @@ filtered = [
     if str(item.get("readiness", "")).upper() in status_filter
     and str(item.get("priority", "medium")).upper() in priority_filter
     and operator_state_for(item, operator_states).replace("_", " ").upper() in review_filter
+    and str(escalation_for(item, escalations).get("escalation_level", "normal")).upper() in escalation_filter
 ]
+escalation_rank = {"critical": 0, "overdue": 1, "normal": 2}
 filtered.sort(
     key=lambda item: (
+        escalation_rank.get(str(escalation_for(item, escalations).get("escalation_level", "normal")), 2),
         0 if operator_state_for(item, operator_states) == "unacknowledged" else 1,
         0 if str(item.get("priority", "")).lower() == "high" else 1,
         str(item.get("created_at", "")),
@@ -231,7 +286,11 @@ if not filtered:
     st.success("Nothing currently needs attention for the selected filters.")
 else:
     st.subheader("Your Action Queue")
-    st.dataframe([normalize_item(item, operator_states) for item in filtered], use_container_width=True, hide_index=True)
+    st.dataframe(
+        [normalize_item(item, operator_states, escalations) for item in filtered],
+        use_container_width=True,
+        hide_index=True,
+    )
 
     st.subheader("Action Details")
     for item in filtered:
@@ -241,9 +300,23 @@ else:
         property_id = str(item.get("property_id", "") or "No property ID")
         action_id = action_id_for(item)
         review_state = operator_state_for(item, operator_states)
+        escalation = escalation_for(item, escalations)
+        escalation_level = str(escalation.get("escalation_level", "normal")).upper()
         with st.expander(
-            f"{priority} • {readiness} • {review_state.replace('_', ' ').title()} • {channel} • {property_id}"
+            f"{escalation_level} • {priority} • {readiness} • "
+            f"{review_state.replace('_', ' ').title()} • {channel} • {property_id}"
         ):
+            if escalation_level == "CRITICAL":
+                st.error("Critical: review this item now.")
+            elif escalation_level == "OVERDUE":
+                st.warning("Overdue: follow-up is due.")
+            escalation_reasons = escalation.get("escalation_reasons")
+            if isinstance(escalation_reasons, list) and escalation_reasons:
+                st.caption("Escalation: " + ", ".join(str(r).replace("_", " ") for r in escalation_reasons))
+            age_hours = escalation.get("age_hours")
+            if age_hours is not None:
+                st.caption(f"Age: {age_hours} hours")
+
             actions = item.get("required_actions") if isinstance(item.get("required_actions"), list) else []
             for action in actions:
                 st.write(f"• {action}")
@@ -303,7 +376,7 @@ else:
 
 st.divider()
 st.caption(
-    "Acknowledgment is tracking only. It never changes READY/HOLD/MANUAL/BLOCKED status. "
+    "Aging and acknowledgment are tracking only. They never change READY/HOLD/MANUAL/BLOCKED status. "
     "Safe internal retries are allowed; approvals, sends, posts, consent changes, connection changes, "
     "and ad spend remain gated."
 )
