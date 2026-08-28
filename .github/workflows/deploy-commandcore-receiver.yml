@@ -22,6 +22,7 @@ on:
       - agent/commandcore-campaign-lead-links
       - agent/commandcore-marketing-copy-packages
       - agent/commandcore-dispatch-copy-packages
+      - agent/commandcore-outbound-prep
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
@@ -36,6 +37,7 @@ on:
       - "supabase/functions/commandcore-public-lead-gateway/**"
       - "supabase/functions/commandcore-property-link/**"
       - "supabase/functions/commandcore-marketing-copy/**"
+      - "supabase/functions/commandcore-outbound-prep/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -69,6 +71,7 @@ jobs:
           supabase functions deploy commandcore-public-lead-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-property-link --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-marketing-copy --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-outbound-prep --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -103,4 +106,5 @@ jobs:
           check_health commandcore-public-lead-gateway
           check_health commandcore-property-link
           check_health commandcore-marketing-copy
+          check_health commandcore-outbound-prep
           check_health commandcore-communication-gate
