@@ -18,6 +18,7 @@ on:
       - agent/commandcore-lead-source-adapters
       - agent/commandcore-public-lead-gateway
       - agent/commandcore-hosted-property-lead-form
+      - agent/commandcore-property-link-generator
     paths:
       - "supabase/functions/commandcore-channel-receiver/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
@@ -30,6 +31,7 @@ on:
       - "supabase/functions/commandcore-lead-intake/**"
       - "supabase/functions/commandcore-lead-source-adapter/**"
       - "supabase/functions/commandcore-public-lead-gateway/**"
+      - "supabase/functions/commandcore-property-link/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
@@ -61,6 +63,7 @@ jobs:
           supabase functions deploy commandcore-lead-intake --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-lead-source-adapter --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-public-lead-gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-property-link --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy commandcore-communication-gate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
 
       - name: Verify CommandCore function health
@@ -93,4 +96,5 @@ jobs:
           check_health commandcore-lead-intake
           check_health commandcore-lead-source-adapter
           check_health commandcore-public-lead-gateway
+          check_health commandcore-property-link
           check_health commandcore-communication-gate
