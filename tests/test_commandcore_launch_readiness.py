@@ -43,6 +43,7 @@ def test_launch_readiness_checks_full_critical_chain() -> None:
     assert "safety_posture_assessment_included: true" in source
     assert "crm_integrity_posture_included: true" in source
     assert "owner_approval_release_posture_included: true" in source
+    assert "approval_engine_immutable_evidence_posture_included: true" in source
 
 
 def test_launch_readiness_requires_critical_safety_postures() -> None:
@@ -60,6 +61,10 @@ def test_launch_readiness_requires_critical_safety_postures() -> None:
     assert "health.idempotent_release_enabled === true" in source
     assert "health.stable_release_timestamp_enabled === true" in source
     assert "owner_approval_release_idempotency_not_verified" in source
+    assert 'service === "commandcore-approval-engine"' in source
+    assert "health.idempotent_approval_enabled === true" in source
+    assert "health.immutable_approval_evidence_enabled === true" in source
+    assert "approval_engine_immutable_evidence_not_verified" in source
     assert 'service === "commandcore-auto-rebalance"' in source
     assert "health.low_risk_assignment_only === true" in source
     assert "health.high_confidence_only === true" in source
@@ -104,6 +109,7 @@ def test_deploy_verifies_auditor_authenticated_chain_and_safety_posture() -> Non
     assert "SUPABASE_SERVICE_ROLE_KEY" in deploy
     assert 'assert data.get("safety_posture_assessment_included") is True' in deploy
     assert 'assert data.get("crm_integrity_posture_included") is True' in deploy
+    assert 'assert data.get("approval_engine_immutable_evidence_posture_included") is True' in deploy
     assert 'assert data.get("launch_ready") is True' in deploy
     assert 'assert data.get("failed_required_count") == 0' in deploy
     assert 'assert data.get("safety_posture_failure_count") == 0' in deploy
