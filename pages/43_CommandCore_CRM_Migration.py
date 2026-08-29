@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 from typing import Any
@@ -145,6 +146,11 @@ def commit_rows(staged: list[dict[str, Any]], approvals: dict[int, bool]) -> lis
     return rows
 
 
+def payload_signature(rows: list[dict[str, Any]]) -> str:
+    canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def safe_preview_for_display(preview: dict[str, Any]) -> dict[str, Any]:
     safe = dict(preview)
     safe.pop("preview_token", None)
@@ -192,6 +198,7 @@ if uploaded and st.button("Stage & Map Export", type="primary"):
             st.session_state.crm_migration_stage = result
             st.session_state.crm_migration_approvals = default_approvals(result.get("staged", []))
             st.session_state.pop("crm_migration_preview", None)
+            st.session_state.pop("crm_migration_preview_signature", None)
             st.session_state.pop("crm_migration_commit_result", None)
             st.success(f"Staged {result.get('staged_rows', 0)} rows. No CRM records were written.")
     except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
@@ -241,6 +248,15 @@ for index, row in enumerate(staged):
 st.session_state.crm_migration_approvals = approvals
 payload_rows = commit_rows(staged, approvals)
 approved_count = sum(1 for row in payload_rows if row.get("approved") is True)
+current_payload_signature = payload_signature(payload_rows)
+
+preview = st.session_state.get("crm_migration_preview")
+stored_preview_signature = text(st.session_state.get("crm_migration_preview_signature"))
+if isinstance(preview, dict) and stored_preview_signature != current_payload_signature:
+    st.session_state.pop("crm_migration_preview", None)
+    st.session_state.pop("crm_migration_preview_signature", None)
+    preview = None
+    st.info("The approved migration rows changed. The old preview was cleared; run a fresh no-write preview.")
 
 st.divider()
 st.subheader("Live Import Preview")
@@ -251,6 +267,7 @@ if st.button("Run Fresh No-Write Preview", type="primary", use_container_width=T
     try:
         preview = call_service(COMMIT_SERVICE, {"rows": payload_rows, "apply": False})
         st.session_state.crm_migration_preview = preview
+        st.session_state.crm_migration_preview_signature = current_payload_signature
         if preview_is_apply_ready(preview):
             st.success(
                 "Preview ready. "
@@ -318,6 +335,7 @@ if st.button("Apply Approved Records", type="primary", disabled=commit_disabled,
                 f"Pre-import backup: {text(result.get('pre_apply_backup_snapshot_id')) or 'verified'}"
             )
             st.session_state.pop("crm_migration_preview", None)
+            st.session_state.pop("crm_migration_preview_signature", None)
         else:
             st.warning(
                 f"Imported {result.get('committed_count', 0)} records with {result.get('failed_count', 0)} failures."
