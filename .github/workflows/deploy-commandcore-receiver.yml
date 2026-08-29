@@ -5,9 +5,11 @@ on:
     paths:
       - "supabase/functions/commandcore-approval-engine/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
+      - "supabase/functions/commandcore-execution-readiness/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
       - "tests/test_commandcore_approval_engine_idempotency.py"
       - "tests/test_commandcore_dispatch_worker_state_preservation.py"
+      - "tests/test_commandcore_execution_readiness_handoff_contract.py"
   workflow_dispatch:
   push:
     branches:
@@ -78,6 +80,8 @@ jobs:
         run: deno check supabase/functions/commandcore-approval-engine/index.ts
       - name: Check dispatch worker
         run: deno check supabase/functions/commandcore-dispatch-worker/index.ts
+      - name: Check execution readiness
+        run: deno check supabase/functions/commandcore-execution-readiness/index.ts
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -197,10 +201,32 @@ jobs:
               && echo "$RESPONSE" | grep -q '"approval_state_preservation_enabled":true' \
               && echo "$RESPONSE" | grep -q '"external_execution_enabled":false'; then
               echo "Dispatch worker state-preservation health contract passed."
-              exit 0
+              break
             fi
             echo "Dispatch worker state-preservation contract not ready yet (attempt $attempt/5)."
+            if [ "$attempt" -eq 5 ]; then
+              echo "Dispatch worker state-preservation health contract failed."
+              exit 1
+            fi
             sleep 3
           done
-          echo "Dispatch worker state-preservation health contract failed."
+
+      - name: Verify execution readiness handoff health contract
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-execution-readiness"
+          for attempt in 1 2 3 4 5; do
+            RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+            if echo "$RESPONSE" | grep -q '"version":"2026-08-29.2"' \
+              && echo "$RESPONSE" | grep -q '"outbound_handoff_contract_enabled":true' \
+              && echo "$RESPONSE" | grep -q '"connection_evidence_fail_closed":true' \
+              && echo "$RESPONSE" | grep -q '"external_execution_enabled":false'; then
+              echo "Execution readiness handoff health contract passed."
+              exit 0
+            fi
+            echo "Execution readiness handoff contract not ready yet (attempt $attempt/5)."
+            sleep 3
+          done
+          echo "Execution readiness handoff health contract failed."
           exit 1
