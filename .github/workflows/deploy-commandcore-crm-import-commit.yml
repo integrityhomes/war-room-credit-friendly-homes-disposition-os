@@ -7,11 +7,13 @@ on:
       - "supabase/functions/commandcore-crm-import-commit/**"
       - ".github/workflows/deploy-commandcore-crm-import-commit.yml"
       - "tests/test_commandcore_crm_import_preview.py"
+      - "tests/test_commandcore_crm_full_history_migration.py"
   pull_request:
     paths:
       - "supabase/functions/commandcore-crm-import-commit/**"
       - ".github/workflows/deploy-commandcore-crm-import-commit.yml"
       - "tests/test_commandcore_crm_import_preview.py"
+      - "tests/test_commandcore_crm_full_history_migration.py"
   workflow_dispatch:
 
 jobs:
@@ -48,8 +50,8 @@ jobs:
         run: |
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-import-commit"
           response="$(curl --fail --silent --show-error "$URL")"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("live_migration_preview_enabled") is True; assert data.get("signed_preview_required_for_apply") is True; assert data.get("pre_apply_backup_required") is True; assert data.get("explicit_update_permission_required") is True'
-      - name: Verify live dry-run canary
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("live_migration_preview_enabled") is True; assert data.get("signed_preview_required_for_apply") is True; assert data.get("pre_apply_backup_required") is True; assert data.get("explicit_update_permission_required") is True; assert len(data.get("supported_entities",[])) == 9'
+      - name: Verify full-history live dry-run canary
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -60,5 +62,5 @@ jobs:
             -X POST "$URL" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
-            --data '{"apply":false,"rows":[{"approved":true,"entity":"contacts","record":{"source":"deployment-canary","external_id":"commandcore-import-commit-canary"}}]}')"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("apply_requested") is False; assert data.get("live_preview_ok") is True; assert data.get("approved_rows") == 1; assert data.get("apply_guard_ready") is True; assert isinstance(data.get("preview_token"),str) and len(data.get("preview_token")) > 40; assert data.get("records_written") == 0; assert data.get("source_records_modified") is False; assert data.get("destructive_delete_used") is False; assert data.get("external_action_started") is False; print("crm_import_apply_guard=verified would_create=%s would_update=%s" % (data.get("would_create",0),data.get("would_update",0)))'
+            --data '{"apply":false,"rows":[{"approved":true,"entity":"activities","record":{"source":"deployment-canary","external_id":"commandcore-import-commit-history-canary","activity_type":"note","notes":"Canary history row","source_payload":{"Legacy Extra Field":"preserve-me"}}}]}')"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("apply_requested") is False; assert data.get("live_preview_ok") is True; assert data.get("approved_rows") == 1; assert data.get("apply_guard_ready") is True; assert isinstance(data.get("preview_token"),str) and len(data.get("preview_token")) > 40; assert data.get("records_written") == 0; assert data.get("source_records_modified") is False; assert data.get("destructive_delete_used") is False; assert data.get("external_action_started") is False; activities=data.get("entities",{}).get("activities",{}); assert activities.get("rows") == 1; print("crm_import_full_history_guard=verified would_create=%s would_update=%s" % (data.get("would_create",0),data.get("would_update",0)))'
