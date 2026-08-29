@@ -1,0 +1,72 @@
+name: Deploy CommandCore CRM Reconciliation
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-crm-reconciliation/**"
+      - ".github/workflows/deploy-commandcore-crm-reconciliation.yml"
+      - "tests/test_commandcore_crm_reconciliation.py"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/commandcore-crm-reconciliation/**"
+      - ".github/workflows/deploy-commandcore-crm-reconciliation.yml"
+      - "tests/test_commandcore_crm_reconciliation.py"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check reconciliation service
+        run: deno check supabase/functions/commandcore-crm-reconciliation/index.ts
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy reconciliation service
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          supabase functions deploy commandcore-crm-reconciliation --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Verify reconciliation health
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-reconciliation"
+          response="$(curl --silent --show-error --fail "$URL")"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert len(data.get("supported_entities",[])) == 9; assert data.get("synthetic_canaries_can_verify") is False; assert data.get("owner_confirmation_required_to_record_verification") is True; assert data.get("destructive_delete_enabled") is False; assert data.get("external_execution_enabled") is False'
+      - name: Verify synthetic reconciliation stays unverified and no-write
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-reconciliation"
+          EMPTY_HASH="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          payload="$(python - "$EMPTY_HASH" <<'PY'
+          import json,sys
+          h=sys.argv[1]
+          entities={name:{"count":0,"external_id_sha256":h} for name in ["contacts","properties","deals","activities","communications","tasks","offers","documents","transactions"]}
+          print(json.dumps({"action":"preview","source_manifest":{"source_system":"synthetic-reconciliation-canary-20260829","real_source_export":False,"entities":entities}}))
+          PY
+          )"
+          response="$(curl --silent --show-error --fail \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$payload")"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("action") == "preview"; assert data.get("exact_match") is True; assert data.get("eligible_for_owner_verification") is False; assert data.get("reconciliation_verified") is False; assert data.get("verification_record_written") is False; assert data.get("source_records_modified") is False; assert data.get("commandcore_records_modified") is False; assert data.get("destructive_action_started") is False; assert data.get("external_action_started") is False; print("crm_reconciliation_synthetic_no_write=verified")'
