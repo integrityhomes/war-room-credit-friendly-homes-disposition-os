@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.1";
+const SERVICE_VERSION = "2026-08-29.2";
 
 type Row = Record<string, unknown>;
 
@@ -49,6 +49,8 @@ Deno.serve(async (req) => {
       service: "commandcore-owner-approval-release",
       version: SERVICE_VERSION,
       status: "healthy",
+      idempotent_release_enabled: true,
+      stable_release_timestamp_enabled: true,
       external_execution_enabled: false,
     });
   }
@@ -67,9 +69,14 @@ Deno.serve(async (req) => {
     ]);
     const existingKeys = new Set(tasks.map((task) => text(task.external_id)).filter(Boolean));
     const results: Row[] = [];
+    let alreadyReleasedSkippedCount = 0;
 
     for (const offer of offers) {
       if (text(offer.status) !== "owner_approved" || offer.external_action_started === true) continue;
+      if (text(offer.approval_release_status) === "released_to_internal_contract_prep") {
+        alreadyReleasedSkippedCount += 1;
+        continue;
+      }
       const offerId = text(offer.id);
       const dealId = text(links(offer).deal_id || offer.deal_id);
       const externalId = `owner-approved-offer-${offerId}-prepare-contract`;
@@ -89,12 +96,23 @@ Deno.serve(async (req) => {
         });
         existingKeys.add(externalId);
       }
-      await upsert(url, key, "offers", { ...offer, approval_release_status: "released_to_internal_contract_prep", approval_released_at: new Date().toISOString(), external_action_started: false });
+      const releasedAt = text(offer.approval_released_at) || new Date().toISOString();
+      await upsert(url, key, "offers", {
+        ...offer,
+        approval_release_status: "released_to_internal_contract_prep",
+        approval_released_at: releasedAt,
+        approval_release_task_external_id: externalId,
+        external_action_started: false,
+      });
       results.push({ entity: "offers", id: offerId, next_step: "prepare_contract", deal_id: dealId });
     }
 
     for (const document of documents) {
       if (text(document.status) !== "owner_approved" || document.external_action_started === true) continue;
+      if (text(document.approval_release_status) === "released_to_internal_next_step") {
+        alreadyReleasedSkippedCount += 1;
+        continue;
+      }
       const documentId = text(document.id);
       const dealId = text(links(document).deal_id || document.deal_id);
       const externalId = `owner-approved-document-${documentId}-internal-next-step`;
@@ -112,11 +130,26 @@ Deno.serve(async (req) => {
         });
         existingKeys.add(externalId);
       }
-      await upsert(url, key, "documents", { ...document, approval_release_status: "released_to_internal_next_step", approval_released_at: new Date().toISOString(), external_action_started: false });
+      const releasedAt = text(document.approval_released_at) || new Date().toISOString();
+      await upsert(url, key, "documents", {
+        ...document,
+        approval_release_status: "released_to_internal_next_step",
+        approval_released_at: releasedAt,
+        approval_release_task_external_id: externalId,
+        external_action_started: false,
+      });
       results.push({ entity: "documents", id: documentId, next_step: "internal_review", deal_id: dealId });
     }
 
-    return json(200, { ok: true, released_count: results.length, results, external_action_started: false });
+    return json(200, {
+      ok: true,
+      released_count: results.length,
+      already_released_skipped_count: alreadyReleasedSkippedCount,
+      results,
+      idempotent_release_enabled: true,
+      stable_release_timestamp_enabled: true,
+      external_action_started: false,
+    });
   } catch (error) {
     console.error("Owner approval release failed", error);
     return json(503, { ok: false, error: error instanceof Error ? error.message : "owner_approval_release_unavailable", external_action_started: false });
