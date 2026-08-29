@@ -1,7 +1,8 @@
-const SERVICE_VERSION = "2026-08-28.2";
+const SERVICE_VERSION = "2026-08-29.1";
 const MAX_BODY_BYTES = 128 * 1024;
 
 type Row = Record<string, unknown>;
+type AuthMode = "none" | "inbound_token" | "service_role";
 
 function jsonResponse(status: number, payload: Row): Response {
   return new Response(JSON.stringify(payload), {
@@ -38,13 +39,14 @@ function suppliedToken(req: Request): string {
   return authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
 }
 
-function authed(req: Request): boolean {
+function authenticate(req: Request): AuthMode {
   const supplied = suppliedToken(req);
   const inbound = Deno.env.get("COMMANDCORE_INBOUND_LEAD_TOKEN") || "";
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!supplied) return false;
-  if (inbound && constantTimeEqual(supplied, inbound)) return true;
-  return Boolean(service && constantTimeEqual(supplied, service));
+  if (!supplied) return "none";
+  if (service && constantTimeEqual(supplied, service)) return "service_role";
+  if (inbound && constantTimeEqual(supplied, inbound)) return "inbound_token";
+  return "none";
 }
 
 function cleanPhone(value: unknown): string {
@@ -146,11 +148,14 @@ Deno.serve(async (req) => {
       supported_lead_types: ["seller", "agent", "other"],
       duplicate_safe: true,
       automatic_owner_routing: true,
+      external_assignment_override_allowed: false,
+      internal_assignment_override_requires_service_role: true,
       external_execution_enabled: false,
     });
   }
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
-  if (!authed(req)) return jsonResponse(401, { ok: false, error: "unauthorized" });
+  const callerAuth = authenticate(req);
+  if (callerAuth === "none") return jsonResponse(401, { ok: false, error: "unauthorized" });
 
   const raw = await req.text();
   if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) {
@@ -225,7 +230,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const explicitOwner = text(lead.assigned_to);
+    const requestedOwner = text(lead.assigned_to);
+    const explicitOwner = callerAuth === "service_role" ? requestedOwner : "";
+    const assignmentOverrideIgnored = Boolean(requestedOwner && callerAuth !== "service_role");
     const routing = explicitOwner
       ? { status: "explicit", owner_name: explicitOwner }
       : await routeLead(supabaseUrl, serviceKey, stable, source, text(property.id));
@@ -268,6 +275,7 @@ Deno.serve(async (req) => {
         assignment_status: text(routing.status) || null,
         assigned_to: assignedTo,
         assignment_reason: text(routing.routing_reason || routing.reason) || null,
+        assignment_override_ignored: assignmentOverrideIgnored,
       },
       links: {
         deal_id: text(deal.id) || null,
@@ -286,6 +294,7 @@ Deno.serve(async (req) => {
       stage: "New Lead",
       assigned_to: assignedTo,
       assignment_status: text(routing.status) || null,
+      assignment_override_ignored: assignmentOverrideIgnored,
       external_action_started: false,
     });
   } catch (error) {
