@@ -51,8 +51,8 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion(
         "pages/16_AI_Buyer_Conversion_Command_Center.py",
         "Marketing & Dispo",
-        AppCompletionState.NEEDS_WORK,
-        "Keep distinct conversion app; block all new work for non-marketable properties.",
+        AppCompletionState.COMPLETE,
+        "Buyer-conversion app uses the shared Ready-to-Launch/Marketing-Live creation guard.",
     ),
     AppCompletion("pages/17_Nextdoor_Channel_15.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Manual-final-step Nextdoor channel workspace."),
     AppCompletion("pages/18_Property_Shutdown_Buyer_Reroute.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Property shutdown and buyer reroute workflow."),
