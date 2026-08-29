@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import streamlit as st
-from supabase import create_client
 
 from cfh_disposition.auth import configured_password, password_matches
+from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Deal Workflow", page_icon="🔄", layout="wide")
 
