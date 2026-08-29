@@ -34,8 +34,9 @@ require_password()
 st.title("Channel 16 — ChatGPT Ads")
 st.caption("Buyer-acquisition planning by market and intent, tracked into the CFH/Dwelyx funnel.")
 st.info(
-    "OpenAI Ads Manager Beta is a live advertiser product and U.S. self-service access is currently available. "
-    "This CommandCore page remains planning-only: it does not create an Ads Manager account, campaign, ad, billing setup, or spend."
+    "OpenAI Ads Manager Beta is a live advertiser product. Country availability and product capabilities can change, "
+    "so verify the current Ads Manager state before launch. This CommandCore page remains planning-only: it does not "
+    "create an account, campaign, ad, billing setup, or spend."
 )
 
 cols = st.columns(3)
@@ -143,6 +144,7 @@ st.download_button(
 )
 
 st.warning(
-    "Before any future launch, review the current OpenAI Ads policy and Ads Manager availability, confirm the landing page and conversion measurement, "
-    "and obtain explicit owner approval for the exact campaign budget and targeting."
+    "Before any future launch, review the current OpenAI Ads policy and Ads Manager availability, "
+    "confirm the landing page and conversion measurement, and obtain explicit owner approval for "
+    "the exact campaign budget and targeting."
 )
