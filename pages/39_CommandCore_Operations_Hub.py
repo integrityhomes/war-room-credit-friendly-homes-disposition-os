@@ -248,10 +248,18 @@ elif readiness is not None:
     required_count = int(readiness.get("required_service_count") or 0)
     healthy_count = int(readiness.get("healthy_service_count") or 0)
     failed_count = int(readiness.get("failed_required_count") or 0)
-    r1, r2, r3 = st.columns(3)
+    cutover = readiness.get("crm_cutover") if isinstance(readiness.get("crm_cutover"), dict) else {}
+    crm_cutover_ready = cutover.get("crm_cutover_ready") is True
+    unsupported = cutover.get("unsupported_migration_entities")
+    unsupported_names = [str(name) for name in unsupported] if isinstance(unsupported, list) else []
+    source_reconciled = cutover.get("source_crm_data_reconciliation_verified") is True
+
+    r1, r2, r3, r4 = st.columns(4)
     r1.metric("Critical Chain", "READY" if launch_ready else "NOT READY")
     r2.metric("Healthy Services", f"{healthy_count}/{required_count}")
     r3.metric("Failed Required", failed_count)
+    r4.metric("CRM Cutover", "READY" if crm_cutover_ready else "NOT READY")
+
     if launch_ready:
         st.success("The required CommandCore operating chain is healthy.")
     else:
@@ -264,6 +272,25 @@ elif readiness is not None:
                 use_container_width=True,
                 hide_index=True,
             )
+
+    st.markdown("#### CRM Replacement / Cutover")
+    if crm_cutover_ready:
+        st.success("CRM cutover safeguards report ready. Verify the approved cutover plan before discontinuing the old CRM.")
+    else:
+        st.warning(
+            "CommandCore can be operationally healthy while CRM cutover is still blocked. "
+            "Do not discontinue the outside CRM yet."
+        )
+        if unsupported_names:
+            st.write("**Migration coverage still missing for:** " + ", ".join(unsupported_names))
+        if not source_reconciled:
+            st.write("**Source CRM reconciliation:** Not yet verified")
+        blockers = cutover.get("blockers")
+        blocker_names = [str(item) for item in blockers] if isinstance(blockers, list) else []
+        if blocker_names:
+            with st.expander("CRM cutover blockers", expanded=False):
+                for blocker in blocker_names:
+                    st.write(f"- {blocker}")
 
 try:
     queue_items = load_queue_items()
