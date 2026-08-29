@@ -92,6 +92,27 @@ def active_deal(record: dict[str, Any]) -> bool:
     }
 
 
+def pending_owner_approval(record: dict[str, Any]) -> bool:
+    return text(record.get("status")).lower() in {
+        "draft_pending_owner_approval",
+        "needs_owner_approval",
+        "owner_approval_required",
+        "needs_approved_legal_template",
+        "internal_review_ready",
+    }
+
+
+def open_lifecycle_work(record: dict[str, Any]) -> bool:
+    return text(record.get("status")).lower() not in {
+        "completed",
+        "done",
+        "closed",
+        "cancelled",
+        "canceled",
+        "owner_rejected",
+    }
+
+
 def link(path: str, label: str, caption: str = "") -> None:
     with st.container(border=True):
         st.page_link(path, label=label, use_container_width=True)
@@ -137,6 +158,9 @@ if area == "Home / Command Center":
     try:
         deals = [deal for deal in list_records("deals") if active_deal(deal)]
         tasks = [task for task in list_records("tasks") if open_task(task)]
+        offers = [record for record in list_records("offers") if pending_owner_approval(record)]
+        documents = [record for record in list_records("documents") if pending_owner_approval(record)]
+        lifecycle = [record for record in list_records("tasks") if open_lifecycle_work(record) and text(record.get("task_type")).startswith("deal_")]
         today = date.today()
         new_leads = [deal for deal in deals if text(deal.get("stage")).lower() == "new lead"]
         overdue = [task for task in tasks if due_date(task) and due_date(task) < today]
@@ -146,42 +170,52 @@ if area == "Home / Command Center":
             for task in tasks
             if text(task.get("priority")).lower() in {"high", "urgent", "critical"}
         ]
+        approvals = len(offers) + len(documents)
 
-        metrics = st.columns(5)
+        metrics = st.columns(6)
         metrics[0].metric("Active deals", len(deals))
         metrics[1].metric("New leads", len(new_leads))
         metrics[2].metric("Overdue", len(overdue))
         metrics[3].metric("Due today", len(due_today))
-        metrics[4].metric("High priority", len(high_priority))
+        metrics[4].metric("Owner approvals", approvals)
+        metrics[5].metric("Deal workflow", len(lifecycle))
 
-        if overdue or due_today or high_priority:
+        if approvals:
+            st.error(f"Owner decision required: {approvals} approval item(s) are waiting.")
+        elif overdue or due_today or high_priority:
             st.warning(
                 f"Needs attention: {len(overdue)} overdue, {len(due_today)} due today, "
                 f"and {len(high_priority)} high-priority open task(s)."
             )
         else:
-            st.success("No overdue, due-today, or high-priority CRM tasks are currently waiting.")
+            st.success("No owner approvals, overdue, due-today, or high-priority CRM tasks are currently waiting.")
     except RuntimeError as exc:
         st.error(f"CommandCore home data could not be loaded: {exc}")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
+        link(
+            "pages/48_CommandCore_Owner_Approvals.py",
+            "Owner Approvals",
+            "Review consequential decisions before anything external can move forward.",
+        )
+    with c2:
+        link(
+            "pages/47_CommandCore_Deal_Workflow_Queue.py",
+            "Deal Workflow",
+            "See analysis, offer, contract, title, closing, and dispo work moving through the system.",
+        )
+    with c3:
         link(
             "pages/46_CommandCore_Pipeline_Followup.py",
             "Pipeline & Follow-Up",
             "Open deals, overdue work, and today's follow-ups.",
         )
-    with c2:
+    with c4:
         link(
             "pages/45_CommandCore_Deal_Record.py",
             "Open a Deal",
             "Work the seller, property, tasks, offers, documents, and history from one record.",
-        )
-    with c3:
-        link(
-            "pages/44_CommandCore_CRM.py",
-            "Leads & CRM",
-            "Contacts, properties, and deal records.",
         )
 
 elif area == "Leads & CRM":
@@ -204,7 +238,7 @@ elif area == "Leads & CRM":
 elif area == "Deals":
     st.subheader("Deals")
     st.caption("The deal is the center of CommandCore. Open one record and keep the entire transaction together.")
-    c1, c2 = st.columns(2)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         link(
             "pages/45_CommandCore_Deal_Record.py",
@@ -216,6 +250,18 @@ elif area == "Deals":
             "pages/46_CommandCore_Pipeline_Followup.py",
             "Deal Pipeline",
             "See deal stages and move internal pipeline status forward.",
+        )
+    with c3:
+        link(
+            "pages/47_CommandCore_Deal_Workflow_Queue.py",
+            "Deal Workflow",
+            "See what each deal needs next and what information is missing.",
+        )
+    with c4:
+        link(
+            "pages/48_CommandCore_Owner_Approvals.py",
+            "Owner Approvals",
+            "Approve or reject owner-gated deal actions without starting external execution.",
         )
 
 elif area == "Tasks & Follow-Up":
