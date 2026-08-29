@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from datetime import datetime, timezone
 from typing import Any
 from urllib import error, request
 
@@ -15,6 +16,19 @@ st.set_page_config(page_title="CommandCore CRM Migration", page_icon="📥", lay
 
 STAGING_SERVICE = "commandcore-crm-import-staging"
 COMMIT_SERVICE = "commandcore-crm-import-commit"
+RECONCILIATION_SERVICE = "commandcore-crm-reconciliation"
+ENTITY_OPTIONS = [
+    "Contacts",
+    "Properties",
+    "Deals",
+    "Activities",
+    "Communications",
+    "Tasks",
+    "Offers",
+    "Documents",
+    "Transactions",
+]
+ENTITY_KEYS = [item.lower() for item in ENTITY_OPTIONS]
 
 
 def require_password() -> None:
@@ -151,6 +165,114 @@ def payload_signature(rows: list[dict[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def external_id_hash(values: set[str]) -> str:
+    canonical = "\n".join(sorted({text(value).lower() for value in values if text(value)}))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def capture_source_export_batch(source: str, uploaded: Any, staged: list[dict[str, Any]]) -> None:
+    source_key = text(source).lower()
+    current_source = text(st.session_state.get("crm_migration_manifest_source")).lower()
+    if current_source and current_source != source_key:
+        st.session_state.crm_migration_source_batches = {}
+        for entity_key in ENTITY_KEYS:
+            st.session_state.pop(f"crm_source_zero_{entity_key}", None)
+        st.session_state.pop("crm_migration_reconciliation_preview", None)
+        st.session_state.pop("crm_migration_reconciliation_result", None)
+    st.session_state.crm_migration_manifest_source = source_key
+
+    batches = st.session_state.get("crm_migration_source_batches")
+    if not isinstance(batches, dict):
+        batches = {}
+
+    ids_by_entity: dict[str, set[str]] = {entity_key: set() for entity_key in ENTITY_KEYS}
+    for staged_row in staged:
+        entity_key = text(staged_row.get("entity")).lower()
+        record = staged_row.get("record") if isinstance(staged_row.get("record"), dict) else {}
+        external_id = text(record.get("external_id"))
+        if entity_key in ids_by_entity and external_id:
+            ids_by_entity[entity_key].add(external_id)
+
+    batch_id = hashlib.sha256(uploaded.getvalue()).hexdigest()
+    batches[batch_id] = {
+        "file_name": text(uploaded.name),
+        "source": source_key,
+        "entity_ids": {key: sorted(values) for key, values in ids_by_entity.items() if values},
+    }
+    st.session_state.crm_migration_source_batches = batches
+    st.session_state.pop("crm_migration_reconciliation_preview", None)
+    st.session_state.pop("crm_migration_reconciliation_result", None)
+
+
+def accumulated_source_ids() -> dict[str, set[str]]:
+    accumulated = {entity_key: set() for entity_key in ENTITY_KEYS}
+    batches = st.session_state.get("crm_migration_source_batches")
+    if not isinstance(batches, dict):
+        return accumulated
+    for batch in batches.values():
+        if not isinstance(batch, dict):
+            continue
+        entity_ids = batch.get("entity_ids") if isinstance(batch.get("entity_ids"), dict) else {}
+        for entity_key in ENTITY_KEYS:
+            values = entity_ids.get(entity_key) if isinstance(entity_ids.get(entity_key), list) else []
+            accumulated[entity_key].update(text(value) for value in values if text(value))
+    return accumulated
+
+
+def build_source_manifest(source: str, real_source_export: bool) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    ids_by_entity = accumulated_source_ids()
+    entities: dict[str, dict[str, Any]] = {}
+    status_rows: list[dict[str, Any]] = []
+    incomplete = False
+
+    for entity_key in ENTITY_KEYS:
+        ids = ids_by_entity[entity_key]
+        zero_confirmed = bool(st.session_state.get(f"crm_source_zero_{entity_key}", False))
+        covered = bool(ids) or zero_confirmed
+        if not covered:
+            incomplete = True
+        count = len(ids) if ids else 0
+        status_rows.append(
+            {
+                "Entity": entity_key.title(),
+                "Source Records": count if covered else "Not accounted for",
+                "Coverage": "Export staged" if ids else "Confirmed zero" if zero_confirmed else "Missing",
+            }
+        )
+        if covered:
+            entities[entity_key] = {
+                "count": count,
+                "external_id_sha256": external_id_hash(ids),
+            }
+
+    if incomplete:
+        return None, status_rows
+    return {
+        "source_system": text(source).lower(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "real_source_export": real_source_export,
+        "entities": entities,
+    }, status_rows
+
+
+def reconciliation_rows(preview: dict[str, Any]) -> list[dict[str, Any]]:
+    entities = preview.get("entities") if isinstance(preview.get("entities"), dict) else {}
+    rows: list[dict[str, Any]] = []
+    for entity_key in ENTITY_KEYS:
+        item = entities.get(entity_key) if isinstance(entities.get(entity_key), dict) else {}
+        rows.append(
+            {
+                "Entity": entity_key.title(),
+                "Source": item.get("source_count"),
+                "CommandCore": item.get("commandcore_count"),
+                "Count Match": item.get("count_match") is True,
+                "ID Fingerprint Match": item.get("external_id_hash_match") is True,
+                "Exact Match": item.get("exact_match") is True,
+            }
+        )
+    return rows
+
+
 def safe_preview_for_display(preview: dict[str, Any]) -> dict[str, Any]:
     safe = dict(preview)
     safe.pop("preview_token", None)
@@ -177,11 +299,12 @@ if st.sidebar.button("Log out", key="commandcore_crm_migration_logout"):
 
 st.title("CommandCore CRM Migration")
 st.caption(
-    "Upload a CRM export, let CommandCore stage and map it, review anything uncertain, run a live no-write preview, then import only deliberately approved records."
+    "Upload CRM exports, let CommandCore stage and map them, review anything uncertain, run no-write previews, "
+    "and import only deliberately approved records. Source reconciliation stays separate from import execution."
 )
 
 source = st.text_input("Migration source", value="rei-blackbook", help="Used to preserve original source identity during migration.")
-entity = st.selectbox("Export type", ["Auto detect", "Contacts", "Properties", "Deals"], index=0)
+entity = st.selectbox("Export type", ["Auto detect", *ENTITY_OPTIONS], index=0)
 uploaded = st.file_uploader("Upload CRM export", type=["csv", "json"])
 
 if uploaded and st.button("Stage & Map Export", type="primary"):
@@ -195,8 +318,10 @@ if uploaded and st.button("Stage & Map Export", type="primary"):
                 STAGING_SERVICE,
                 {"source": source, "entity": requested, "rows": rows},
             )
+            staged_result = result.get("staged", []) if isinstance(result.get("staged"), list) else []
             st.session_state.crm_migration_stage = result
-            st.session_state.crm_migration_approvals = default_approvals(result.get("staged", []))
+            st.session_state.crm_migration_approvals = default_approvals(staged_result)
+            capture_source_export_batch(text(result.get("source") or source), uploaded, staged_result)
             st.session_state.pop("crm_migration_preview", None)
             st.session_state.pop("crm_migration_preview_signature", None)
             st.session_state.pop("crm_migration_commit_result", None)
@@ -348,10 +473,113 @@ if isinstance(commit_result, dict):
     with st.expander("Latest import result", expanded=True):
         st.json(commit_result)
 
+st.divider()
+st.subheader("Source CRM Reconciliation")
+st.caption(
+    "CommandCore builds a source manifest from the export files staged in this browser session. "
+    "External IDs are fingerprinted locally and are not displayed. A category is never assumed to be zero."
+)
+
+ids_by_entity = accumulated_source_ids()
+for entity_key in ENTITY_KEYS:
+    if ids_by_entity[entity_key]:
+        st.session_state[f"crm_source_zero_{entity_key}"] = False
+    else:
+        st.checkbox(
+            f"I verified the source CRM has zero {entity_key} records.",
+            key=f"crm_source_zero_{entity_key}",
+        )
+
+real_source_export = st.checkbox(
+    "I confirm the staged files/counts came from the real source CRM export, not test or sample data.",
+    key="crm_reconciliation_real_source_export",
+)
+manifest_source = text(st.session_state.get("crm_migration_manifest_source") or stage.get("source") or source)
+source_manifest, manifest_status = build_source_manifest(manifest_source, real_source_export)
+st.dataframe(pd.DataFrame(manifest_status), use_container_width=True, hide_index=True)
+
+if source_manifest is None:
+    st.info("Account for all nine source categories by staging their exports or explicitly confirming a true zero count.")
+
+if st.button(
+    "Run Source Reconciliation Preview",
+    type="primary",
+    use_container_width=True,
+    disabled=source_manifest is None,
+):
+    try:
+        reconciliation_preview = call_service(
+            RECONCILIATION_SERVICE,
+            {"action": "preview", "source_manifest": source_manifest},
+        )
+        st.session_state.crm_migration_reconciliation_preview = reconciliation_preview
+        st.session_state.pop("crm_migration_reconciliation_result", None)
+    except RuntimeError as exc:
+        st.error(str(exc))
+
+reconciliation_preview = st.session_state.get("crm_migration_reconciliation_preview")
+if isinstance(reconciliation_preview, dict):
+    exact_match = reconciliation_preview.get("exact_match") is True
+    eligible = reconciliation_preview.get("eligible_for_owner_verification") is True
+    if exact_match:
+        st.success("Source manifest and CommandCore match across all nine CRM record categories.")
+    else:
+        mismatched = reconciliation_preview.get("mismatched_entities")
+        mismatched_names = [str(item) for item in mismatched] if isinstance(mismatched, list) else []
+        st.warning(
+            "Reconciliation is not exact yet. "
+            + ("Mismatched: " + ", ".join(mismatched_names) if mismatched_names else "Review the comparison below.")
+        )
+    st.dataframe(pd.DataFrame(reconciliation_rows(reconciliation_preview)), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Record Verified Reconciliation")
+    st.caption(
+        "This does not migrate, delete, or change CRM records. It records that a real source export exactly matches "
+        "CommandCore. CommandCore will not accept test/synthetic data for this step."
+    )
+    owner_approve_reconciliation = st.checkbox(
+        "I approve recording this exact real-source reconciliation as verified.",
+        disabled=not eligible,
+        key="crm_reconciliation_owner_approve",
+    )
+    confirmation_phrase = st.text_input(
+        'Type "VERIFY CRM RECONCILIATION" to confirm.',
+        disabled=not eligible,
+        key="crm_reconciliation_confirmation_phrase",
+    )
+    verify_disabled = (
+        not eligible
+        or not owner_approve_reconciliation
+        or confirmation_phrase != "VERIFY CRM RECONCILIATION"
+        or source_manifest is None
+    )
+    if st.button("Record Verified Reconciliation", disabled=verify_disabled, use_container_width=True):
+        try:
+            reconciliation_result = call_service(
+                RECONCILIATION_SERVICE,
+                {
+                    "action": "record_verified",
+                    "source_manifest": source_manifest,
+                    "owner_approved": True,
+                    "confirmation_phrase": confirmation_phrase,
+                },
+            )
+            st.session_state.crm_migration_reconciliation_result = reconciliation_result
+            if reconciliation_result.get("reconciliation_verified") is True:
+                st.success(
+                    "CRM source reconciliation recorded as verified. "
+                    f"Verification: {text(reconciliation_result.get('verification_id'))}"
+                )
+        except RuntimeError as exc:
+            st.error(str(exc))
+
+reconciliation_result = st.session_state.get("crm_migration_reconciliation_result")
+if isinstance(reconciliation_result, dict) and reconciliation_result.get("reconciliation_verified") is True:
+    st.success("Latest source reconciliation is verified. The launch-readiness auditor can now evaluate CRM cutover status.")
+
 st.info(
     "Migration safety: staging and preview do not write CRM records. "
     "Applying requires a fresh signed preview, explicit confirmation, explicit overwrite permission when needed, "
-    "and a verified private backup before the first write. "
-    "This screen cannot delete CRM records or trigger external communications, payments, legal actions, "
-    "or other outside execution."
+    "and a verified private backup before the first write. Reconciliation is a separate aggregate verification step. "
+    "This screen cannot delete CRM records or trigger external communications, payments, legal actions, or other outside execution."
 )
