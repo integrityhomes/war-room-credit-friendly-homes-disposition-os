@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 PAGE = Path("pages/49_CommandCore_Command_Bot.py")
 
 
