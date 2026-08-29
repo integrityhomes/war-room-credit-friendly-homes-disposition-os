@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FUNCTION = ROOT / "supabase/functions/commandcore-launch-readiness/index.ts"
 WORKFLOW = ROOT / ".github/workflows/commandcore-launch-readiness.yml"
