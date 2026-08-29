@@ -65,5 +65,5 @@ def test_completion_summary_matches_rows():
     assert summary["tracked"] == 16
     assert summary["ready_to_use"] == 10
     assert summary["connection_required"] == 6
-    assert summary["manual_final_step_required"] == 10
+    assert summary["manual_final_step_required"] == 7
     assert summary["not_ready_now"] == 6
