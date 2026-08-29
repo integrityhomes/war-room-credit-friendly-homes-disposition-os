@@ -5,31 +5,37 @@ on:
     paths:
       - "supabase/functions/commandcore-launch-readiness/**"
       - "supabase/functions/commandcore-owner-approval-release/**"
+      - "supabase/functions/commandcore-approval-engine/**"
       - "supabase/functions/commandcore-deal-lifecycle-coordinator/**"
       - "supabase/functions/commandcore-deal-lifecycle-readiness/**"
       - "supabase/functions/commandcore-deal-completion/**"
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
       - ".github/workflows/deploy-commandcore-owner-approval-release.yml"
+      - ".github/workflows/deploy-commandcore-receiver.yml"
       - ".github/workflows/deploy-commandcore-deal-completion.yml"
       - "tests/test_commandcore_crm_cutover_readiness.py"
       - "tests/test_commandcore_launch_readiness.py"
       - "tests/test_commandcore_crash_safe_history.py"
       - "tests/test_commandcore_owner_approval_release_idempotency.py"
+      - "tests/test_commandcore_approval_engine_idempotency.py"
   push:
     branches: [main]
     paths:
       - "supabase/functions/commandcore-launch-readiness/**"
       - "supabase/functions/commandcore-owner-approval-release/**"
+      - "supabase/functions/commandcore-approval-engine/**"
       - "supabase/functions/commandcore-deal-lifecycle-coordinator/**"
       - "supabase/functions/commandcore-deal-lifecycle-readiness/**"
       - "supabase/functions/commandcore-deal-completion/**"
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
       - ".github/workflows/deploy-commandcore-owner-approval-release.yml"
+      - ".github/workflows/deploy-commandcore-receiver.yml"
       - ".github/workflows/deploy-commandcore-deal-completion.yml"
       - "tests/test_commandcore_crm_cutover_readiness.py"
       - "tests/test_commandcore_launch_readiness.py"
       - "tests/test_commandcore_crash_safe_history.py"
       - "tests/test_commandcore_owner_approval_release_idempotency.py"
+      - "tests/test_commandcore_approval_engine_idempotency.py"
   workflow_dispatch:
 
 jobs:
@@ -69,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-launch-readiness"
-          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("live_chain_check_requires_authentication") is True; assert data.get("crm_cutover_assessment_included") is True; assert data.get("crm_source_reconciliation_included") is True; assert data.get("auto_rebalance_chain_included") is True; assert data.get("safety_posture_assessment_included") is True; assert data.get("crm_integrity_posture_included") is True; assert data.get("crash_safe_history_posture_included") is True; assert data.get("owner_approval_release_posture_included") is True; assert data.get("external_execution_enabled") is False; print("health=ok safety_posture_assessment=enabled crm_integrity=enabled crash_safe_history=enabled owner_approval_release_idempotency=enabled")'
+          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("live_chain_check_requires_authentication") is True; assert data.get("crm_cutover_assessment_included") is True; assert data.get("crm_source_reconciliation_included") is True; assert data.get("auto_rebalance_chain_included") is True; assert data.get("safety_posture_assessment_included") is True; assert data.get("crm_integrity_posture_included") is True; assert data.get("crash_safe_history_posture_included") is True; assert data.get("owner_approval_release_posture_included") is True; assert data.get("approval_engine_immutable_evidence_posture_included") is True; assert data.get("external_execution_enabled") is False; print("health=ok safety_posture_assessment=enabled crm_integrity=enabled crash_safe_history=enabled owner_approval_release_idempotency=enabled approval_engine_immutable_evidence=enabled")'
       - name: Verify complete CommandCore operating chain and CRM cutover guard
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -102,4 +108,4 @@ jobs:
             python -c 'import json; from pathlib import Path; p=Path("response.json"); data=json.loads(p.read_text(encoding="utf-8")) if p.exists() and p.stat().st_size else {}; cutover=data.get("crm_cutover") or {}; print("launch_readiness_failed", "failed_required_services=", data.get("failed_required_services", []), "safety_posture_failed_services=", data.get("safety_posture_failed_services", []), "crm_cutover_blockers=", cutover.get("blockers", []))'
             exit 1
           fi
-          python -c 'import json; data=json.load(open("response.json", encoding="utf-8")); assert data.get("ok") is True; assert data.get("launch_ready") is True; assert data.get("failed_required_count") == 0; assert data.get("safety_posture_failure_count") == 0; assert data.get("safety_posture_failed_services") == []; cutover=data.get("crm_cutover"); assert isinstance(cutover,dict); assert cutover.get("complete_mapping_coverage") is True; assert cutover.get("unsupported_migration_entities") == []; assert cutover.get("reconciliation_service_healthy") is True; assert cutover.get("crm_cutover_ready") is False; assert cutover.get("source_crm_data_reconciliation_verified") is False; assert "source_crm_data_reconciliation_not_verified" in cutover.get("blockers",[]); assert data.get("external_action_started") is False; assert data.get("destructive_action_started") is False; assert data.get("owner_approval_bypassed") is False; print("full_chain=ready safety_posture=verified crm_integrity=verified crash_safe_history=verified owner_approval_release_idempotency=verified migration_coverage=complete crm_cutover_ready=false reconciliation=pending")'
+          python -c 'import json; data=json.load(open("response.json", encoding="utf-8")); assert data.get("ok") is True; assert data.get("launch_ready") is True; assert data.get("failed_required_count") == 0; assert data.get("safety_posture_failure_count") == 0; assert data.get("safety_posture_failed_services") == []; cutover=data.get("crm_cutover"); assert isinstance(cutover,dict); assert cutover.get("complete_mapping_coverage") is True; assert cutover.get("unsupported_migration_entities") == []; assert cutover.get("reconciliation_service_healthy") is True; assert cutover.get("crm_cutover_ready") is False; assert cutover.get("source_crm_data_reconciliation_verified") is False; assert "source_crm_data_reconciliation_not_verified" in cutover.get("blockers",[]); assert data.get("external_action_started") is False; assert data.get("destructive_action_started") is False; assert data.get("owner_approval_bypassed") is False; print("full_chain=ready safety_posture=verified crm_integrity=verified crash_safe_history=verified owner_approval_release_idempotency=verified approval_engine_immutable_evidence=verified migration_coverage=complete crm_cutover_ready=false reconciliation=pending")'
