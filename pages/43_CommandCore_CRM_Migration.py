@@ -331,5 +331,9 @@ if isinstance(commit_result, dict):
         st.json(commit_result)
 
 st.info(
-    "Migration safety: staging and preview do not write CRM records. Applying requires a fresh signed preview, explicit confirmation, explicit overwrite permission when needed, and a verified private backup before the first write. This screen cannot delete CRM records or trigger external communications, payments, legal actions, or other outside execution."
+    "Migration safety: staging and preview do not write CRM records. "
+    "Applying requires a fresh signed preview, explicit confirmation, explicit overwrite permission when needed, "
+    "and a verified private backup before the first write. "
+    "This screen cannot delete CRM records or trigger external communications, payments, legal actions, "
+    "or other outside execution."
 )
