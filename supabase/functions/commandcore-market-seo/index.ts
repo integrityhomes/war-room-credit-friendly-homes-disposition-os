@@ -1,4 +1,4 @@
-const SEO_VERSION = "2026-08-27.1";
+const SEO_VERSION = "2026-08-29.1";
 const MAX_BODY_BYTES = 24 * 1024;
 
 function jsonResponse(status: number, payload: Record<string, unknown>): Response {
@@ -52,6 +52,8 @@ Deno.serve(async (req) => {
       service: "commandcore-market-seo",
       version: SEO_VERSION,
       status: "healthy",
+      public_market_pages_enabled: true,
+      page_route_contract: "?market={city-state-slug}",
       external_action_started: false,
     });
   }
@@ -89,7 +91,7 @@ Deno.serve(async (req) => {
     market_slug: marketSlug,
     property_id: propertyId,
     property_slug: propertySlug,
-    page_path: `/owner-finance-homes/${marketSlug}`,
+    page_path: `?market=${marketSlug}`,
     title: `Owner Financing Homes in ${city}, ${state} | Credit Friendly Homes`,
     meta_description: `Explore owner-financing opportunities in ${city}, ${state}. Current featured home: ${address || "available property"}. Price ${money(property.total_price)}, down payment ${money(property.down_payment)}, monthly payment ${money(property.monthly_payment)}. Terms and availability subject to verification.`,
     h1: `Owner Financing Homes in ${city}, ${state}`,
@@ -104,6 +106,7 @@ Deno.serve(async (req) => {
     channel_key: "market_seo",
     status: "live",
     adapter: "cfh_market_seo",
+    public_market_page_enabled: true,
     seo_record: seoRecord,
     external_action_started: false,
   });
