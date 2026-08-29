@@ -51,7 +51,7 @@ jobs:
         run: |
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-backup"
           response="$(curl --silent --show-error --fail "$URL")"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("backup_bucket_private_required") is True; assert data.get("destructive_cleanup_enabled") is False'
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("backup_bucket_private_required") is True; assert data.get("snapshot_inventory_enabled") is True; assert data.get("restore_preview_enabled") is True; assert data.get("restore_enabled") is False; assert data.get("destructive_cleanup_enabled") is False'
 
   initial_snapshot:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -71,8 +71,35 @@ jobs:
             -X POST "$URL" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
-            --data '{}')"
+            --data '{"action":"create_snapshot"}')"
           printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("source_records_modified") is False; assert data.get("destructive_action_started") is False; assert data.get("external_action_started") is False; print("snapshot=" + str(data.get("snapshot_id")))'
+
+  recovery_preview:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: initial_snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify snapshot inventory and read-only restore preview
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-backup"
+          inventory="$(curl --silent --show-error --fail \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{"action":"list_snapshots"}')"
+          snapshot_id="$(printf '%s' "$inventory" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; snaps=data.get("snapshots") or []; assert snaps; assert snaps[0].get("manifest_valid") is True; print(snaps[0]["snapshot_id"])')"
+          preview="$(curl --silent --show-error --fail \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "{\"action\":\"preview_restore\",\"snapshot_id\":\"$snapshot_id\"}")"
+          printf '%s' "$preview" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("manifest_valid") is True; assert data.get("restore_enabled") is False; assert data.get("restore_executed") is False; assert data.get("source_records_modified") is False; assert data.get("destructive_action_started") is False; assert data.get("external_action_started") is False; print("restore_preview=verified snapshot=" + str(data.get("snapshot_id")) + " would_create=" + str(data.get("would_create")) + " would_overwrite=" + str(data.get("would_overwrite")) + " unchanged=" + str(data.get("unchanged")))'
 
   scheduled_snapshot:
     if: github.event_name == 'schedule'
@@ -91,5 +118,5 @@ jobs:
             -X POST "$URL" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
-            --data '{}')"
+            --data '{"action":"create_snapshot"}')"
           printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("source_records_modified") is False; assert data.get("destructive_action_started") is False; assert data.get("external_action_started") is False; print("snapshot=" + str(data.get("snapshot_id")))'
