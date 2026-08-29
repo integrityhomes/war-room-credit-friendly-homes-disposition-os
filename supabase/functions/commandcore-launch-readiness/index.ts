@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.4";
+const SERVICE_VERSION = "2026-08-29.5";
 
 type Row = Record<string, unknown>;
 
@@ -43,6 +43,9 @@ const REQUIRED_SERVICES: ServiceCheck[] = [
   { service: "commandcore-execution-readiness", required: true },
   { service: "commandcore-dispatch-worker", required: true },
   { service: "commandcore-deal-flow-orchestrator", required: true },
+  { service: "commandcore-workload-balance-advisor", required: true },
+  { service: "commandcore-safe-rebalance-apply", required: true },
+  { service: "commandcore-auto-rebalance", required: true },
 ];
 
 function json(status: number, payload: Row): Response {
@@ -196,6 +199,7 @@ Deno.serve(async (req) => {
       live_chain_check_requires_authentication: true,
       crm_cutover_assessment_included: true,
       crm_source_reconciliation_included: true,
+      auto_rebalance_chain_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
