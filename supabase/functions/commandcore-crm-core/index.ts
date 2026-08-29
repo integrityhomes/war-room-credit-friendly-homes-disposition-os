@@ -1,7 +1,8 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-29.2";
 const BUCKET = "commandcore-crm-core";
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_LIST = 500;
+const MAX_MIGRATION_PREVIEW = 250;
 
 const ENTITY_TYPES = new Set([
   "contacts",
@@ -186,6 +187,8 @@ Deno.serve(async (req) => {
       status: "healthy",
       entity_types: [...ENTITY_TYPES],
       migration_safe_external_ids: true,
+      migration_preview_enabled: true,
+      migration_bulk_apply_enabled: false,
       destructive_delete_enabled: false,
       external_execution_enabled: false,
     });
@@ -213,6 +216,65 @@ Deno.serve(async (req) => {
   const action = text(body.action || "upsert").toLowerCase();
   const entity = normalizeEntity(body.entity);
   if (!entity) return jsonResponse(422, { ok: false, error: "valid_entity_required", entity_types: [...ENTITY_TYPES] });
+
+  if (action === "migration_preview") {
+    const suppliedRecords = Array.isArray(body.records) ? body.records : [];
+    if (!suppliedRecords.length) return jsonResponse(422, { ok: false, error: "records_required" });
+    if (suppliedRecords.length > MAX_MIGRATION_PREVIEW) {
+      return jsonResponse(422, { ok: false, error: "migration_preview_limit_exceeded", max_records: MAX_MIGRATION_PREVIEW });
+    }
+
+    const seenIds = new Set<string>();
+    const errors: Row[] = [];
+    let wouldCreate = 0;
+    let wouldUpdate = 0;
+    let duplicateCount = 0;
+    let validCount = 0;
+
+    for (let index = 0; index < suppliedRecords.length; index += 1) {
+      const value = suppliedRecords[index];
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        errors.push({ index, error: "record_must_be_object" });
+        continue;
+      }
+      const record = value as Row;
+      const source = text(record.source || body.source || "migration");
+      const externalId = text(record.external_id);
+      if (!externalId) {
+        errors.push({ index, error: "external_id_required" });
+        continue;
+      }
+      const candidateId = text(record.id) || deterministicImportId(entity, source, externalId);
+      if (seenIds.has(candidateId)) {
+        duplicateCount += 1;
+        errors.push({ index, error: "duplicate_record_in_batch", id: candidateId });
+        continue;
+      }
+      seenIds.add(candidateId);
+      const existing = await readRecord(supabaseUrl, serviceKey, entity, candidateId);
+      if (existing) wouldUpdate += 1;
+      else wouldCreate += 1;
+      validCount += 1;
+    }
+
+    return jsonResponse(200, {
+      ok: true,
+      action: "migration_preview",
+      entity,
+      input_count: suppliedRecords.length,
+      valid_count: validCount,
+      invalid_count: errors.length,
+      duplicate_count: duplicateCount,
+      would_create: wouldCreate,
+      would_update: wouldUpdate,
+      errors,
+      migration_bulk_apply_enabled: false,
+      records_written: 0,
+      source_records_modified: false,
+      destructive_action_started: false,
+      external_action_started: false,
+    });
+  }
 
   if (action === "get") {
     const id = text(body.id);
