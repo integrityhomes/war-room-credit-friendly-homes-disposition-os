@@ -184,7 +184,7 @@ else:
         )
     st.info(
         "Existing Operations Hub, Team Health, Workload Balance, Rebalance Audit, Coverage, and Management "
-        "Alerts remain active while their exact page routes are consolidated into this Management area."
+        "Alerts remain active while their page routes are consolidated into this Management area."
     )
 
 st.divider()
