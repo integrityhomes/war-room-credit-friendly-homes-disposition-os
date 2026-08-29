@@ -145,6 +145,24 @@ def commit_rows(staged: list[dict[str, Any]], approvals: dict[int, bool]) -> lis
     return rows
 
 
+def safe_preview_for_display(preview: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(preview)
+    safe.pop("preview_token", None)
+    return safe
+
+
+def preview_is_apply_ready(preview: Any) -> bool:
+    return (
+        isinstance(preview, dict)
+        and preview.get("ok") is True
+        and preview.get("apply_guard_ready") is True
+        and isinstance(preview.get("preview_token"), str)
+        and len(text(preview.get("preview_token"))) > 40
+        and int(preview.get("invalid_count", 0) or 0) == 0
+        and int(preview.get("duplicate_count", 0) or 0) == 0
+    )
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="commandcore_crm_migration_logout"):
@@ -153,7 +171,7 @@ if st.sidebar.button("Log out", key="commandcore_crm_migration_logout"):
 
 st.title("CommandCore CRM Migration")
 st.caption(
-    "Upload a CRM export, let CommandCore stage and map it, review anything uncertain, preview the commit, then import only approved records."
+    "Upload a CRM export, let CommandCore stage and map it, review anything uncertain, run a live no-write preview, then import only deliberately approved records."
 )
 
 source = st.text_input("Migration source", value="rei-blackbook", help="Used to preserve original source identity during migration.")
@@ -173,7 +191,9 @@ if uploaded and st.button("Stage & Map Export", type="primary"):
             )
             st.session_state.crm_migration_stage = result
             st.session_state.crm_migration_approvals = default_approvals(result.get("staged", []))
-            st.success(f"Staged {result.get('staged_rows', 0)} rows.")
+            st.session_state.pop("crm_migration_preview", None)
+            st.session_state.pop("crm_migration_commit_result", None)
+            st.success(f"Staged {result.get('staged_rows', 0)} rows. No CRM records were written.")
     except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
         st.error(str(exc))
 
@@ -223,38 +243,87 @@ payload_rows = commit_rows(staged, approvals)
 approved_count = sum(1 for row in payload_rows if row.get("approved") is True)
 
 st.divider()
-st.subheader("Commit Preview")
-st.write(f"Approved for import: **{approved_count}** of **{len(payload_rows)}** staged rows.")
+st.subheader("Live Import Preview")
+st.write(f"Approved for preview: **{approved_count}** of **{len(payload_rows)}** staged rows.")
+st.caption("Preview checks the approved rows against the live CommandCore CRM and writes nothing.")
 
-preview_col, commit_col = st.columns(2)
-with preview_col:
-    if st.button("Preview Commit", use_container_width=True):
-        try:
-            preview = call_service(COMMIT_SERVICE, {"rows": payload_rows, "apply": False})
-            st.session_state.crm_migration_preview = preview
-            st.success(f"Preview ready: {preview.get('ready_to_commit', 0)} records can be committed.")
-        except RuntimeError as exc:
-            st.error(str(exc))
-
-with commit_col:
-    confirm = st.checkbox("I reviewed the staged records and approve this CRM import.")
-    if st.button("Commit Approved Records", type="primary", disabled=not confirm, use_container_width=True):
-        try:
-            result = call_service(COMMIT_SERVICE, {"rows": payload_rows, "apply": True})
-            st.session_state.crm_migration_commit_result = result
-            if result.get("ok") is True:
-                st.success(f"Imported {result.get('committed_count', 0)} records into CommandCore.")
-            else:
-                st.warning(
-                    f"Imported {result.get('committed_count', 0)} records with {result.get('failed_count', 0)} failures."
-                )
-        except RuntimeError as exc:
-            st.error(str(exc))
+if st.button("Run Fresh No-Write Preview", type="primary", use_container_width=True, disabled=approved_count == 0):
+    try:
+        preview = call_service(COMMIT_SERVICE, {"rows": payload_rows, "apply": False})
+        st.session_state.crm_migration_preview = preview
+        if preview_is_apply_ready(preview):
+            st.success(
+                "Preview ready. "
+                f"Would create {int(preview.get('would_create', 0) or 0)} and update {int(preview.get('would_update', 0) or 0)} records."
+            )
+        else:
+            st.warning("Preview completed, but the import is not ready to apply. Resolve the reported issues and preview again.")
+    except RuntimeError as exc:
+        st.error(str(exc))
 
 preview = st.session_state.get("crm_migration_preview")
+apply_ready = preview_is_apply_ready(preview)
+would_update = int(preview.get("would_update", 0) or 0) if isinstance(preview, dict) else 0
+
 if isinstance(preview, dict):
-    with st.expander("Latest commit preview"):
-        st.json(preview)
+    preview_cols = st.columns(4)
+    preview_cols[0].metric("Would Create", int(preview.get("would_create", 0) or 0))
+    preview_cols[1].metric("Would Update", would_update)
+    preview_cols[2].metric("Invalid", int(preview.get("invalid_count", 0) or 0))
+    preview_cols[3].metric("Duplicates", int(preview.get("duplicate_count", 0) or 0))
+    expires = text(preview.get("preview_token_expires_at"))
+    if expires:
+        st.caption(f"This guarded preview expires at {expires}. If it expires or the live CRM changes, CommandCore will require a new preview.")
+    with st.expander("Latest preview details"):
+        st.json(safe_preview_for_display(preview))
+
+st.divider()
+st.subheader("Apply Approved Migration")
+if not apply_ready:
+    st.info("Run a fresh clean preview before an import can be applied.")
+else:
+    st.warning(
+        "Applying changes writes approved records into the CommandCore CRM. CommandCore will re-check the live CRM and create a private backup before the first write."
+    )
+
+confirm = st.checkbox(
+    "I reviewed the staged records and the live preview and approve this CRM import.",
+    disabled=not apply_ready,
+    key="crm_migration_confirm_apply",
+)
+allow_updates = False
+if apply_ready and would_update > 0:
+    allow_updates = st.checkbox(
+        f"I explicitly approve updating {would_update} existing CommandCore CRM record(s).",
+        key="crm_migration_allow_updates",
+    )
+
+commit_disabled = not apply_ready or not confirm or (would_update > 0 and not allow_updates)
+if st.button("Apply Approved Records", type="primary", disabled=commit_disabled, use_container_width=True):
+    try:
+        result = call_service(
+            COMMIT_SERVICE,
+            {
+                "rows": payload_rows,
+                "apply": True,
+                "confirm_apply": True,
+                "allow_updates": allow_updates,
+                "preview_token": preview.get("preview_token") if isinstance(preview, dict) else "",
+            },
+        )
+        st.session_state.crm_migration_commit_result = result
+        if result.get("ok") is True:
+            st.success(
+                f"Imported {result.get('committed_count', 0)} records into CommandCore. "
+                f"Pre-import backup: {text(result.get('pre_apply_backup_snapshot_id')) or 'verified'}"
+            )
+            st.session_state.pop("crm_migration_preview", None)
+        else:
+            st.warning(
+                f"Imported {result.get('committed_count', 0)} records with {result.get('failed_count', 0)} failures."
+            )
+    except RuntimeError as exc:
+        st.error(str(exc))
 
 commit_result = st.session_state.get("crm_migration_commit_result")
 if isinstance(commit_result, dict):
@@ -262,5 +331,5 @@ if isinstance(commit_result, dict):
         st.json(commit_result)
 
 st.info(
-    "Migration safety: this screen cannot delete CRM records or trigger external communications, payments, legal actions, or other outside execution."
+    "Migration safety: staging and preview do not write CRM records. Applying requires a fresh signed preview, explicit confirmation, explicit overwrite permission when needed, and a verified private backup before the first write. This screen cannot delete CRM records or trigger external communications, payments, legal actions, or other outside execution."
 )
