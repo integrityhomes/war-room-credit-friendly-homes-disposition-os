@@ -4,7 +4,11 @@ on:
   pull_request:
     paths:
       - "supabase/functions/commandcore-launch-readiness/**"
+      - "supabase/functions/commandcore-deal-lifecycle-coordinator/**"
+      - "supabase/functions/commandcore-deal-lifecycle-readiness/**"
+      - "supabase/functions/commandcore-deal-completion/**"
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
+      - ".github/workflows/deploy-commandcore-deal-completion.yml"
       - "tests/test_commandcore_crm_cutover_readiness.py"
       - "tests/test_commandcore_launch_readiness.py"
       - "tests/test_commandcore_crash_safe_history.py"
@@ -12,7 +16,11 @@ on:
     branches: [main]
     paths:
       - "supabase/functions/commandcore-launch-readiness/**"
+      - "supabase/functions/commandcore-deal-lifecycle-coordinator/**"
+      - "supabase/functions/commandcore-deal-lifecycle-readiness/**"
+      - "supabase/functions/commandcore-deal-completion/**"
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
+      - ".github/workflows/deploy-commandcore-deal-completion.yml"
       - "tests/test_commandcore_crm_cutover_readiness.py"
       - "tests/test_commandcore_launch_readiness.py"
       - "tests/test_commandcore_crash_safe_history.py"
