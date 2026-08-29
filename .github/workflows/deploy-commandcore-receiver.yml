@@ -1,6 +1,11 @@
 name: Deploy CommandCore Functions
 
 on:
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-approval-engine/**"
+      - ".github/workflows/deploy-commandcore-receiver.yml"
+      - "tests/test_commandcore_approval_engine_idempotency.py"
   workflow_dispatch:
   push:
     branches:
@@ -60,7 +65,19 @@ on:
       - ".github/workflows/deploy-commandcore-receiver.yml"
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check approval engine
+        run: deno check supabase/functions/commandcore-approval-engine/index.ts
+
   deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -141,3 +158,23 @@ jobs:
           check_health commandcore-aging-escalation
           check_health commandcore-owner-routing
           check_health commandcore-communication-gate
+
+      - name: Verify immutable approval engine health contract
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-approval-engine"
+          for attempt in 1 2 3 4 5; do
+            RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+            if echo "$RESPONSE" | grep -q '"version":"2026-08-29.2"' \
+              && echo "$RESPONSE" | grep -q '"idempotent_approval_enabled":true' \
+              && echo "$RESPONSE" | grep -q '"immutable_approval_evidence_enabled":true' \
+              && echo "$RESPONSE" | grep -q '"external_execution_enabled":false'; then
+              echo "Approval engine immutable evidence health contract passed."
+              exit 0
+            fi
+            echo "Approval engine immutable evidence contract not ready yet (attempt $attempt/5)."
+            sleep 3
+          done
+          echo "Approval engine immutable evidence health contract failed."
+          exit 1
