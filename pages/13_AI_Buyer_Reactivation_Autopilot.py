@@ -11,8 +11,10 @@ from cfh_disposition.buyer_intent import (
     build_match,
     build_match_queue,
     record_outreach,
+    record_signal,
 )
 from cfh_disposition.dwelyx import dwelyx_base_url
+from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.reactivation_autopilot import (
     ReactivationAutopilotError,
     ReactivationAutopilotStore,
@@ -86,6 +88,12 @@ def dispatch_one(job, autopilot_ledger, intent_ledger, settings, buyers_by_id, p
         updated = stop_job_for_engagement(autopilot_ledger, job_id=job.job_id, reason=stop_reason)
         return updated, intent_ledger, "stopped", stop_reason
 
+    property_record = properties_by_id.get(job.property_id)
+    if not property_record or property_record.status not in MARKETABLE_PROPERTY_STATUSES:
+        reason = "The property is no longer Ready to Launch or Marketing Live, so this outreach was cancelled."
+        updated = cancel_job(autopilot_ledger, job_id=job.job_id, notes=reason)
+        return updated, intent_ledger, "cancelled", reason
+
     current_match = fresh_match_for_job(
         job,
         buyers_by_id,
@@ -125,8 +133,8 @@ def dispatch_one(job, autopilot_ledger, intent_ledger, settings, buyers_by_id, p
 require_password()
 st.title("AI Buyer Reactivation Autopilot")
 st.caption(
-    "Turns buyer-intent matches into consent-checked email and SMS sequences, pauses when a buyer "
-    "engages, and sends approved jobs through the connected automation webhook."
+    "One buyer-reactivation workspace for intent scoring, engagement signals, consent-checked sequences, "
+    "approval, dispatch, cooldowns, and history."
 )
 
 try:
@@ -145,27 +153,28 @@ settings = ReactivationDispatchSettings.from_mapping(st.secrets)
 dwelyx_url = dwelyx_base_url(st.secrets)
 buyers_by_id = {str(buyer.buyer_id): buyer for buyer in buyers}
 properties_by_id = {str(item.property_id): item for item in properties}
+marketable_properties = [item for item in properties if item.status in MARKETABLE_PROPERTY_STATUSES]
 
 if settings.configured:
     st.success("Buyer outreach webhook is connected. Approved due jobs can be dispatched.")
 else:
     st.warning(
-        "The queue and approvals work now, but dispatch is not connected. Add "
+        "The queue, matching, engagement tracking, and approvals work now, but dispatch is not connected. Add "
         "BUYER_OUTREACH_WEBHOOK_URL or AUTOMATION_WEBHOOK_URL in Streamlit Secrets later."
     )
 
-queue_tab, build_tab, history_tab = st.tabs(
-    ["Due Queue", "Build Sequences", "Automation History"]
+queue_tab, build_tab, signal_tab, history_tab = st.tabs(
+    ["Due Queue", "Build Sequences", "Record Engagement", "Automation History"]
 )
 
 with build_tab:
     if not buyers:
         st.info("Add buyer profiles before building reactivation sequences.")
-    elif not properties:
-        st.info("Add available properties before building reactivation sequences.")
+    elif not marketable_properties:
+        st.info("No Ready to Launch or Marketing Live property is available for reactivation sequences.")
     else:
         property_options = {
-            item.display_address or str(item.property_id): item for item in properties
+            item.display_address or str(item.property_id): item for item in marketable_properties
         }
         selected_properties = st.multiselect(
             "Properties to include",
@@ -245,11 +254,11 @@ with queue_tab:
         st.write(f"**Buyer:** {selected.buyer_name}")
         st.write(f"**Property:** {selected.property_address}")
         st.write(f"**Sequence:** {selected.sequence_label}")
-        st.text_input("Recipient", value=selected.recipient, key=f"recipient_{selected.job_id}")
+        st.text_input("Recipient", value=selected.recipient, key=f"recipient_{selected.job_id}", disabled=True)
         if selected.subject:
-            st.text_input("Subject", value=selected.subject, key=f"subject_{selected.job_id}")
-        st.text_area("Approved message", value=selected.message, height=300, key=f"message_{selected.job_id}")
-        st.text_input("Tracked Dwelyx link", value=selected.tracked_link, key=f"link_{selected.job_id}")
+            st.text_input("Subject", value=selected.subject, key=f"subject_{selected.job_id}", disabled=True)
+        st.text_area("Approved message", value=selected.message, height=300, key=f"message_{selected.job_id}", disabled=True)
+        st.text_input("Tracked Dwelyx link", value=selected.tracked_link, key=f"link_{selected.job_id}", disabled=True)
 
         operator = st.text_input("Approved by", value="Sabrina", key=f"operator_{selected.job_id}")
         notes = st.text_area("Approval, delivery, or cancellation notes", height=80, key=f"notes_{selected.job_id}")
@@ -336,6 +345,14 @@ with queue_tab:
                 if stop_reason:
                     updated = stop_job_for_engagement(updated, job_id=job.job_id, reason=stop_reason)
                     continue
+                property_record = properties_by_id.get(job.property_id)
+                if not property_record or property_record.status not in MARKETABLE_PROPERTY_STATUSES:
+                    updated = cancel_job(
+                        updated,
+                        job_id=job.job_id,
+                        notes="Property is no longer Ready to Launch or Marketing Live.",
+                    )
+                    continue
                 updated = approve_job(
                     updated,
                     job_id=job.job_id,
@@ -391,6 +408,58 @@ with queue_tab:
     else:
         st.info("No reactivation jobs are due right now. Build sequences or wait for the next scheduled step.")
 
+with signal_tab:
+    st.subheader("Record Buyer Engagement")
+    st.caption("Save engagement signals here so intent scores update and later sequence steps can stop automatically.")
+    if not buyers:
+        st.info("Add buyer profiles before recording engagement.")
+    else:
+        buyer_options = {
+            f"{buyer.first_name} {buyer.last_name}".strip() or str(buyer.buyer_id): buyer
+            for buyer in buyers
+        }
+        property_options = {
+            item.display_address or str(item.property_id): item for item in properties
+        }
+        with st.form("buyer_signal_form", clear_on_submit=True):
+            buyer_name = st.selectbox("Buyer", list(buyer_options))
+            property_name = st.selectbox(
+                "Property — optional",
+                ["No specific property", *property_options],
+            )
+            signal_type = st.selectbox(
+                "Engagement signal",
+                [
+                    "dwelyx_click",
+                    "property_view",
+                    "email_open",
+                    "sms_click",
+                    "reply",
+                    "call_connected",
+                    "application_started",
+                    "showing_requested",
+                ],
+            )
+            signal_notes = st.text_area("Notes", height=80)
+            save_signal = st.form_submit_button("Save Engagement Signal", type="primary")
+        if save_signal:
+            buyer = buyer_options[buyer_name]
+            property_id = (
+                property_options[property_name].property_id
+                if property_name != "No specific property"
+                else ""
+            )
+            updated = record_signal(
+                intent_ledger,
+                buyer_id=buyer.buyer_id,
+                signal_type=signal_type,
+                property_id=property_id,
+                notes=signal_notes,
+            )
+            intent_store.save(updated)
+            st.success("Engagement signal saved. Buyer-intent scores and stop rules will use it immediately.")
+            st.rerun()
+
 with history_tab:
     rows = job_rows(autopilot_ledger)
     if rows:
@@ -405,7 +474,23 @@ with history_tab:
     else:
         st.info("No buyer-reactivation automation jobs have been created yet.")
 
+    if intent_ledger.outreach:
+        st.write("### Buyer outreach history")
+        outreach_rows = [
+            {
+                "Sent": row.sent_at.astimezone().strftime("%Y-%m-%d %I:%M %p"),
+                "Buyer ID": row.buyer_id,
+                "Property ID": row.property_id,
+                "Channel": row.channel.value,
+                "Prepared/Sent By": row.sent_by or "—",
+                "Outcome": row.outcome,
+                "Notes": row.notes or "—",
+            }
+            for row in sorted(intent_ledger.outreach, key=lambda item: item.sent_at, reverse=True)
+        ]
+        st.dataframe(pd.DataFrame(outreach_rows), use_container_width=True, hide_index=True)
+
 st.info(
-    "Every dispatch is rechecked against the buyer's current consent, Do Not Contact status, contact "
-    "information, and outreach cooldown. Replies, connected calls, applications, and showing requests stop later sequence steps."
+    "Every dispatch is rechecked against current property marketability, buyer consent, Do Not Contact status, "
+    "contact information, and outreach cooldown. Replies, connected calls, applications, and showing requests stop later sequence steps."
 )
