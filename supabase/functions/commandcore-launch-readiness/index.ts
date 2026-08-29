@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.6";
+const SERVICE_VERSION = "2026-08-29.7";
 
 type Row = Record<string, unknown>;
 
@@ -96,8 +96,20 @@ async function getServiceHealth(url: string, key: string, service: string): Prom
 }
 
 function evaluateSafetyPolicy(service: string, health: Row): SafetyPolicy {
+  if (service === "commandcore-crm-core") {
+    const healthy =
+      health.migration_safe_external_ids === true &&
+      health.destructive_delete_enabled === false &&
+      health.external_execution_enabled === false;
+    return {
+      healthy,
+      reason: healthy ? null : "crm_core_integrity_posture_not_verified",
+    };
+  }
+
   if (service === "commandcore-inbound-lead-capture") {
     const healthy =
+      health.duplicate_safe === true &&
       health.automatic_owner_routing === true &&
       health.external_assignment_override_allowed === false &&
       health.internal_assignment_override_requires_service_role === true &&
@@ -244,6 +256,7 @@ Deno.serve(async (req) => {
       crm_source_reconciliation_included: true,
       auto_rebalance_chain_included: true,
       safety_posture_assessment_included: true,
+      crm_integrity_posture_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
