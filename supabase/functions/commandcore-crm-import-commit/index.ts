@@ -1,6 +1,7 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-29.2";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_ROWS = 1000;
+const PREVIEW_CHUNK_SIZE = 250;
 
 type Row = Record<string, unknown>;
 
@@ -52,6 +53,15 @@ function entityOf(row: Row): string {
   return ["contacts", "properties", "deals"].includes(value) ? value : "";
 }
 
+function recordFor(row: Row): Row {
+  const record = row.record && typeof row.record === "object" && !Array.isArray(row.record)
+    ? { ...(row.record as Row) }
+    : { ...row };
+  delete record.approved;
+  delete record.record;
+  return record;
+}
+
 function linksFor(row: Row, ids: Map<string, string>): Row {
   const links: Row = row.links && typeof row.links === "object" && !Array.isArray(row.links)
     ? { ...(row.links as Row) }
@@ -65,6 +75,66 @@ function linksFor(row: Row, ids: Map<string, string>): Row {
   return links;
 }
 
+async function previewApprovedRows(
+  supabaseUrl: string,
+  serviceKey: string,
+  approved: Row[],
+): Promise<Row> {
+  const byEntity = new Map<string, Row[]>();
+  for (const row of approved) {
+    const entity = entityOf(row);
+    if (!entity) continue;
+    byEntity.set(entity, [...(byEntity.get(entity) || []), recordFor(row)]);
+  }
+
+  const entities: Record<string, Row> = {};
+  let wouldCreate = 0;
+  let wouldUpdate = 0;
+  let invalid = 0;
+  let duplicates = 0;
+
+  for (const [entity, records] of byEntity.entries()) {
+    let entityCreate = 0;
+    let entityUpdate = 0;
+    let entityInvalid = 0;
+    let entityDuplicates = 0;
+    for (let offset = 0; offset < records.length; offset += PREVIEW_CHUNK_SIZE) {
+      const chunk = records.slice(offset, offset + PREVIEW_CHUNK_SIZE);
+      const preview = await callService(supabaseUrl, serviceKey, "commandcore-crm-core", {
+        action: "migration_preview",
+        entity,
+        records: chunk,
+      });
+      entityCreate += Number(preview.would_create || 0);
+      entityUpdate += Number(preview.would_update || 0);
+      entityInvalid += Number(preview.invalid_count || 0);
+      entityDuplicates += Number(preview.duplicate_count || 0);
+    }
+    entities[entity] = {
+      rows: records.length,
+      would_create: entityCreate,
+      would_update: entityUpdate,
+      invalid_count: entityInvalid,
+      duplicate_count: entityDuplicates,
+    };
+    wouldCreate += entityCreate;
+    wouldUpdate += entityUpdate;
+    invalid += entityInvalid;
+    duplicates += entityDuplicates;
+  }
+
+  return {
+    live_preview_ok: true,
+    entities,
+    would_create: wouldCreate,
+    would_update: wouldUpdate,
+    invalid_count: invalid,
+    duplicate_count: duplicates,
+    records_written: 0,
+    source_records_modified: false,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -75,6 +145,7 @@ Deno.serve(async (req) => {
       approved_rows_only: true,
       deterministic_upsert: true,
       cross_record_linking: true,
+      live_migration_preview_enabled: true,
       destructive_delete_enabled: false,
       external_execution_enabled: false,
     });
@@ -109,15 +180,31 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) return jsonResponse(500, { ok: false, error: "service_not_configured" });
 
   if (!apply) {
-    return jsonResponse(200, {
-      ok: true,
-      apply_requested: false,
-      approved_rows: approved.length,
-      rejected_rows: rejected.length,
-      ready_to_commit: approved.length,
-      destructive_delete_used: false,
-      external_action_started: false,
-    });
+    try {
+      const livePreview = await previewApprovedRows(supabaseUrl, serviceKey, approved);
+      return jsonResponse(200, {
+        ok: true,
+        apply_requested: false,
+        approved_rows: approved.length,
+        rejected_rows: rejected.length,
+        ready_to_commit: approved.length,
+        ...livePreview,
+        destructive_delete_used: false,
+        external_action_started: false,
+      });
+    } catch (error) {
+      return jsonResponse(503, {
+        ok: false,
+        apply_requested: false,
+        approved_rows: approved.length,
+        rejected_rows: rejected.length,
+        error: error instanceof Error ? error.message : "live_migration_preview_failed",
+        records_written: 0,
+        source_records_modified: false,
+        destructive_delete_used: false,
+        external_action_started: false,
+      });
+    }
   }
 
   const ordered = [...approved].sort((a, b) => {
@@ -130,11 +217,7 @@ Deno.serve(async (req) => {
 
   for (const row of ordered) {
     const entity = entityOf(row);
-    const record = row.record && typeof row.record === "object" && !Array.isArray(row.record)
-      ? { ...(row.record as Row) }
-      : { ...row };
-    delete record.approved;
-    delete record.record;
+    const record = recordFor(row);
     record.links = linksFor(row, ids);
     try {
       const result = await callService(supabaseUrl, serviceKey, "commandcore-crm-core", {
