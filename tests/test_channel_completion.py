@@ -16,15 +16,15 @@ def test_every_current_channel_is_built_and_tracked_but_readiness_is_honest():
     assert not all(row.ready_to_use for row in rows)
 
 
-def test_ready_now_is_reserved_for_internal_or_complete_assisted_workflows():
+def test_finished_owned_web_and_assisted_workflows_are_ready_now():
     rows = {row.key: row for row in build_channel_completion()}
-    assert rows["property_page"].ready_to_use is True
+    for key in ("property_page", "blog", "market_seo"):
+        assert rows[key].ready_to_use is True
+        assert rows[key].connection_required is False
     for key in ("marketplace", "facebook_groups", "classifieds", "nextdoor"):
         assert rows[key].ready_to_use is True
         assert rows[key].manual_final_step_required is True
     for key in (
-        "blog",
-        "market_seo",
         "email",
         "sms",
         "reactivation",
@@ -39,9 +39,11 @@ def test_ready_now_is_reserved_for_internal_or_complete_assisted_workflows():
         assert rows[key].connection_required is True
 
 
-def test_audit_distinguishes_manual_paid_and_connected_work():
+def test_audit_distinguishes_manual_paid_approved_and_connected_work():
     rows = {row.key: row for row in build_channel_completion()}
     assert "Manual final post" in rows["marketplace"].next_requirement
+    assert "Approve" in rows["blog"].next_requirement
+    assert "public CFH inventory" in rows["market_seo"].next_requirement
     assert "Meta" in rows["meta_ads"].next_requirement
     assert "email sender" in rows["email"].next_requirement
     assert "SMS" in rows["sms"].next_requirement
@@ -54,7 +56,7 @@ def test_completion_summary_matches_rows():
     assert summary["total"] == 16
     assert summary["built"] == 16
     assert summary["tracked"] == 16
-    assert summary["ready_to_use"] == 5
-    assert summary["connection_required"] == 11
+    assert summary["ready_to_use"] == 7
+    assert summary["connection_required"] == 9
     assert summary["manual_final_step_required"] == 7
-    assert summary["not_ready_now"] == 11
+    assert summary["not_ready_now"] == 9
