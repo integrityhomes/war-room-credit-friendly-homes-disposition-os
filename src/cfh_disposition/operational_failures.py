@@ -101,47 +101,130 @@ def append_failure(
                     }
                 )
                 return ledger.model_copy(
-                    update={"updated_at": failure.occurred_at, "failures": failures}
+                    update={"failures": failures, "updated_at": failure.occurred_at}
                 )
-    failures.append(failure)
-    return ledger.model_copy(update={"updated_at": failure.occurred_at, "failures": failures})
-
-
-def build_failure(
-    failure_type: CriticalFailureType,
-    *,
-    summary: str,
-    technical_detail: str = "",
-    property_id: str = "",
-    property_address: str = "",
-    channel: str = "",
-    campaign: str = "owner_finance_homes",
-    source: str = "",
-    buyer_id: str = "",
-    now: datetime | None = None,
-) -> OperationalFailure:
-    occurred_at = now or datetime.now(UTC)
-    if occurred_at.tzinfo is None:
-        occurred_at = occurred_at.replace(tzinfo=UTC)
-    return OperationalFailure(
-        failure_type=failure_type,
-        occurred_at=occurred_at.astimezone(UTC),
-        property_id=property_id,
-        property_address=property_address,
-        channel=channel,
-        campaign=campaign,
-        source=source,
-        buyer_id=buyer_id,
-        summary=summary,
-        technical_detail=technical_detail,
-        occurrence_key=_occurrence_key(
-            failure_type,
-            property_id=property_id,
-            channel=channel,
-            campaign=campaign,
-            source=source,
-        ),
+    return ledger.model_copy(
+        update={
+            "failures": [*failures, failure],
+            "updated_at": failure.occurred_at,
+        }
     )
+
+
+def open_failures(ledger: OperationalFailureLedger) -> list[OperationalFailure]:
+    return sorted(
+        [item for item in ledger.failures if item.status == FailureStatus.OPEN],
+        key=lambda item: item.occurred_at,
+        reverse=True,
+    )
+
+
+def close_failure(
+    ledger: OperationalFailureLedger,
+    *,
+    failure_id: str,
+    actor: str,
+    resolution: str,
+    root_cause: str,
+    prevention_note: str,
+    manual_override: bool = False,
+    now: datetime | None = None,
+) -> OperationalFailureLedger:
+    timestamp = now or datetime.now(UTC)
+    found = False
+    failures: list[OperationalFailure] = []
+    for item in ledger.failures:
+        if item.failure_id != failure_id:
+            failures.append(item)
+            continue
+        found = True
+        failures.append(
+            item.model_copy(
+                update={
+                    "status": (
+                        FailureStatus.MANUAL_OVERRIDE
+                        if manual_override
+                        else FailureStatus.RESOLVED
+                    ),
+                    "root_cause": root_cause.strip() or "Unknown",
+                    "resolution": resolution.strip(),
+                    "prevention_note": prevention_note.strip(),
+                    "resolved_at": timestamp,
+                    "resolved_by": actor.strip(),
+                }
+            )
+        )
+    if not found:
+        raise OperationalFailureError("The selected failure could not be found.")
+    return ledger.model_copy(update={"failures": failures, "updated_at": timestamp})
+
+
+class OperationalFailureStore:
+    def __init__(self, values: Mapping[str, Any], client: Any | None = None) -> None:
+        settings = SupabaseSettings.from_mapping(values)
+        if not settings.configured:
+            raise OperationalFailureError(
+                "Supabase is not configured for the critical failure ledger."
+            )
+        if client is None:
+            try:
+                from supabase import create_client
+            except ImportError as exc:
+                raise OperationalFailureError("Supabase client is not installed.") from exc
+            client = create_client(settings.url, settings.secret_key)
+        self._client = client
+        self._bucket_ready = False
+
+    def _ensure_bucket(self) -> None:
+        if self._bucket_ready:
+            return
+        try:
+            self._client.storage.get_bucket(FAILURE_BUCKET)
+        except Exception:
+            try:
+                self._client.storage.create_bucket(
+                    FAILURE_BUCKET,
+                    options={
+                        "public": False,
+                        "allowed_mime_types": ["application/json"],
+                        "file_size_limit": FAILURE_MAX_BYTES,
+                    },
+                )
+            except Exception as exc:
+                raise OperationalFailureError(
+                    "Could not create the private critical failure bucket."
+                ) from exc
+        self._bucket_ready = True
+
+    def load(self) -> OperationalFailureLedger:
+        self._ensure_bucket()
+        try:
+            raw = self._client.storage.from_(FAILURE_BUCKET).download(FAILURE_LEDGER_PATH)
+        except Exception:
+            return OperationalFailureLedger()
+        try:
+            payload = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else str(raw))
+            return OperationalFailureLedger.model_validate(payload)
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise OperationalFailureError("The critical failure ledger could not be read.") from exc
+
+    def save(self, ledger: OperationalFailureLedger) -> None:
+        self._ensure_bucket()
+        payload = ledger.model_dump_json().encode("utf-8")
+        if len(payload) > FAILURE_MAX_BYTES:
+            raise OperationalFailureError("The critical failure ledger is too large to save.")
+        try:
+            self._client.storage.from_(FAILURE_BUCKET).upload(
+                path=FAILURE_LEDGER_PATH,
+                file=payload,
+                file_options={
+                    "content-type": "application/json",
+                    "cache-control": "0",
+                    "upsert": "true",
+                },
+            )
+        except Exception as exc:
+            raise OperationalFailureError("Could not save the critical failure ledger.") from exc
 
 
 def record_operational_failure(
@@ -156,140 +239,91 @@ def record_operational_failure(
     campaign: str = "owner_finance_homes",
     source: str = "",
     buyer_id: str = "",
-    now: datetime | None = None,
-) -> OperationalFailureLedger:
-    store = OperationalFailureStore(values)
-    ledger = store.load()
-    updated = append_failure(
-        ledger,
-        build_failure(
-            failure_type,
-            summary=summary,
-            technical_detail=technical_detail,
+) -> bool:
+    """Best-effort failure logging. Never raise into a buyer-facing workflow."""
+    try:
+        store = OperationalFailureStore(values)
+        ledger = store.load()
+        failure = OperationalFailure(
+            failure_type=failure_type,
             property_id=property_id,
             property_address=property_address,
             channel=channel,
             campaign=campaign,
             source=source,
             buyer_id=buyer_id,
-            now=now,
-        ),
-    )
-    store.save(updated)
-    return updated
-
-
-class OperationalFailureStore:
-    def __init__(self, values: Mapping[str, Any]) -> None:
-        settings = SupabaseSettings.from_mapping(values)
-        if not settings.configured:
-            raise OperationalFailureError(
-                "Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
-            )
-        self._url = settings.url.rstrip("/")
-        self._key = settings.service_role_key
-
-    @property
-    def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self._key}",
-            "apikey": self._key,
-            "Content-Type": "application/json",
-        }
-
-    def _ensure_bucket(self) -> None:
-        request = Request(
-            f"{self._url}/storage/v1/bucket/{FAILURE_BUCKET}",
-            headers=self._headers,
-            method="GET",
+            summary=summary,
+            technical_detail=technical_detail,
+            occurrence_key=_occurrence_key(
+                failure_type,
+                property_id=property_id,
+                channel=channel,
+                campaign=campaign,
+                source=source,
+            ),
         )
-        try:
-            with urlopen(request, timeout=20):
-                return
-        except HTTPError as exc:
-            if exc.code != 404:
-                raise OperationalFailureError(
-                    f"Could not inspect the failure-ledger bucket (HTTP {exc.code})."
-                ) from exc
-        create_request = Request(
-            f"{self._url}/storage/v1/bucket",
-            data=json.dumps({"id": FAILURE_BUCKET, "name": FAILURE_BUCKET, "public": False}).encode(),
-            headers=self._headers,
-            method="POST",
-        )
-        try:
-            with urlopen(create_request, timeout=20):
-                return
-        except HTTPError as exc:
-            if exc.code != 409:
-                raise OperationalFailureError(
-                    f"Could not create the failure-ledger bucket (HTTP {exc.code})."
-                ) from exc
-
-    def load(self) -> OperationalFailureLedger:
-        self._ensure_bucket()
-        request = Request(
-            f"{self._url}/storage/v1/object/{FAILURE_BUCKET}/{FAILURE_LEDGER_PATH}",
-            headers=self._headers,
-            method="GET",
-        )
-        try:
-            with urlopen(request, timeout=20) as response:
-                raw = response.read(FAILURE_MAX_BYTES + 1)
-        except HTTPError as exc:
-            if exc.code == 404:
-                return OperationalFailureLedger()
-            raise OperationalFailureError(
-                f"Could not read the failure-learning ledger (HTTP {exc.code})."
-            ) from exc
-        except (URLError, TimeoutError) as exc:
-            raise OperationalFailureError("Could not reach the failure-learning ledger.") from exc
-        if len(raw) > FAILURE_MAX_BYTES:
-            raise OperationalFailureError("Failure-learning ledger is larger than the safe read limit.")
-        try:
-            return OperationalFailureLedger.model_validate_json(raw)
-        except Exception as exc:
-            raise OperationalFailureError("Failure-learning ledger contains invalid data.") from exc
-
-    def save(self, ledger: OperationalFailureLedger) -> None:
-        self._ensure_bucket()
-        body = ledger.model_dump_json().encode()
-        if len(body) > FAILURE_MAX_BYTES:
-            raise OperationalFailureError("Failure-learning ledger is too large to save safely.")
-        request = Request(
-            f"{self._url}/storage/v1/object/{FAILURE_BUCKET}/{FAILURE_LEDGER_PATH}",
-            data=body,
-            headers={**self._headers, "x-upsert": "true"},
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=20):
-                return
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
-            raise OperationalFailureError(
-                f"Could not save the failure-learning ledger (HTTP {exc.code}). {detail}"
-            ) from exc
-        except (URLError, TimeoutError) as exc:
-            raise OperationalFailureError("Could not reach the failure-learning ledger while saving.") from exc
+        store.save(append_failure(ledger, failure))
+        return True
+    except OperationalFailureError:
+        return False
 
 
-def failure_rows(ledger: OperationalFailureLedger) -> list[dict[str, str | int]]:
-    rows: list[dict[str, str | int]] = []
-    for failure in sorted(ledger.failures, key=lambda item: item.occurred_at, reverse=True):
-        rows.append(
-            {
-                "Occurred": failure.occurred_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC"),
-                "Type": failure.failure_type.value,
-                "Status": failure.status.value,
-                "Property": failure.property_address or failure.property_id,
-                "Channel": failure.channel,
-                "Campaign": failure.campaign,
-                "Summary": failure.summary,
-                "Repeat count": failure.repeat_count,
-                "Root cause": failure.root_cause,
-                "Resolution": failure.resolution,
-                "Prevention note": failure.prevention_note,
-            }
-        )
-    return rows
+def render_critical_failure_banner(values: Mapping[str, Any]) -> None:
+    """Render open critical failures on the main operating screen with manual override."""
+    try:
+        store = OperationalFailureStore(values)
+        ledger = store.load()
+    except OperationalFailureError as exc:
+        st.error(f"CRITICAL: Failure monitoring is unavailable — {exc}")
+        return
+
+    failures = open_failures(ledger)
+    if not failures:
+        st.success("Critical failure monitor: no open email, SMS, landing-page, Facebook, lead-capture, or sold-shutdown failures.")
+        return
+
+    st.error(f"CRITICAL FAILURES — {len(failures)} open item(s) need attention before they can silently cost leads.")
+    for item in failures[:10]:
+        label = f"{item.failure_type.value}: {item.summary}"
+        if item.repeat_count > 1:
+            label += f" — repeated {item.repeat_count} times"
+        with st.expander(label, expanded=True):
+            if item.property_address:
+                st.write(f"**Property:** {item.property_address}")
+            if item.channel:
+                st.write(f"**Channel:** {item.channel}")
+            st.write(f"**Occurred:** {item.occurred_at.astimezone().strftime('%Y-%m-%d %I:%M %p')}")
+            actor = st.text_input("Handled by", key=f"failure_actor_{item.failure_id}")
+            root_cause = st.text_area("What caused it?", key=f"failure_cause_{item.failure_id}")
+            resolution = st.text_area("What did you do to fix or work around it?", key=f"failure_resolution_{item.failure_id}")
+            prevention = st.text_area("What should prevent this next time?", key=f"failure_prevention_{item.failure_id}")
+            resolved_col, override_col = st.columns(2)
+            if resolved_col.button("Mark Fixed", key=f"failure_fixed_{item.failure_id}", use_container_width=True):
+                try:
+                    updated = close_failure(
+                        ledger,
+                        failure_id=item.failure_id,
+                        actor=actor or "Unknown operator",
+                        resolution=resolution or "Fixed and verified manually.",
+                        root_cause=root_cause or "Unknown",
+                        prevention_note=prevention,
+                    )
+                    store.save(updated)
+                    st.rerun()
+                except OperationalFailureError as exc:
+                    st.error(str(exc))
+            if override_col.button("Manual Override / Continue", key=f"failure_override_{item.failure_id}", use_container_width=True):
+                try:
+                    updated = close_failure(
+                        ledger,
+                        failure_id=item.failure_id,
+                        actor=actor or "Unknown operator",
+                        resolution=resolution or "Manual override used; automated path not verified.",
+                        root_cause=root_cause or "Unknown",
+                        prevention_note=prevention,
+                        manual_override=True,
+                    )
+                    store.save(updated)
+                    st.rerun()
+                except OperationalFailureError as exc:
+                    st.error(str(exc))
