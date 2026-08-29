@@ -25,3 +25,9 @@ def test_open_closing_does_not_release_dispo() -> None:
     record = valid_closing()
     record["status"] = "open"
     assert verified_closing(record) is False
+
+
+def test_closed_at_timestamp_is_required() -> None:
+    record = valid_closing()
+    record["closed_at"] = ""
+    assert verified_closing(record) is False
