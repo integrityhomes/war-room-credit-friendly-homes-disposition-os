@@ -69,6 +69,36 @@ def post_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
     return parsed
 
 
+def load_launch_readiness() -> dict[str, Any]:
+    """Read the existing launch-readiness auditor without hiding an unhealthy 503 response."""
+    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
+    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not supabase_url or not service_key:
+        raise RuntimeError("CommandCore services are not configured.")
+    req = Request(
+        f"{supabase_url}/functions/v1/commandcore-launch-readiness",
+        data=b"{}",
+        method="POST",
+        headers={"Authorization": f"Bearer {service_key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(req, timeout=30) as response:  # noqa: S310
+            parsed = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+        except json.JSONDecodeError as parse_exc:
+            raise RuntimeError(f"CommandCore readiness request failed ({exc.code}).") from parse_exc
+        if exc.code != 503 or not isinstance(parsed, dict):
+            raise RuntimeError(f"CommandCore readiness request failed ({exc.code}).") from exc
+    except URLError as exc:
+        raise RuntimeError("CommandCore readiness auditor could not be reached.") from exc
+    if not isinstance(parsed, dict) or "launch_ready" not in parsed:
+        raise RuntimeError("CommandCore readiness auditor returned an invalid response.")
+    return parsed
+
+
 def load_queue_items() -> list[dict[str, Any]]:
     client = get_supabase()
     rows = client.storage.from_(ACTION_BUCKET).list("dispatches") or []
@@ -199,9 +229,41 @@ if st.sidebar.button("Log out", key="commandcore_operations_hub_logout"):
 
 st.title("CommandCore Operations Hub")
 st.caption(
-    "One management screen for human-work escalations and aged coverage failures. "
+    "One management screen for system readiness, human-work escalations, and aged coverage failures. "
     "READY internal work stays out of the way and continues automatically."
 )
+
+readiness: dict[str, Any] | None = None
+readiness_error: str | None = None
+try:
+    readiness = load_launch_readiness()
+except Exception as exc:
+    readiness_error = str(exc)
+
+st.subheader("CommandCore System Readiness")
+if readiness_error:
+    st.error(f"System readiness could not be verified: {readiness_error}")
+elif readiness is not None:
+    launch_ready = readiness.get("launch_ready") is True
+    required_count = int(readiness.get("required_service_count") or 0)
+    healthy_count = int(readiness.get("healthy_service_count") or 0)
+    failed_count = int(readiness.get("failed_required_count") or 0)
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Critical Chain", "READY" if launch_ready else "NOT READY")
+    r2.metric("Healthy Services", f"{healthy_count}/{required_count}")
+    r3.metric("Failed Required", failed_count)
+    if launch_ready:
+        st.success("The required CommandCore operating chain is healthy.")
+    else:
+        failed_services = readiness.get("failed_required_services")
+        failed_names = [str(name) for name in failed_services] if isinstance(failed_services, list) else []
+        st.error("CommandCore is not launch-ready. Required service failures need attention before relying on automation.")
+        if failed_names:
+            st.dataframe(
+                [{"Failed Required Service": name} for name in failed_names],
+                use_container_width=True,
+                hide_index=True,
+            )
 
 try:
     queue_items = load_queue_items()
@@ -219,6 +281,7 @@ human_critical = sum(row["Urgency"] == "CRITICAL" for row in human)
 coverage_executive = sum(row["Urgency"] == "EXECUTIVE" for row in coverage)
 coverage_escalated = sum(row["Urgency"] == "ESCALATED" for row in coverage)
 
+st.subheader("Management Workload Alerts")
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Human Critical", human_critical)
 m2.metric("Human Needs Attention", len(human))
