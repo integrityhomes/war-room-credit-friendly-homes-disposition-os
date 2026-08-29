@@ -1,15 +1,33 @@
 name: Deploy CommandCore Launch Readiness
 
 on:
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-launch-readiness/**"
+      - ".github/workflows/deploy-commandcore-launch-readiness.yml"
+      - "tests/test_commandcore_crm_cutover_readiness.py"
   push:
     branches: [main]
     paths:
       - "supabase/functions/commandcore-launch-readiness/**"
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
+      - "tests/test_commandcore_crm_cutover_readiness.py"
   workflow_dispatch:
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check launch readiness auditor
+        run: deno check supabase/functions/commandcore-launch-readiness/index.ts
+
   deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -31,8 +49,8 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-launch-readiness"
-          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("live_chain_check_requires_authentication") is True; assert data.get("external_execution_enabled") is False; print("health=ok")'
-      - name: Verify complete CommandCore operating chain
+          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("live_chain_check_requires_authentication") is True; assert data.get("crm_cutover_assessment_included") is True; assert data.get("external_execution_enabled") is False; print("health=ok")'
+      - name: Verify complete CommandCore operating chain and CRM cutover guard
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -46,5 +64,4 @@ jobs:
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Content-Type: application/json" \
             --data '{}')"
-          printf '%s\n' "$RESPONSE"
-          printf '%s' "$RESPONSE" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("launch_ready") is True; assert data.get("failed_required_count") == 0; assert data.get("external_action_started") is False; assert data.get("destructive_action_started") is False; assert data.get("owner_approval_bypassed") is False; print(f"full_chain=ready healthy={data.get(chr(104)+chr(101)+chr(97)+chr(108)+chr(116)+chr(104)+chr(121)+chr(95)+chr(115)+chr(101)+chr(114)+chr(118)+chr(105)+chr(99)+chr(101)+chr(95)+chr(99)+chr(111)+chr(117)+chr(110)+chr(116))}/{data.get(chr(114)+chr(101)+chr(113)+chr(117)+chr(105)+chr(114)+chr(101)+chr(100)+chr(95)+chr(115)+chr(101)+chr(114)+chr(118)+chr(105)+chr(99)+chr(101)+chr(95)+chr(99)+chr(111)+chr(117)+chr(110)+chr(116))}")'
+          printf '%s' "$RESPONSE" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("launch_ready") is True; assert data.get("failed_required_count") == 0; cutover=data.get("crm_cutover"); assert isinstance(cutover,dict); assert cutover.get("crm_cutover_ready") is False; assert cutover.get("source_crm_data_reconciliation_verified") is False; assert isinstance(cutover.get("blockers"),list) and len(cutover.get("blockers")) > 0; assert data.get("external_action_started") is False; assert data.get("destructive_action_started") is False; assert data.get("owner_approval_bypassed") is False; print("full_chain=ready crm_cutover_ready=false unsupported=%s" % len(cutover.get("unsupported_migration_entities",[])))'
