@@ -6,10 +6,14 @@ on:
       - "supabase/functions/commandcore-approval-engine/**"
       - "supabase/functions/commandcore-dispatch-worker/**"
       - "supabase/functions/commandcore-execution-readiness/**"
+      - "supabase/functions/commandcore-market-seo/**"
+      - "src/cfh_disposition/market_seo_public.py"
+      - "app.py"
       - ".github/workflows/deploy-commandcore-receiver.yml"
       - "tests/test_commandcore_approval_engine_idempotency.py"
       - "tests/test_commandcore_dispatch_worker_state_preservation.py"
       - "tests/test_commandcore_execution_readiness_handoff_contract.py"
+      - "tests/test_market_seo_publication.py"
   workflow_dispatch:
   push:
     branches:
@@ -66,7 +70,10 @@ on:
       - "supabase/functions/commandcore-operator-state/**"
       - "supabase/functions/commandcore-aging-escalation/**"
       - "supabase/functions/commandcore-owner-routing/**"
+      - "src/cfh_disposition/market_seo_public.py"
+      - "app.py"
       - ".github/workflows/deploy-commandcore-receiver.yml"
+      - "tests/test_market_seo_publication.py"
 
 jobs:
   validate:
@@ -82,6 +89,8 @@ jobs:
         run: deno check supabase/functions/commandcore-dispatch-worker/index.ts
       - name: Check execution readiness
         run: deno check supabase/functions/commandcore-execution-readiness/index.ts
+      - name: Check market SEO adapter
+        run: deno check supabase/functions/commandcore-market-seo/index.ts
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -223,10 +232,32 @@ jobs:
               && echo "$RESPONSE" | grep -q '"connection_evidence_fail_closed":true' \
               && echo "$RESPONSE" | grep -q '"external_execution_enabled":false'; then
               echo "Execution readiness handoff health contract passed."
-              exit 0
+              break
             fi
             echo "Execution readiness handoff contract not ready yet (attempt $attempt/5)."
+            if [ "$attempt" -eq 5 ]; then
+              echo "Execution readiness handoff health contract failed."
+              exit 1
+            fi
             sleep 3
           done
-          echo "Execution readiness handoff health contract failed."
+
+      - name: Verify live market SEO health contract
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-market-seo"
+          for attempt in 1 2 3 4 5; do
+            RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+            if echo "$RESPONSE" | grep -q '"version":"2026-08-29.1"' \
+              && echo "$RESPONSE" | grep -q '"public_market_pages_enabled":true' \
+              && echo "$RESPONSE" | grep -q '"page_route_contract":"?market={city-state-slug}"' \
+              && echo "$RESPONSE" | grep -q '"external_action_started":false'; then
+              echo "Live market SEO health contract passed."
+              exit 0
+            fi
+            echo "Live market SEO contract not ready yet (attempt $attempt/5)."
+            sleep 3
+          done
+          echo "Live market SEO health contract failed."
           exit 1
