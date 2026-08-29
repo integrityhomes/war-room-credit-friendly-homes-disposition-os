@@ -77,10 +77,7 @@ def related_to_deal(record: dict[str, Any], deal_id: str) -> bool:
 
 def save_related(entity: str, deal_id: str, record: dict[str, Any]) -> bool:
     record_links = links(record)
-    payload = {
-        **record,
-        "links": {**record_links, "deal_id": deal_id},
-    }
+    payload = {**record, "links": {**record_links, "deal_id": deal_id}}
     result = call_crm({"action": "upsert", "entity": entity, "record": payload})
     return bool(result.get("ok"))
 
@@ -106,13 +103,59 @@ def show_related_table(entity: str, rows: list[dict[str, Any]]) -> None:
     st.dataframe(table, use_container_width=True, hide_index=True)
 
 
+def open_task_exists(rows: list[dict[str, Any]], work_type: str) -> bool:
+    for row in rows:
+        status = text(row.get("status")).lower()
+        if text(row.get("work_type")) == work_type and status not in {
+            "done",
+            "completed",
+            "closed",
+            "cancelled",
+            "canceled",
+        }:
+            return True
+    return False
+
+
+def create_work_request(
+    deal: dict[str, Any],
+    deal_id: str,
+    related_tasks: list[dict[str, Any]],
+    work_type: str,
+    title: str,
+) -> None:
+    if open_task_exists(related_tasks, work_type):
+        st.info(f"An open '{title}' request already exists for this deal.")
+        return
+    saved = save_related(
+        "tasks",
+        deal_id,
+        {
+            "title": title,
+            "work_type": work_type,
+            "task_type": "deal_lifecycle_request",
+            "status": "open",
+            "priority": "high" if work_type in {"prepare_offer", "prepare_contract", "title_closing"} else "medium",
+            "assigned_to": text(deal.get("assigned_to")) or None,
+            "source": "commandcore-deal-record",
+        },
+    )
+    if saved:
+        st.success(f"{title} request added to the deal.")
+        st.rerun()
+    st.error("CommandCore could not create the work request.")
+
+
 require_password()
 if st.sidebar.button("Log out", key="commandcore_deal_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
 st.title("CommandCore Unified Deal Record")
-st.caption("Open one deal and see the seller, property, tasks, communications, offers, documents, transactions, and activity history together.")
+st.caption(
+    "Open one deal and see the seller, property, tasks, communications, offers, documents, transactions, "
+    "and activity history together."
+)
 
 deals = list_records("deals")
 if not deals:
@@ -140,7 +183,10 @@ seller_col, property_col = st.columns(2)
 with seller_col:
     st.markdown("### Seller")
     if seller:
-        st.write(text(seller.get("name")) or " ".join(filter(None, [text(seller.get("first_name")), text(seller.get("last_name"))])))
+        seller_name = text(seller.get("name")) or " ".join(
+            filter(None, [text(seller.get("first_name")), text(seller.get("last_name"))])
+        )
+        st.write(seller_name)
         st.caption(" • ".join(filter(None, [text(seller.get("phone")), text(seller.get("email"))])))
         if text(seller.get("notes")):
             st.write(text(seller.get("notes")))
@@ -150,7 +196,16 @@ with property_col:
     st.markdown("### Property")
     if property_record:
         st.write(text(property_record.get("address")) or "Property")
-        location = ", ".join(filter(None, [text(property_record.get("city")), text(property_record.get("state")), text(property_record.get("zip"))]))
+        location = ", ".join(
+            filter(
+                None,
+                [
+                    text(property_record.get("city")),
+                    text(property_record.get("state")),
+                    text(property_record.get("zip")),
+                ],
+            )
+        )
         st.caption(location)
         facts = " • ".join(
             filter(
@@ -158,7 +213,9 @@ with property_col:
                 [
                     f"{text(property_record.get('bedrooms'))} bd" if text(property_record.get("bedrooms")) else "",
                     f"{text(property_record.get('bathrooms'))} ba" if text(property_record.get("bathrooms")) else "",
-                    f"{text(property_record.get('square_feet'))} sqft" if text(property_record.get("square_feet")) else "",
+                    f"{text(property_record.get('square_feet'))} sqft"
+                    if text(property_record.get("square_feet"))
+                    else "",
                 ],
             )
         )
@@ -173,8 +230,8 @@ related = {
     for entity in RELATED_ENTITIES
 }
 
-overview, tasks_tab, communications_tab, offers_tab, documents_tab, history_tab = st.tabs(
-    ["Overview", "Tasks", "Communications", "Offers", "Documents", "History"]
+overview, workflow_tab, tasks_tab, communications_tab, offers_tab, documents_tab, history_tab = st.tabs(
+    ["Overview", "Workflow", "Tasks", "Communications", "Offers", "Documents", "History"]
 )
 
 with overview:
@@ -200,6 +257,53 @@ with overview:
                 st.rerun()
             st.error("CommandCore could not save the note.")
 
+with workflow_tab:
+    st.markdown("### Deal lifecycle")
+    st.caption(
+        "Start the next internal work from this deal. These buttons create tracked work requests only; they do "
+        "not send offers, sign contracts, change legal terms, spend money, or contact outside parties."
+    )
+    stage = text(deal.get("stage")) or "New Lead"
+    st.info(f"Current pipeline stage: **{stage}**")
+    first_row = st.columns(3)
+    if first_row[0].button("Request Deal Analysis", use_container_width=True):
+        create_work_request(deal, deal_id, related["tasks"], "deal_analysis", "Analyze deal")
+    if first_row[1].button("Request Offer Prep", use_container_width=True):
+        create_work_request(deal, deal_id, related["tasks"], "prepare_offer", "Prepare offer for approval")
+    if first_row[2].button("Request Contract Prep", use_container_width=True):
+        create_work_request(
+            deal,
+            deal_id,
+            related["tasks"],
+            "prepare_contract",
+            "Prepare contract package for approval",
+        )
+    second_row = st.columns(2)
+    if second_row[0].button("Request Title / Closing Work", use_container_width=True):
+        create_work_request(
+            deal,
+            deal_id,
+            related["tasks"],
+            "title_closing",
+            "Review title and closing requirements",
+        )
+    if second_row[1].button("Request Marketing / Dispo", use_container_width=True):
+        create_work_request(
+            deal,
+            deal_id,
+            related["tasks"],
+            "marketing_dispo",
+            "Prepare marketing and disposition handoff",
+        )
+
+    lifecycle_rows = [
+        task
+        for task in related["tasks"]
+        if text(task.get("task_type")) == "deal_lifecycle_request"
+    ]
+    st.markdown("### Lifecycle work already started")
+    show_related_table("tasks", lifecycle_rows)
+
 with tasks_tab:
     with st.form("new_task"):
         title = st.text_input("Task")
@@ -224,7 +328,9 @@ with tasks_tab:
     show_related_table("tasks", related["tasks"])
 
 with communications_tab:
-    st.caption("Communication history is shown here. Sending remains controlled by the communication/approval workflows.")
+    st.caption(
+        "Communication history is shown here. Sending remains controlled by the communication/approval workflows."
+    )
     show_related_table("communications", related["communications"])
 
 with offers_tab:
@@ -240,4 +346,7 @@ with history_tab:
     show_related_table("transactions", related["transactions"])
 
 st.divider()
-st.caption("This view organizes internal CRM information only. It does not send messages, approve offers, sign contracts, change legal terms, or move money.")
+st.caption(
+    "This view organizes internal CRM information and tracked work requests only. It does not send messages, "
+    "approve offers, sign contracts, change legal terms, or move money."
+)
