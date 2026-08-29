@@ -22,6 +22,7 @@ class OperationalFailureError(RuntimeError):
 
 
 class CriticalFailureType(StrEnum):
+    EMAIL = "Email"
     SMS = "SMS"
     LANDING_PAGE_SUBMIT = "Landing-page submit"
     FACEBOOK_TASK = "Facebook task"
@@ -278,7 +279,7 @@ def render_critical_failure_banner(values: Mapping[str, Any]) -> None:
 
     failures = open_failures(ledger)
     if not failures:
-        st.success("Critical failure monitor: no open SMS, landing-page, Facebook, lead-capture, or sold-shutdown failures.")
+        st.success("Critical failure monitor: no open email, SMS, landing-page, Facebook, lead-capture, or sold-shutdown failures.")
         return
 
     st.error(f"CRITICAL FAILURES — {len(failures)} open item(s) need attention before they can silently cost leads.")
