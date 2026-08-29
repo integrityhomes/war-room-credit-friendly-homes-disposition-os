@@ -97,25 +97,16 @@ def save_decision(
         raise RuntimeError("Approval item has no record ID.")
     timestamp = now_iso()
     new_status = "owner_approved" if decision == "approve" else "owner_rejected"
-    updated = {
-        **record,
-        "status": new_status,
-        "owner_approval_status": new_status,
-        "owner_approval_decision": decision,
-        "owner_approved_by": owner_name if decision == "approve" else None,
-        "owner_rejected_by": owner_name if decision == "reject" else None,
-        "owner_decided_at": timestamp,
-        "owner_decision_reason": reason or None,
-        "external_action_started": False,
-    }
-    upsert(entity, updated)
-
     deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
+    history_external_id = f"owner-decision-{entity}-{record_id}"
+
+    # Write deterministic permanent history first. If the record-state write fails,
+    # a retry updates this same activity instead of creating a duplicate or losing history.
     upsert(
         "activities",
         {
             "source": "commandcore-owner-approval-queue",
-            "external_id": f"owner-decision-{entity}-{record_id}-{timestamp}",
+            "external_id": history_external_id,
             "activity_type": "owner_approval_decision",
             "title": f"Owner {decision}d {entity[:-1] if entity.endswith('s') else entity}",
             "summary": f"{owner_name} {decision}d an owner-gated CommandCore item.",
@@ -126,11 +117,27 @@ def save_decision(
                 "decision": decision,
                 "owner_name": owner_name,
                 "reason": reason or None,
+                "owner_decision_recorded": True,
                 "external_action_started": False,
             },
             "links": {"deal_id": deal_id or None, f"{entity[:-1]}_id": record_id},
         },
     )
+
+    updated = {
+        **record,
+        "status": new_status,
+        "owner_approval_status": new_status,
+        "owner_approval_decision": decision,
+        "owner_approved_by": owner_name if decision == "approve" else None,
+        "owner_rejected_by": owner_name if decision == "reject" else None,
+        "owner_decided_at": timestamp,
+        "owner_decision_reason": reason or None,
+        "owner_decision_history_external_id": history_external_id,
+        "owner_decision_history_recorded": True,
+        "external_action_started": False,
+    }
+    upsert(entity, updated)
 
 
 def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
