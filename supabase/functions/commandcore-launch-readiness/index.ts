@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.1";
+const SERVICE_VERSION = "2026-08-29.2";
 
 type Row = Record<string, unknown>;
 
@@ -11,8 +11,12 @@ const REQUIRED_SERVICES: ServiceCheck[] = [
   { service: "commandcore-crm-core", required: true },
   { service: "commandcore-inbound-lead-capture", required: true },
   { service: "commandcore-owner-routing", required: true },
+  { service: "commandcore-action-queue", required: true },
+  { service: "commandcore-crm-followup-sync", required: true },
   { service: "commandcore-followup-intelligence", required: true },
+  { service: "commandcore-stage-intelligence", required: true },
   { service: "commandcore-owner-approval-release", required: true },
+  { service: "commandcore-approval-engine", required: true },
   { service: "commandcore-deal-lifecycle-coordinator", required: true },
   { service: "commandcore-deal-lifecycle-readiness", required: true },
   { service: "commandcore-deal-specialist-prep", required: true },
@@ -20,6 +24,12 @@ const REQUIRED_SERVICES: ServiceCheck[] = [
   { service: "commandcore-executed-contract-handoff", required: true },
   { service: "commandcore-closing-dispo-handoff", required: true },
   { service: "commandcore-deal-completion", required: true },
+  { service: "commandcore-adapter-registry", required: true },
+  { service: "commandcore-contact-ledger", required: true },
+  { service: "commandcore-outbound-prep", required: true },
+  { service: "commandcore-communication-gate", required: true },
+  { service: "commandcore-execution-readiness", required: true },
+  { service: "commandcore-dispatch-worker", required: true },
   { service: "commandcore-deal-flow-orchestrator", required: true },
 ];
 
