@@ -23,7 +23,6 @@ def test_current_internal_finish_backlog_is_explicit() -> None:
     assert backlog == {
         "pages/14_AI_Creative_Winner_Rotation.py",
         "pages/15_AI_Buyer_Acquisition_Growth.py",
-        "pages/16_AI_Buyer_Conversion_Command_Center.py",
     }
 
 
