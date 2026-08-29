@@ -24,6 +24,8 @@ Build a focused owner-finance disposition operating system for Credit Friendly H
 - Use Python 3.12, Streamlit, Pydantic, pytest, and Ruff.
 - Add tests for important business and compliance logic.
 - Keep pull requests small and focused.
-- Do not merge automatically.
-- Run linting and tests before opening a draft PR.
+- Routine CommandCore pull requests may merge automatically only after all required CI checks pass, the pull request is conflict-free and mergeable, and the verified head SHA has not changed.
+- Never auto-merge changes involving credentials or secrets, destructive data changes, legal or compliance decisions, spending or money movement, bank-information changes, signing or binding agreements, major architecture changes, or other consequential owner approvals. Stop for explicit owner approval on those items.
+- Do not bypass branch protection, required checks, owner approval gates, or repository safety controls in order to merge.
+- Run linting and tests before opening a pull request whenever tools allow; open routine PRs as non-draft when they are ready for CI.
 - Use provider adapters so WordPress, OpenAI, REI BlackBook, Supabase, and social integrations can be replaced.
