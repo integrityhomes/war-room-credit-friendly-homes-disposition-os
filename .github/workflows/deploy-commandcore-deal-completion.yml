@@ -1,14 +1,33 @@
 name: Deploy CommandCore Deal Completion
 
 on:
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-deal-completion/**"
+      - ".github/workflows/deploy-commandcore-deal-completion.yml"
+      - "tests/test_commandcore_crash_safe_history.py"
   push:
     branches: [main]
     paths:
       - "supabase/functions/commandcore-deal-completion/**"
+      - ".github/workflows/deploy-commandcore-deal-completion.yml"
+      - "tests/test_commandcore_crash_safe_history.py"
   workflow_dispatch:
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check deal completion coordinator
+        run: deno check supabase/functions/commandcore-deal-completion/index.ts
+
   deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -22,12 +41,14 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
+          set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
           supabase functions deploy commandcore-deal-completion --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-      - name: Verify health
+      - name: Verify crash-safe health contract
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
+          set -euo pipefail
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-deal-completion"
-          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("explicit_completion_evidence_required") is True; assert data.get("marketing_sold_flag_sufficient") is False; assert data.get("external_execution_enabled") is False; print("health=ok")'
+          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("version") == "2026-08-29.3"; assert data.get("explicit_completion_evidence_required") is True; assert data.get("marketing_sold_flag_sufficient") is False; assert data.get("crash_safe_history_enabled") is True; assert data.get("external_execution_enabled") is False; print("health=ok version=2026-08-29.3 crash_safe_history=enabled")'
