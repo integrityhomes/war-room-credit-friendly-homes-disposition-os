@@ -1,0 +1,26 @@
+name: CommandCore Owner Approval Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+jobs:
+  release-approved-work:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release owner-approved work internally
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-owner-approval-release"
+          RESPONSE="$(curl --silent --show-error --fail \
+            -X POST \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$URL")"
+          echo "$RESPONSE" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("external_action_started") is False; print("released_count=", data.get("released_count", 0))'
