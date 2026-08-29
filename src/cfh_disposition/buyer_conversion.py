@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .fact_lock import MARKETABLE_PROPERTY_STATUSES
 from .models import BuyerProfile, OwnerFinanceProperty, PropertyStatus
 from .storage import SupabaseSettings
 
@@ -318,8 +319,10 @@ def create_conversion_record(
     current = _current(now)
     if buyer.do_not_contact:
         raise BuyerConversionError("This buyer is marked Do Not Contact and cannot be added to a new follow-up sequence.")
-    if property_record.status == PropertyStatus.SOLD:
-        raise BuyerConversionError("A sold property cannot receive a new buyer conversion record.")
+    if property_record.status not in MARKETABLE_PROPERTY_STATUSES:
+        raise BuyerConversionError(
+            "New buyer conversion work requires a property that is Ready to Launch or Marketing Live."
+        )
     duplicate = next(
         (
             record
