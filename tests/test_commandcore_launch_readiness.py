@@ -42,6 +42,7 @@ def test_launch_readiness_checks_full_critical_chain() -> None:
     assert "auto_rebalance_chain_included: true" in source
     assert "safety_posture_assessment_included: true" in source
     assert "crm_integrity_posture_included: true" in source
+    assert "owner_approval_release_posture_included: true" in source
 
 
 def test_launch_readiness_requires_critical_safety_postures() -> None:
@@ -55,6 +56,10 @@ def test_launch_readiness_requires_critical_safety_postures() -> None:
     assert "health.automatic_owner_routing === true" in source
     assert "health.external_assignment_override_allowed === false" in source
     assert "health.internal_assignment_override_requires_service_role === true" in source
+    assert 'service === "commandcore-owner-approval-release"' in source
+    assert "health.idempotent_release_enabled === true" in source
+    assert "health.stable_release_timestamp_enabled === true" in source
+    assert "owner_approval_release_idempotency_not_verified" in source
     assert 'service === "commandcore-auto-rebalance"' in source
     assert "health.low_risk_assignment_only === true" in source
     assert "health.high_confidence_only === true" in source
