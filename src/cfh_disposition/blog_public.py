@@ -5,10 +5,10 @@ from uuid import UUID
 import streamlit as st
 
 from .campaign_launch import (
+    campaign_slug,
     CampaignLaunchStore,
     LaunchStatus,
     LaunchStoreError,
-    campaign_slug,
 )
 from .channel_tracking import build_channel_links
 from .dwelyx import dwelyx_base_url, tracking_app_base_url
