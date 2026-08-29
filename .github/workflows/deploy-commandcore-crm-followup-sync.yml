@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - agent/commandcore-pipeline-followup
     paths:
       - "supabase/functions/commandcore-crm-followup-sync/**"
