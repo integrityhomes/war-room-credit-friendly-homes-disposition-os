@@ -210,5 +210,7 @@ if export_rows:
     )
 
 st.warning(
-    "Before any future launch: verify the property is still available, verify all terms, review current platform housing/financial-services requirements, and obtain explicit owner approval for the exact budget and targeting. Do not promise buyer approval."
+    "Before any future launch: verify the property is still available, verify all terms, "
+    "review current platform housing/financial-services requirements, and obtain explicit "
+    "owner approval for the exact budget and targeting. Do not promise buyer approval."
 )
