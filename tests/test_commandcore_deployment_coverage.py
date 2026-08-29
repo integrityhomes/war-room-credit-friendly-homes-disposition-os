@@ -27,6 +27,9 @@ REQUIRED_SERVICES = (
     "commandcore-execution-readiness",
     "commandcore-dispatch-worker",
     "commandcore-deal-flow-orchestrator",
+    "commandcore-workload-balance-advisor",
+    "commandcore-safe-rebalance-apply",
+    "commandcore-auto-rebalance",
 )
 
 
