@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-28.2";
 const MAX_BODY_BYTES = 128 * 1024;
 
 type Row = Record<string, unknown>;
@@ -92,6 +92,50 @@ async function callCrm(url: string, key: string, entity: string, record: Row): P
   return obj(parsed.record);
 }
 
+async function routeLead(
+  url: string,
+  key: string,
+  stable: string,
+  source: string,
+  propertyId: string,
+): Promise<Row> {
+  try {
+    const response = await fetch(`${url}/functions/v1/commandcore-owner-routing`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [{
+          action_id: `inbound-lead-${stable}`,
+          property_id: propertyId || null,
+          channel_key: source,
+          readiness: "manual",
+          reasons: ["new_lead"],
+          required_actions: ["work new lead"],
+        }],
+      }),
+    });
+    const parsed = await response.json().catch(() => ({})) as Row;
+    if (!response.ok || parsed.ok !== true) {
+      return { status: "unassigned", reason: text(parsed.error) || `routing_failed_${response.status}` };
+    }
+    const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
+    const assignment = assignments.length ? obj(assignments[0]) : {};
+    if (!text(assignment.owner_id) && !text(assignment.owner_name)) {
+      return { status: "unassigned", reason: "no_available_owner" };
+    }
+    return {
+      status: "assigned",
+      owner_id: text(assignment.owner_id) || null,
+      owner_name: text(assignment.owner_name) || null,
+      routing_reason: text(assignment.routing_reason) || null,
+      capacity_score: assignment.capacity_score ?? null,
+    };
+  } catch (error) {
+    console.error("CommandCore inbound lead routing failed", error);
+    return { status: "unassigned", reason: "routing_service_unavailable" };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -101,6 +145,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       supported_lead_types: ["seller", "agent", "other"],
       duplicate_safe: true,
+      automatic_owner_routing: true,
       external_execution_enabled: false,
     });
   }
@@ -180,6 +225,12 @@ Deno.serve(async (req) => {
       });
     }
 
+    const explicitOwner = text(lead.assigned_to);
+    const routing = explicitOwner
+      ? { status: "explicit", owner_name: explicitOwner }
+      : await routeLead(supabaseUrl, serviceKey, stable, source, text(property.id));
+    const assignedTo = explicitOwner || text(routing.owner_name) || text(routing.owner_id) || null;
+
     const propertyLabel = address || text(lead.city) || "property not yet identified";
     const deal = await callCrm(supabaseUrl, serviceKey, "deals", {
       source,
@@ -189,7 +240,10 @@ Deno.serve(async (req) => {
       stage: "New Lead",
       lead_type: leadType,
       inbound_channel: text(lead.channel || source),
-      assigned_to: text(lead.assigned_to) || null,
+      assigned_to: assignedTo,
+      assignment_status: text(routing.status) || (assignedTo ? "assigned" : "unassigned"),
+      assignment_owner_id: text(routing.owner_id) || null,
+      assignment_reason: text(routing.routing_reason || routing.reason) || null,
       asking_price: lead.asking_price ?? null,
       motivation: text(lead.motivation) || null,
       timeline: text(lead.timeline) || null,
@@ -211,6 +265,9 @@ Deno.serve(async (req) => {
         lead_type: leadType,
         source,
         raw_lead_reference: originalExternal || null,
+        assignment_status: text(routing.status) || null,
+        assigned_to: assignedTo,
+        assignment_reason: text(routing.routing_reason || routing.reason) || null,
       },
       links: {
         deal_id: text(deal.id) || null,
@@ -227,6 +284,8 @@ Deno.serve(async (req) => {
       deal_id: text(deal.id) || null,
       activity_id: text(activity.id) || null,
       stage: "New Lead",
+      assigned_to: assignedTo,
+      assignment_status: text(routing.status) || null,
       external_action_started: false,
     });
   } catch (error) {

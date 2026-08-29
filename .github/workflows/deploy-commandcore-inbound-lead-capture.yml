@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - agent/commandcore-inbound-lead-capture
+      - commandcore-inbound-auto-assignment
     paths:
       - "supabase/functions/commandcore-inbound-lead-capture/**"
       - ".github/workflows/deploy-commandcore-inbound-lead-capture.yml"
