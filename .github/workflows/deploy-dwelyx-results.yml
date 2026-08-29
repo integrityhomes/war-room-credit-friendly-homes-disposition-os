@@ -1,0 +1,73 @@
+name: Deploy Dwelyx Results Receiver
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/dwelyx-results/**"
+      - ".github/workflows/deploy-dwelyx-results.yml"
+      - "tests/test_dwelyx_results_deployment.py"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/functions/dwelyx-results/**"
+      - ".github/workflows/deploy-dwelyx-results.yml"
+      - "tests/test_dwelyx_results_deployment.py"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check Dwelyx Results receiver
+        run: deno check supabase/functions/dwelyx-results/index.ts
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy Dwelyx Results receiver
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          supabase functions deploy dwelyx-results --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+
+      - name: Verify configured receiver rejects unsigned events without writing
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/dwelyx-results"
+          for attempt in 1 2 3 4 5; do
+            BODY_FILE="$(mktemp)"
+            STATUS="$(curl --silent --show-error --output "$BODY_FILE" --write-out '%{http_code}' \
+              --request POST \
+              --header 'content-type: application/json' \
+              --data '{}' \
+              "$URL" || true)"
+            BODY="$(cat "$BODY_FILE")"
+            rm -f "$BODY_FILE"
+            if [ "$STATUS" = "401" ] && echo "$BODY" | grep -q 'Signed Dwelyx headers are required'; then
+              echo "Dwelyx Results receiver is deployed, configured, and fail-closed. No event was written."
+              exit 0
+            fi
+            if [ "$STATUS" = "503" ]; then
+              echo "Dwelyx Results receiver deployed but DWELYX_WEBHOOK_SECRET is not configured."
+              exit 1
+            fi
+            echo "Dwelyx Results receiver not ready yet (attempt $attempt/5, HTTP $STATUS)."
+            sleep 3
+          done
+          echo "Dwelyx Results receiver verification failed."
+          exit 1
