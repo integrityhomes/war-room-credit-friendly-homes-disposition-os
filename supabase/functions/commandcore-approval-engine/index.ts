@@ -1,5 +1,5 @@
 const DISPATCH_BUCKET = "commandcore-dispatch-queue";
-const APPROVAL_VERSION = "2026-08-27.1";
+const APPROVAL_VERSION = "2026-08-29.2";
 const MAX_BODY_BYTES = 16 * 1024;
 
 const COMMUNICATION_CHANNELS = new Set(["email", "sms", "reactivation"]);
@@ -48,6 +48,18 @@ function safeQueueObject(value: unknown): string {
   const queueObject = String(value ?? "").trim();
   if (!queueObject.startsWith("dispatches/") || queueObject.includes("..")) return "";
   return queueObject;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function channelResults(workOrders: unknown[]): Record<string, unknown>[] {
+  return workOrders
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({ channel_key: item.channel_key, status: item.result_status, state: item.state }));
 }
 
 async function readQueueObject(queueObject: string): Promise<Record<string, unknown>> {
@@ -142,6 +154,8 @@ Deno.serve(async (req) => {
       external_execution_enabled: false,
       separate_budget_gate_enabled: true,
       consent_gate_enabled: true,
+      idempotent_approval_enabled: true,
+      immutable_approval_evidence_enabled: true,
     });
   }
 
@@ -172,6 +186,23 @@ Deno.serve(async (req) => {
   try {
     const queued = await readQueueObject(queueObject);
     const workOrders = Array.isArray(queued.work_orders) ? queued.work_orders : [];
+    const existingApproval = record(queued.approval);
+
+    if (String(queued.status || "").trim() === "approval_recorded" && existingApproval) {
+      return jsonResponse(200, {
+        ok: true,
+        accepted: true,
+        idempotent_replay: true,
+        dispatch_id: String(queued.dispatch_id || ""),
+        queue_object: queueObject,
+        status: "approval_recorded",
+        released_channels: Number(existingApproval.released_channels || 0),
+        approval: existingApproval,
+        channel_results: channelResults(workOrders),
+        external_action_started: false,
+      });
+    }
+
     const approvedAt = new Date().toISOString();
     let released = 0;
     const updatedOrders = workOrders.map((item) => {
@@ -204,14 +235,13 @@ Deno.serve(async (req) => {
     return jsonResponse(200, {
       ok: true,
       accepted: true,
+      idempotent_replay: false,
       dispatch_id: String(queued.dispatch_id || ""),
       queue_object: queueObject,
       status: "approval_recorded",
       released_channels: released,
       approval: approvalRecord,
-      channel_results: updatedOrders
-        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-        .map((item) => ({ channel_key: item.channel_key, status: item.result_status, state: item.state })),
+      channel_results: channelResults(updatedOrders),
       external_action_started: false,
     });
   } catch (error) {
