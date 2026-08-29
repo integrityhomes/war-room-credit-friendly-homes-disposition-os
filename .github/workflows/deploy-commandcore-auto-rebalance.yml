@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "supabase/functions/commandcore-auto-rebalance/**"
+      - "supabase/functions/commandcore-workload-balance-advisor/**"
+      - "supabase/functions/commandcore-safe-rebalance-apply/**"
       - ".github/workflows/deploy-commandcore-auto-rebalance.yml"
   pull_request:
     paths:
       - "supabase/functions/commandcore-auto-rebalance/**"
+      - "supabase/functions/commandcore-workload-balance-advisor/**"
+      - "supabase/functions/commandcore-safe-rebalance-apply/**"
       - ".github/workflows/deploy-commandcore-auto-rebalance.yml"
   workflow_dispatch:
 
@@ -20,8 +24,11 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Check function
-        run: deno check supabase/functions/commandcore-auto-rebalance/index.ts
+      - name: Check functions
+        run: |
+          deno check supabase/functions/commandcore-auto-rebalance/index.ts
+          deno check supabase/functions/commandcore-workload-balance-advisor/index.ts
+          deno check supabase/functions/commandcore-safe-rebalance-apply/index.ts
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -32,12 +39,72 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - name: Deploy function
+      - name: Deploy auto-rebalance chain
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-        run: supabase functions deploy commandcore-auto-rebalance --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-      - name: Health check
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          supabase functions deploy commandcore-workload-balance-advisor --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-safe-rebalance-apply --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy commandcore-auto-rebalance --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Verify auto-rebalance chain health
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        run: curl --fail --silent --show-error "$SUPABASE_URL/functions/v1/commandcore-auto-rebalance"
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          check_health() {
+            NAME="$1"
+            URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/${NAME}"
+            for attempt in 1 2 3 4 5; do
+              RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+              if echo "$RESPONSE" | grep -q '"status":"healthy"'; then
+                echo "$NAME health check passed."
+                return 0
+              fi
+              echo "$NAME not ready yet (attempt $attempt/5)."
+              sleep 3
+            done
+            echo "$NAME health check failed."
+            return 1
+          }
+          check_health commandcore-workload-balance-advisor
+          check_health commandcore-safe-rebalance-apply
+          check_health commandcore-auto-rebalance
+      - name: Verify empty-queue dry run is safe
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co"
+          RESPONSE="$(curl --silent --show-error --fail \
+            -X POST "${BASE_URL}/functions/v1/commandcore-auto-rebalance" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            --data '{"apply":false}')"
+          RESPONSE="$RESPONSE" python - <<'PY'
+          import json
+          import os
+
+          result = json.loads(os.environ["RESPONSE"])
+          assert result.get("ok") is True
+          assert result.get("apply_requested") is False
+          assert result.get("applied_count") == 0
+          assert result.get("assignment_only") is True
+          assert result.get("readiness_changed") is False
+          assert result.get("approval_changed") is False
+          assert result.get("consent_changed") is False
+          assert result.get("external_action_started") is False
+          print(
+              "dry_run_ok=true open_items=%s eligible=%s applied=%s"
+              % (
+                  result.get("open_items", 0),
+                  result.get("eligible_low_risk_high_confidence", 0),
+                  result.get("applied_count", 0),
+              )
+          )
+          PY

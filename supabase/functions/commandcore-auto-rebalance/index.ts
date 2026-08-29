@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-29.1";
 const ACTION_BUCKET = "commandcore-action-queue";
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MOVES_PER_RUN = 10;
@@ -119,6 +119,27 @@ async function loadAllOpenItems(supabaseUrl: string, serviceKey: string): Promis
   return items;
 }
 
+function noWorkResponse(apply: boolean): Row {
+  return {
+    ok: true,
+    generated_at: new Date().toISOString(),
+    apply_requested: apply,
+    open_items: 0,
+    advisor_recommendations: 0,
+    eligible_low_risk_high_confidence: 0,
+    eligible: [],
+    applied_count: 0,
+    applied: [],
+    skipped: [],
+    no_work: true,
+    assignment_only: true,
+    readiness_changed: false,
+    approval_changed: false,
+    consent_changed: false,
+    external_action_started: false,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -157,64 +178,82 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) return jsonResponse(500, { ok: false, error: "service_not_configured" });
 
   const apply = body.apply === true;
-  const openItems = await loadAllOpenItems(supabaseUrl, serviceKey);
-  const advisor = await callService(supabaseUrl, serviceKey, "commandcore-workload-balance-advisor", { items: openItems });
-  const recommendations = Array.isArray(advisor.recommendations)
-    ? advisor.recommendations.filter((item) => item && typeof item === "object") as Row[]
-    : [];
-  const itemByActionId = new Map(openItems.map((item) => [actionId(item), item]));
+  try {
+    const openItems = await loadAllOpenItems(supabaseUrl, serviceKey);
+    if (!openItems.length) return jsonResponse(200, noWorkResponse(apply));
 
-  const eligible = recommendations.filter((recommendation) => {
-    if (text(recommendation.confidence).toLowerCase() !== "high") return false;
-    const item = itemByActionId.get(text(recommendation.action_id));
-    return Boolean(item && isLowRisk(item));
-  }).slice(0, MAX_MOVES_PER_RUN);
+    const advisor = await callService(supabaseUrl, serviceKey, "commandcore-workload-balance-advisor", { items: openItems });
+    const recommendations = Array.isArray(advisor.recommendations)
+      ? advisor.recommendations.filter((item) => item && typeof item === "object") as Row[]
+      : [];
+    const itemByActionId = new Map(openItems.map((item) => [actionId(item), item]));
 
-  const applied: Row[] = [];
-  const skipped: Row[] = [];
-  if (apply) {
-    for (const recommendation of eligible) {
-      try {
-        const result = await callService(supabaseUrl, serviceKey, "commandcore-safe-rebalance-apply", {
-          apply: true,
-          dispatch_id: recommendation.dispatch_id,
-          action_id: recommendation.action_id,
-          from_owner_id: recommendation.from_owner_id,
-          to_owner_id: recommendation.to_owner_id,
-          reason: `automatic_high_confidence_rebalance: ${text(recommendation.reason)}`,
-        });
-        applied.push({
-          action_id: recommendation.action_id,
-          dispatch_id: recommendation.dispatch_id,
-          from_owner_id: recommendation.from_owner_id,
-          to_owner_id: recommendation.to_owner_id,
-          applied: result.applied === true,
-        });
-      } catch (error) {
-        skipped.push({
-          action_id: recommendation.action_id,
-          dispatch_id: recommendation.dispatch_id,
-          reason: error instanceof Error ? error.message : "apply_failed",
-        });
+    const eligible = recommendations.filter((recommendation) => {
+      if (text(recommendation.confidence).toLowerCase() !== "high") return false;
+      const item = itemByActionId.get(text(recommendation.action_id));
+      return Boolean(item && isLowRisk(item));
+    }).slice(0, MAX_MOVES_PER_RUN);
+
+    const applied: Row[] = [];
+    const skipped: Row[] = [];
+    if (apply) {
+      for (const recommendation of eligible) {
+        try {
+          const result = await callService(supabaseUrl, serviceKey, "commandcore-safe-rebalance-apply", {
+            apply: true,
+            dispatch_id: recommendation.dispatch_id,
+            action_id: recommendation.action_id,
+            from_owner_id: recommendation.from_owner_id,
+            to_owner_id: recommendation.to_owner_id,
+            reason: `automatic_high_confidence_rebalance: ${text(recommendation.reason)}`,
+          });
+          applied.push({
+            action_id: recommendation.action_id,
+            dispatch_id: recommendation.dispatch_id,
+            from_owner_id: recommendation.from_owner_id,
+            to_owner_id: recommendation.to_owner_id,
+            applied: result.applied === true,
+          });
+        } catch (error) {
+          skipped.push({
+            action_id: recommendation.action_id,
+            dispatch_id: recommendation.dispatch_id,
+            reason: error instanceof Error ? error.message : "apply_failed",
+          });
+        }
       }
     }
-  }
 
-  return jsonResponse(200, {
-    ok: true,
-    generated_at: new Date().toISOString(),
-    apply_requested: apply,
-    open_items: openItems.length,
-    advisor_recommendations: recommendations.length,
-    eligible_low_risk_high_confidence: eligible.length,
-    eligible,
-    applied_count: applied.length,
-    applied,
-    skipped,
-    assignment_only: true,
-    readiness_changed: false,
-    approval_changed: false,
-    consent_changed: false,
-    external_action_started: false,
-  });
+    return jsonResponse(200, {
+      ok: true,
+      generated_at: new Date().toISOString(),
+      apply_requested: apply,
+      open_items: openItems.length,
+      advisor_recommendations: recommendations.length,
+      eligible_low_risk_high_confidence: eligible.length,
+      eligible,
+      applied_count: applied.length,
+      applied,
+      skipped,
+      no_work: false,
+      assignment_only: true,
+      readiness_changed: false,
+      approval_changed: false,
+      consent_changed: false,
+      external_action_started: false,
+    });
+  } catch (error) {
+    return jsonResponse(503, {
+      ok: false,
+      error: "rebalance_dependency_unavailable",
+      detail: error instanceof Error ? error.message : "unknown_dependency_error",
+      apply_requested: apply,
+      applied_count: 0,
+      assignment_only: true,
+      readiness_changed: false,
+      approval_changed: false,
+      consent_changed: false,
+      external_action_started: false,
+    });
+  }
 });
