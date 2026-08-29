@@ -34,21 +34,26 @@ def require_password() -> None:
 
 require_password()
 st.title("16-Channel Go-Live Connection Center")
-st.caption("Shows which outside connections still stand between the built channel system and live operation.")
-st.info("Secret values are never displayed. This page only reports whether required connection settings are present.")
+st.caption(
+    "Shows the outside handoffs and account setup that still stand between built software and controlled live operation."
+)
+st.info(
+    "Secret values are never displayed. A present account ID or credential is not treated as launch authority, "
+    "and an accepted handoff is not treated as proof that an external platform completed the action."
+)
 
 rows = build_connection_status(st.secrets)
 summary = connection_summary(rows)
 cols = st.columns(3)
-cols[0].metric("Connections", summary["total"])
-cols[1].metric("Connected", summary["connected"])
-cols[2].metric("Remaining", summary["remaining"])
+cols[0].metric("Tracked setup categories", summary["total"])
+cols[1].metric("Configured / present", summary["configured"])
+cols[2].metric("Still missing", summary["remaining"])
 
 frame = pd.DataFrame(
     [
         {
-            "Connection": row.name,
-            "Status": "Connected" if row.configured else "Needs connection",
+            "Connection / setup": row.name,
+            "Status": row.status_label,
             "Required for": row.required_for,
             "Next step": row.next_step,
         }
@@ -59,22 +64,29 @@ st.dataframe(frame, use_container_width=True, hide_index=True)
 
 remaining = [row for row in rows if not row.configured]
 if remaining:
-    st.write("### Best next connection work")
+    st.write("### Remaining external setup")
     for index, row in enumerate(remaining, start=1):
         st.write(f"{index}. **{row.name}** — {row.next_step}")
 else:
-    st.success("All tracked external connection categories are configured. Proceed to controlled live testing.")
+    st.success(
+        "All tracked setup categories have their required configuration present. "
+        "That does not by itself authorize sending, publishing, ad launch, or spend."
+    )
 
 publishing = next(row for row in rows if row.key == "publishing_webhook")
-st.write("### Automation Publishing Engine")
+st.write("### General Automation Webhook")
+st.caption(
+    "Blog and Market SEO are now CFH-owned routes and do not depend on this general webhook. "
+    "Use it only for legacy/general external automation that still needs this handoff."
+)
 if publishing.configured:
-    st.success("An automation webhook URL is present in Streamlit Secrets.")
+    st.success("A general automation webhook URL is present in Streamlit Secrets.")
     tester = st.text_input("Connection test requested by", value="Shawn")
     st.caption(
-        "This test sends no property, buyer, email, SMS, ad, or spending instruction. "
-        "It only confirms that the CFH app can reach the configured publishing webhook."
+        "This test sends no property, buyer, email, SMS, social post, ad, or spending instruction. "
+        "It only confirms that CFH can reach the configured general automation webhook."
     )
-    if st.button("Send safe publishing connection test", type="primary"):
+    if st.button("Send safe general-webhook connection test", type="primary"):
         try:
             receipt = dispatch_publishing_connection_test(
                 st.secrets,
@@ -83,24 +95,21 @@ if publishing.configured:
         except ValueError as exc:
             st.error(str(exc))
         else:
-            st.success(f"Publishing webhook reached successfully — HTTP {receipt.status_code}.")
+            st.success(f"General webhook reached successfully — HTTP {receipt.status_code}.")
             if receipt.response_text:
                 st.caption(f"Webhook response: {receipt.response_text}")
 else:
-    st.warning(
-        "The publishing engine is not connected yet. Create the Zapier Catch Hook, then save its "
-        "webhook URL as AUTOMATION_WEBHOOK_URL in Streamlit Secrets."
+    st.info(
+        "The general automation webhook is not configured. That does not block CFH-owned Blog or Market SEO. "
+        "Add AUTOMATION_WEBHOOK_URL only if a remaining legacy/general automation workflow needs it."
     )
-    with st.expander("Show the safe test payload the publishing engine should receive"):
+    with st.expander("Show the safe test payload for a future general automation webhook"):
         st.code(automation_connection_sample_json(), language="json")
-    st.write(
-        "After the URL is saved, return here and use the safe connection-test button before any live campaign is sent."
-    )
 
-st.write("### Channels that remain manual by design")
+st.write("### Manual final steps that remain supported by design")
 st.write(
-    "Facebook Marketplace, Facebook Groups, Craigslist/local classifieds, and Nextdoor final publication "
-    "remain human-confirmed where the platform requires or where manual posting is the safer operating choice."
+    "Facebook Marketplace, Facebook Groups, Craigslist/local classifieds, and Nextdoor can remain human-confirmed. "
+    "Instagram, TikTok, and YouTube can also use a manual final post when no approved social publication adapter is configured."
 )
 
 st.download_button(
