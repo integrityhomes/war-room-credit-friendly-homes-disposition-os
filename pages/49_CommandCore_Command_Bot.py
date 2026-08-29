@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from typing import Any
 
@@ -123,15 +124,36 @@ def match_deals(
     return matches
 
 
-def create_lifecycle_request(deal: dict[str, Any], work_type: str, command: str) -> dict[str, Any]:
+def normalized_command(command: str) -> str:
+    return " ".join(command.strip().lower().split())
+
+
+def command_request_external_id(deal_id: str, work_type: str, command: str) -> str:
+    normalized = normalized_command(command)
+    digest = hashlib.sha256(f"{deal_id}|{work_type}|{normalized}".encode()).hexdigest()[:24]
+    return f"command-bot-{deal_id}-{work_type}-{digest}"
+
+
+def create_lifecycle_request(
+    deal: dict[str, Any],
+    work_type: str,
+    command: str,
+) -> tuple[dict[str, Any], bool]:
     deal_id = text(deal.get("id"))
     if not deal_id:
         raise RuntimeError("Selected deal does not have an ID.")
+
+    request_external_id = command_request_external_id(deal_id, work_type, command)
+    for existing in list_records("tasks"):
+        if text(existing.get("external_id")) == request_external_id:
+            return existing, False
+
     timestamp = datetime.now(UTC).isoformat()
     label = SUPPORTED_INTENTS[work_type]
     task = upsert(
         "tasks",
         {
+            "external_id": request_external_id,
             "task_type": "deal_lifecycle_request",
             "work_type": work_type,
             "title": f"{label}: {text(deal.get('title') or deal.get('name')) or deal_id}",
@@ -139,15 +161,18 @@ def create_lifecycle_request(deal: dict[str, Any], work_type: str, command: str)
             "priority": "high" if work_type in {"prepare_offer", "prepare_contract", "title_closing"} else "medium",
             "source": "commandcore-command-bot",
             "command_text": command,
+            "normalized_command": normalized_command(command),
             "requested_at": timestamp,
             "coordination_status": "pending",
             "external_action_started": False,
+            "approval_bypassed": False,
             "links": {"deal_id": deal_id},
         },
     )
     upsert(
         "activities",
         {
+            "external_id": f"{request_external_id}-activity",
             "source": "commandcore-command-bot",
             "activity_type": "command_bot_request_created",
             "title": "Command Bot created internal deal work",
@@ -155,14 +180,16 @@ def create_lifecycle_request(deal: dict[str, Any], work_type: str, command: str)
             "occurred_at": timestamp,
             "details": {
                 "command_text": command,
+                "normalized_command": normalized_command(command),
                 "work_type": work_type,
+                "request_external_id": request_external_id,
                 "external_action_started": False,
                 "approval_bypassed": False,
             },
             "links": {"deal_id": deal_id, "task_id": text(task.get("id")) or None},
         },
     )
-    return task
+    return task, True
 
 
 require_password()
@@ -224,14 +251,20 @@ elif not active_deals:
 can_create = bool(command and intent and selected_deal)
 if st.button("Create internal work", type="primary", disabled=not can_create):
     try:
-        task = create_lifecycle_request(selected_deal or {}, intent or "", command)
+        task, created = create_lifecycle_request(selected_deal or {}, intent or "", command)
     except RuntimeError as exc:
         st.error(f"Command Bot could not create the request: {exc}")
     else:
-        st.success(
-            "Internal CommandCore work was created. The lifecycle coordinator will route it through readiness, "
-            "specialist prep, and required approvals. Nothing external was started."
-        )
+        if created:
+            st.success(
+                "Internal CommandCore work was created. The lifecycle coordinator will route it through readiness, "
+                "specialist prep, and required approvals. Nothing external was started."
+            )
+        else:
+            st.info(
+                "That same Command Bot request already exists for this deal. CommandCore reused the existing internal work "
+                "instead of creating a duplicate."
+            )
         if text(task.get("id")):
             st.caption(f"Task ID: {text(task.get('id'))}")
 
