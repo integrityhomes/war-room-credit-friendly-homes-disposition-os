@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.7";
+const SERVICE_VERSION = "2026-08-29.8";
 
 type Row = Record<string, unknown>;
 
@@ -23,6 +23,12 @@ const SYSTEM_OF_RECORD_ENTITIES = [
   "documents",
   "transactions",
 ] as const;
+
+const CRASH_SAFE_HISTORY_SERVICES = new Set([
+  "commandcore-deal-lifecycle-coordinator",
+  "commandcore-deal-lifecycle-readiness",
+  "commandcore-deal-completion",
+]);
 
 const REQUIRED_SERVICES: ServiceCheck[] = [
   { service: "commandcore-crm-core", required: true },
@@ -131,6 +137,16 @@ function evaluateSafetyPolicy(service: string, health: Row): SafetyPolicy {
     return {
       healthy,
       reason: healthy ? null : "auto_rebalance_safety_posture_not_verified",
+    };
+  }
+
+  if (CRASH_SAFE_HISTORY_SERVICES.has(service)) {
+    const healthy =
+      health.crash_safe_history_enabled === true &&
+      health.external_execution_enabled === false;
+    return {
+      healthy,
+      reason: healthy ? null : "crash_safe_history_posture_not_verified",
     };
   }
 
@@ -257,6 +273,7 @@ Deno.serve(async (req) => {
       auto_rebalance_chain_included: true,
       safety_posture_assessment_included: true,
       crm_integrity_posture_included: true,
+      crash_safe_history_posture_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });

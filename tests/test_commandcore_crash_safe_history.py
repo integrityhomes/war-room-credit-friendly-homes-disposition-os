@@ -39,3 +39,17 @@ def test_existing_verified_handoffs_keep_deterministic_history_ids():
     closing = _source("supabase/functions/commandcore-closing-dispo-handoff/index.ts")
     assert "external_id: `executed-contract-handoff-${documentId}`" in executed
     assert "external_id: `closing-dispo-handoff-${transactionId}`" in closing
+
+
+def test_launch_readiness_requires_crash_safe_history_posture():
+    source = _source("supabase/functions/commandcore-launch-readiness/index.ts")
+    for service in (
+        "commandcore-deal-lifecycle-coordinator",
+        "commandcore-deal-lifecycle-readiness",
+        "commandcore-deal-completion",
+    ):
+        assert f'"{service}"' in source
+    assert "CRASH_SAFE_HISTORY_SERVICES.has(service)" in source
+    assert "health.crash_safe_history_enabled === true" in source
+    assert 'reason: healthy ? null : "crash_safe_history_posture_not_verified"' in source
+    assert "crash_safe_history_posture_included: true" in source
