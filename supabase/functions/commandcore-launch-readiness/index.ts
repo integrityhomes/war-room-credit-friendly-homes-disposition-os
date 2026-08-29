@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.9";
+const SERVICE_VERSION = "2026-08-29.10";
 
 type Row = Record<string, unknown>;
 
@@ -134,6 +134,17 @@ function evaluateSafetyPolicy(service: string, health: Row): SafetyPolicy {
     return {
       healthy,
       reason: healthy ? null : "owner_approval_release_idempotency_not_verified",
+    };
+  }
+
+  if (service === "commandcore-approval-engine") {
+    const healthy =
+      health.idempotent_approval_enabled === true &&
+      health.immutable_approval_evidence_enabled === true &&
+      health.external_execution_enabled === false;
+    return {
+      healthy,
+      reason: healthy ? null : "approval_engine_immutable_evidence_not_verified",
     };
   }
 
@@ -286,6 +297,7 @@ Deno.serve(async (req) => {
       crm_integrity_posture_included: true,
       crash_safe_history_posture_included: true,
       owner_approval_release_posture_included: true,
+      approval_engine_immutable_evidence_posture_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
