@@ -119,10 +119,10 @@ def build_chatgpt_ads_plan(
     notes = (
         "Buyer acquisition only by default; do not advertise a specific property from this module.",
         "Do not promise approval, guaranteed financing, or guaranteed qualification.",
-        "Review current OpenAI Ads policies and advertiser eligibility before launch.",
-        "Keep final budget and campaign launch manager-approved.",
+        "OpenAI Ads Manager Beta is a live advertiser product; confirm current account setup, country availability, and policy requirements before launch.",
+        "Treat the budget in this plan as proposed only until an owner separately approves the exact spend and campaign.",
         "Preserve ChatGPT Ads attribution through the full CFH/Dwelyx funnel.",
-        "Keep the design API-ready, but do not assume campaign-management API access until official Ads API documentation/access is confirmed for this account.",
+        "Ads Manager supports campaign creation and measurement, but do not assume external campaign-management API access unless official API documentation/access is confirmed for this account.",
     )
 
     return ChatGPTAdsPlan(
