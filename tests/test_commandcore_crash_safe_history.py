@@ -65,3 +65,23 @@ def test_launch_readiness_deploy_verifier_retries_503_and_reports_safe_diagnosti
     assert "failed_required_services=" in workflow
     assert "safety_posture_failed_services=" in workflow
     assert "crm_cutover_blockers=" in workflow
+
+
+def test_deal_completion_deploy_verifies_exact_crash_safe_contract():
+    workflow = _source(".github/workflows/deploy-commandcore-deal-completion.yml")
+    assert '.github/workflows/deploy-commandcore-deal-completion.yml' in workflow
+    assert "deno check supabase/functions/commandcore-deal-completion/index.ts" in workflow
+    assert 'assert data.get("version") == "2026-08-29.3"' in workflow
+    assert 'assert data.get("crash_safe_history_enabled") is True' in workflow
+    assert 'assert data.get("external_execution_enabled") is False' in workflow
+
+
+def test_readiness_rechecks_when_crash_safe_services_or_deploy_contract_change():
+    workflow = _source(".github/workflows/deploy-commandcore-launch-readiness.yml")
+    for path in (
+        "supabase/functions/commandcore-deal-lifecycle-coordinator/**",
+        "supabase/functions/commandcore-deal-lifecycle-readiness/**",
+        "supabase/functions/commandcore-deal-completion/**",
+        ".github/workflows/deploy-commandcore-deal-completion.yml",
+    ):
+        assert path in workflow
