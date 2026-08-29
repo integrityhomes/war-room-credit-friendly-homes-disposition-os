@@ -21,8 +21,17 @@ def test_finished_owned_web_and_assisted_workflows_are_ready_now():
     for key in ("property_page", "blog", "market_seo"):
         assert rows[key].ready_to_use is True
         assert rows[key].connection_required is False
-    for key in ("marketplace", "facebook_groups", "classifieds", "nextdoor"):
+    for key in (
+        "marketplace",
+        "facebook_groups",
+        "instagram",
+        "tiktok",
+        "youtube",
+        "classifieds",
+        "nextdoor",
+    ):
         assert rows[key].ready_to_use is True
+        assert rows[key].connection_required is False
         assert rows[key].manual_final_step_required is True
     for key in (
         "email",
@@ -30,9 +39,6 @@ def test_finished_owned_web_and_assisted_workflows_are_ready_now():
         "reactivation",
         "meta_ads",
         "google_ads",
-        "instagram",
-        "tiktok",
-        "youtube",
         "chatgpt_ads",
     ):
         assert rows[key].ready_to_use is False
@@ -48,6 +54,7 @@ def test_audit_distinguishes_manual_paid_approved_and_connected_work():
     assert "email sender" in rows["email"].next_requirement
     assert "SMS" in rows["sms"].next_requirement
     assert "OpenAI Ads Manager" in rows["chatgpt_ads"].next_requirement
+    assert "SOCIAL_PUBLISH_WEBHOOK_URL" in rows["instagram"].next_requirement
     assert rows["property_page"].next_requirement == "Ready now"
 
 
@@ -56,7 +63,7 @@ def test_completion_summary_matches_rows():
     assert summary["total"] == 16
     assert summary["built"] == 16
     assert summary["tracked"] == 16
-    assert summary["ready_to_use"] == 7
-    assert summary["connection_required"] == 9
+    assert summary["ready_to_use"] == 10
+    assert summary["connection_required"] == 6
     assert summary["manual_final_step_required"] == 7
-    assert summary["not_ready_now"] == 9
+    assert summary["not_ready_now"] == 6
