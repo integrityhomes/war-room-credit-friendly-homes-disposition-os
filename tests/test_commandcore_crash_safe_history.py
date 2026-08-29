@@ -53,3 +53,15 @@ def test_launch_readiness_requires_crash_safe_history_posture():
     assert "health.crash_safe_history_enabled === true" in source
     assert 'reason: healthy ? null : "crash_safe_history_posture_not_verified"' in source
     assert "crash_safe_history_posture_included: true" in source
+
+
+def test_launch_readiness_deploy_verifier_retries_503_and_reports_safe_diagnostics():
+    workflow = _source(".github/workflows/deploy-commandcore-launch-readiness.yml")
+    assert 'assert data.get("crash_safe_history_posture_included") is True' in workflow
+    assert "for attempt in $(seq 1 12); do" in workflow
+    assert "-o response.json" in workflow
+    assert "-w '%{http_code}'" in workflow
+    assert 'if [ "$HTTP_STATUS" = "200" ]' in workflow
+    assert "failed_required_services=" in workflow
+    assert "safety_posture_failed_services=" in workflow
+    assert "crm_cutover_blockers=" in workflow
