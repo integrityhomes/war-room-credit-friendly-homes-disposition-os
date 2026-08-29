@@ -1,9 +1,20 @@
-const SERVICE_VERSION = "2026-08-29.2";
+const SERVICE_VERSION = "2026-08-29.3";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_ROWS = 1000;
 const PREVIEW_CHUNK_SIZE = 250;
+const PREVIEW_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 type Row = Record<string, unknown>;
+
+type PreviewTokenPayload = {
+  version: 1;
+  issued_at: number;
+  expires_at: number;
+  rows_hash: string;
+  approved_rows: number;
+  would_create: number;
+  would_update: number;
+};
 
 function jsonResponse(status: number, payload: Row): Response {
   return new Response(JSON.stringify(payload), {
@@ -73,6 +84,83 @@ function linksFor(row: Row, ids: Map<string, string>): Row {
   if (propertyKey && ids.has(`properties:${propertyKey}`)) links.property_id = ids.get(`properties:${propertyKey}`);
   if (dealKey && ids.has(`deals:${dealKey}`)) links.deal_id = ids.get(`deals:${dealKey}`);
   return links;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const object = value as Row;
+    const output: Row = {};
+    for (const key of Object.keys(object).sort()) output[key] = canonicalize(object[key]);
+    return output;
+  }
+  return value;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(normalized + padding);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function sha256Text(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return bytesToHex(new Uint8Array(digest));
+}
+
+async function approvedRowsHash(approved: Row[]): Promise<string> {
+  const normalized = approved.map((row) => ({ entity: entityOf(row), record: recordFor(row) }));
+  return await sha256Text(JSON.stringify(canonicalize(normalized)));
+}
+
+async function hmacSignature(secret: string, content: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(content));
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function makePreviewToken(serviceKey: string, payload: PreviewTokenPayload): Promise<string> {
+  const encoded = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await hmacSignature(serviceKey, encoded);
+  return `${encoded}.${signature}`;
+}
+
+async function verifyPreviewToken(
+  serviceKey: string,
+  token: string,
+  expectedRowsHash: string,
+): Promise<PreviewTokenPayload | null> {
+  const [encoded, suppliedSignature, extra] = token.split(".");
+  if (!encoded || !suppliedSignature || extra) return null;
+  const expectedSignature = await hmacSignature(serviceKey, encoded);
+  if (!constantTimeEqual(suppliedSignature, expectedSignature)) return null;
+  try {
+    const decoded = new TextDecoder().decode(base64UrlToBytes(encoded));
+    const payload = JSON.parse(decoded) as PreviewTokenPayload;
+    if (payload.version !== 1) return null;
+    if (!Number.isFinite(payload.expires_at) || payload.expires_at < Date.now()) return null;
+    if (payload.rows_hash !== expectedRowsHash) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 async function previewApprovedRows(
@@ -146,6 +234,10 @@ Deno.serve(async (req) => {
       deterministic_upsert: true,
       cross_record_linking: true,
       live_migration_preview_enabled: true,
+      signed_preview_required_for_apply: true,
+      pre_apply_backup_required: true,
+      explicit_update_permission_required: true,
+      preview_token_ttl_minutes: PREVIEW_TOKEN_TTL_MS / 60000,
       destructive_delete_enabled: false,
       external_execution_enabled: false,
     });
@@ -182,13 +274,33 @@ Deno.serve(async (req) => {
   if (!apply) {
     try {
       const livePreview = await previewApprovedRows(supabaseUrl, serviceKey, approved);
+      const invalidCount = Number(livePreview.invalid_count || 0);
+      const duplicateCount = Number(livePreview.duplicate_count || 0);
+      const rowsHash = await approvedRowsHash(approved);
+      const issuedAt = Date.now();
+      const previewReady = approved.length > 0 && invalidCount === 0 && duplicateCount === 0;
+      const previewToken = previewReady
+        ? await makePreviewToken(serviceKey, {
+          version: 1,
+          issued_at: issuedAt,
+          expires_at: issuedAt + PREVIEW_TOKEN_TTL_MS,
+          rows_hash: rowsHash,
+          approved_rows: approved.length,
+          would_create: Number(livePreview.would_create || 0),
+          would_update: Number(livePreview.would_update || 0),
+        })
+        : null;
       return jsonResponse(200, {
         ok: true,
         apply_requested: false,
         approved_rows: approved.length,
         rejected_rows: rejected.length,
-        ready_to_commit: approved.length,
+        ready_to_commit: previewReady ? approved.length : 0,
         ...livePreview,
+        apply_guard_ready: previewReady,
+        preview_token: previewToken,
+        preview_token_expires_at: previewReady ? new Date(issuedAt + PREVIEW_TOKEN_TTL_MS).toISOString() : null,
+        allow_updates_required: Number(livePreview.would_update || 0) > 0,
         destructive_delete_used: false,
         external_action_started: false,
       });
@@ -205,6 +317,95 @@ Deno.serve(async (req) => {
         external_action_started: false,
       });
     }
+  }
+
+  if (body.confirm_apply !== true) {
+    return jsonResponse(409, {
+      ok: false,
+      error: "confirm_apply_required",
+      records_written: 0,
+      source_records_modified: false,
+      destructive_delete_used: false,
+      external_action_started: false,
+    });
+  }
+
+  const rowsHash = await approvedRowsHash(approved);
+  const tokenPayload = await verifyPreviewToken(serviceKey, text(body.preview_token), rowsHash);
+  if (!tokenPayload || tokenPayload.approved_rows !== approved.length) {
+    return jsonResponse(409, {
+      ok: false,
+      error: "valid_fresh_preview_token_required",
+      records_written: 0,
+      source_records_modified: false,
+      destructive_delete_used: false,
+      external_action_started: false,
+    });
+  }
+
+  let currentPreview: Row;
+  try {
+    currentPreview = await previewApprovedRows(supabaseUrl, serviceKey, approved);
+  } catch (error) {
+    return jsonResponse(503, {
+      ok: false,
+      error: error instanceof Error ? error.message : "pre_apply_preview_failed",
+      records_written: 0,
+      source_records_modified: false,
+      destructive_delete_used: false,
+      external_action_started: false,
+    });
+  }
+
+  const currentCreate = Number(currentPreview.would_create || 0);
+  const currentUpdate = Number(currentPreview.would_update || 0);
+  const invalidCount = Number(currentPreview.invalid_count || 0);
+  const duplicateCount = Number(currentPreview.duplicate_count || 0);
+  if (
+    invalidCount > 0 || duplicateCount > 0 ||
+    currentCreate !== tokenPayload.would_create || currentUpdate !== tokenPayload.would_update
+  ) {
+    return jsonResponse(409, {
+      ok: false,
+      error: "preview_state_changed_repreview_required",
+      would_create: currentCreate,
+      would_update: currentUpdate,
+      invalid_count: invalidCount,
+      duplicate_count: duplicateCount,
+      records_written: 0,
+      source_records_modified: false,
+      destructive_delete_used: false,
+      external_action_started: false,
+    });
+  }
+
+  if (currentUpdate > 0 && body.allow_updates !== true) {
+    return jsonResponse(409, {
+      ok: false,
+      error: "allow_updates_required",
+      would_update: currentUpdate,
+      records_written: 0,
+      source_records_modified: false,
+      destructive_delete_used: false,
+      external_action_started: false,
+    });
+  }
+
+  let backupSnapshotId = "";
+  try {
+    const backup = await callService(supabaseUrl, serviceKey, "commandcore-crm-backup", {});
+    if (backup.ok !== true || backup.source_records_modified !== false) throw new Error("pre_apply_backup_not_verified");
+    backupSnapshotId = text(backup.snapshot_id);
+    if (!backupSnapshotId) throw new Error("pre_apply_backup_snapshot_missing");
+  } catch (error) {
+    return jsonResponse(503, {
+      ok: false,
+      error: error instanceof Error ? error.message : "pre_apply_backup_failed",
+      records_written: 0,
+      source_records_modified: false,
+      destructive_delete_used: false,
+      external_action_started: false,
+    });
   }
 
   const ordered = [...approved].sort((a, b) => {
@@ -240,6 +441,8 @@ Deno.serve(async (req) => {
   return jsonResponse(200, {
     ok: failed.length === 0,
     apply_requested: true,
+    apply_guard_verified: true,
+    pre_apply_backup_snapshot_id: backupSnapshotId,
     approved_rows: approved.length,
     rejected_rows: rejected.length,
     committed_count: committed.length,

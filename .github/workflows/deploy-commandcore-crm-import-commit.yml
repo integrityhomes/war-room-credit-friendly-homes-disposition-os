@@ -48,7 +48,7 @@ jobs:
         run: |
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-import-commit"
           response="$(curl --fail --silent --show-error "$URL")"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("live_migration_preview_enabled") is True'
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("live_migration_preview_enabled") is True; assert data.get("signed_preview_required_for_apply") is True; assert data.get("pre_apply_backup_required") is True; assert data.get("explicit_update_permission_required") is True'
       - name: Verify live dry-run canary
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -61,4 +61,4 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             --data '{"apply":false,"rows":[{"approved":true,"entity":"contacts","record":{"source":"deployment-canary","external_id":"commandcore-import-commit-canary"}}]}')"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("apply_requested") is False; assert data.get("live_preview_ok") is True; assert data.get("approved_rows") == 1; assert data.get("records_written") == 0; assert data.get("source_records_modified") is False; assert data.get("destructive_delete_used") is False; assert data.get("external_action_started") is False; print("crm_import_preview=verified would_create=%s would_update=%s" % (data.get("would_create",0),data.get("would_update",0)))'
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("apply_requested") is False; assert data.get("live_preview_ok") is True; assert data.get("approved_rows") == 1; assert data.get("apply_guard_ready") is True; assert isinstance(data.get("preview_token"),str) and len(data.get("preview_token")) > 40; assert data.get("records_written") == 0; assert data.get("source_records_modified") is False; assert data.get("destructive_delete_used") is False; assert data.get("external_action_started") is False; print("crm_import_apply_guard=verified would_create=%s would_update=%s" % (data.get("would_create",0),data.get("would_update",0)))'
