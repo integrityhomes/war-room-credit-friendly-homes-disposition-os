@@ -128,14 +128,19 @@ if st.sidebar.button("Log out", key="commandcore_shell_logout"):
 st.title("CommandCore")
 st.caption("One operating system for leads, deals, follow-up, marketing, disposition, and management.")
 
-st.markdown("### Command Bot")
-st.text_input(
-    "Tell CommandCore what you need",
-    placeholder="Example: Prepare the CFD for 123 Main Street",
-    disabled=True,
-    help="Command Bot routing is reserved here and will be connected after the core operating flow is stable.",
-)
-st.caption("Command Bot is reserved in the primary workspace. It is not executing commands yet.")
+with st.container(border=True):
+    st.markdown("### Command Bot")
+    st.caption(
+        "Tell CommandCore what you need in plain English. The current safe version can create internal deal work "
+        "for analysis, offer prep, contract/CFD prep, title/closing, and marketing/dispo."
+    )
+    st.page_link(
+        "pages/49_CommandCore_Command_Bot.py",
+        label="Open Command Bot",
+        icon="🤖",
+        use_container_width=True,
+    )
+    st.caption("Command Bot cannot send, sign, approve, change legal terms, move money, or start an outside transaction.")
 
 st.divider()
 area = st.segmented_control(
@@ -160,7 +165,11 @@ if area == "Home / Command Center":
         tasks = [task for task in list_records("tasks") if open_task(task)]
         offers = [record for record in list_records("offers") if pending_owner_approval(record)]
         documents = [record for record in list_records("documents") if pending_owner_approval(record)]
-        lifecycle = [record for record in list_records("tasks") if open_lifecycle_work(record) and text(record.get("task_type")).startswith("deal_")]
+        lifecycle = [
+            record
+            for record in list_records("tasks")
+            if open_lifecycle_work(record) and text(record.get("task_type")).startswith("deal_")
+        ]
         today = date.today()
         new_leads = [deal for deal in deals if text(deal.get("stage")).lower() == "new lead"]
         overdue = [task for task in tasks if due_date(task) and due_date(task) < today]
