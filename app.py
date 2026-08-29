@@ -30,6 +30,7 @@ pages = {
             icon="🧭",
             default=True,
         ),
+        st.Page("pages/49_CommandCore_Command_Bot.py", title="Command Bot", icon="🤖"),
     ],
     "Leads & CRM": [
         st.Page("pages/44_CommandCore_CRM.py", title="CRM Workspace", icon="🏠"),
