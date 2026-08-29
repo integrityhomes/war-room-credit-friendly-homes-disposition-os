@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.1";
+const SERVICE_VERSION = "2026-08-29.2";
 const MAX_BODY_BYTES = 32 * 1024;
 
 type Row = Record<string, unknown>;
@@ -84,9 +84,7 @@ function requirements(workType: string, deal: Row, property: Row, contact: Row, 
     add("repairs", "Repair estimate or condition estimate", present(deal.estimated_repairs));
     add("motivation", "Seller motivation", present(deal.motivation) || present(deal.notes));
   }
-  if (workType === "prepare_offer") {
-    add("offer_price", "Proposed offer amount", present(deal.offer_price));
-  }
+  if (workType === "prepare_offer") add("offer_price", "Proposed offer amount", present(deal.offer_price));
   if (workType === "prepare_contract") {
     add("offer_price", "Approved/proposed purchase price", present(deal.offer_price));
     add("property_address", "Property address", present(property.address));
@@ -113,6 +111,7 @@ Deno.serve(async (req) => {
       service: "commandcore-deal-lifecycle-readiness",
       version: SERVICE_VERSION,
       status: "healthy",
+      crash_safe_history_enabled: true,
       external_execution_enabled: false,
       legal_terms_generated: false,
       offer_decisions_generated: false,
@@ -150,6 +149,7 @@ Deno.serve(async (req) => {
     const results: Row[] = [];
 
     for (const task of candidates) {
+      const taskId = text(task.id);
       const dealId = text(links(task).deal_id || task.deal_id);
       const deal = dealById.get(dealId) || {};
       const dealLinks = links(deal);
@@ -162,36 +162,42 @@ Deno.serve(async (req) => {
 
       if (apply) {
         const previousStatus = text(task.prep_status);
-        await upsertEntity(url, key, "tasks", {
-          ...task,
-          prep_status: status,
-          missing_information: readiness.missing,
-          readiness_checks: readiness.checks,
-          readiness_checked_at: new Date().toISOString(),
-          external_action_started: false,
-        });
+        const checkedAt = new Date().toISOString();
         if (previousStatus !== status) {
+          const transitionFrom = previousStatus || "unset";
+          const stableKey = taskId || `${dealId}-${workType}`;
           await upsertEntity(url, key, "activities", {
             source: "commandcore-deal-lifecycle-readiness",
+            external_id: `deal-lifecycle-readiness-${stableKey}-${transitionFrom}-to-${status}`,
             activity_type: "deal_lifecycle_readiness_checked",
             title: readiness.ready ? "Lifecycle work is ready" : "Lifecycle work needs information",
             summary: readiness.ready
               ? `${text(task.title) || workType} has the required deal facts.`
               : `${text(task.title) || workType} is missing: ${readiness.missing.join(", ")}`,
-            occurred_at: new Date().toISOString(),
+            occurred_at: checkedAt,
             details: {
               work_type: workType,
+              previous_prep_status: previousStatus || null,
               prep_status: status,
               missing_information: readiness.missing,
               external_action_started: false,
             },
-            links: { deal_id: dealId || null, task_id: text(task.id) || null },
+            links: { deal_id: dealId || null, task_id: taskId || null },
           });
         }
+
+        await upsertEntity(url, key, "tasks", {
+          ...task,
+          prep_status: status,
+          missing_information: readiness.missing,
+          readiness_checks: readiness.checks,
+          readiness_checked_at: checkedAt,
+          external_action_started: false,
+        });
       }
 
       results.push({
-        task_id: text(task.id),
+        task_id: taskId,
         deal_id: dealId,
         work_type: workType,
         prep_status: status,
@@ -206,6 +212,7 @@ Deno.serve(async (req) => {
       ready_count: results.filter((result) => result.prep_status === "ready_for_specialist").length,
       missing_information_count: results.filter((result) => result.prep_status === "missing_information").length,
       results,
+      crash_safe_history_enabled: true,
       external_action_started: false,
     });
   } catch (error) {
