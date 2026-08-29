@@ -5,17 +5,16 @@ from uuid import UUID
 import streamlit as st
 
 from .campaign_launch import (
-    campaign_slug,
     CampaignLaunchStore,
     LaunchStatus,
     LaunchStoreError,
+    campaign_slug,
 )
 from .channel_tracking import build_channel_links
 from .dwelyx import dwelyx_base_url, tracking_app_base_url
 from .owned_web_channels import OwnedWebPackageError, build_owned_web_package
 from .public_pages import is_public_property
 from .storage import Storage, StorageError
-
 
 PUBLISHABLE_BLOG_STATUSES = {
     LaunchStatus.READY,
