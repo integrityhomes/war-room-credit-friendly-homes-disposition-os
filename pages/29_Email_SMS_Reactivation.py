@@ -7,6 +7,11 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.channels import CHANNELS_BY_KEY
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
+from cfh_disposition.email_handoff import (
+    EmailHandoffError,
+    EmailHandoffSettings,
+    dispatch_email_handoff,
+)
 from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.operational_failures import (
     CriticalFailureType,
@@ -53,13 +58,18 @@ def buyer_label(buyer) -> str:
     return f"{name or 'Buyer'} — ••••{phone_tail}"
 
 
+def email_buyer_label(buyer) -> str:
+    name = " ".join(part for part in [buyer.first_name, buyer.last_name] if part).strip()
+    return f"{name or 'Buyer'} — {buyer.email}"
+
+
 require_password()
 st.title("Matched Buyer Email + SMS + Reactivation")
 st.caption("Prepare three separately tracked buyer-outreach channels from one saved property.")
 st.info(
     "Fact-lock active: this page prepares read-only copy and attribution from the central property record. "
     "Price, down payment, monthly payment, bedrooms, and availability cannot be edited here. "
-    "REI BlackBook / Profit Dial remains the actual SMS sender."
+    "Email uses only the configured approved sender handoff. REI BlackBook / Profit Dial remains the actual SMS sender."
 )
 
 try:
@@ -154,6 +164,105 @@ for tab, key in zip(tabs, channel_keys, strict=True):
         st.write("### Sending guardrails")
         for note in package.compliance_notes:
             st.write(f"- {note}")
+
+        if key == "email":
+            st.divider()
+            st.write("### Send through approved email sender")
+            email_settings = EmailHandoffSettings.from_mapping(st.secrets)
+            if email_settings.configured:
+                st.success("Email marketing handoff is connected to the configured approved HTTPS webhook.")
+            else:
+                st.warning(
+                    "Email handoff is not connected yet. Add the approved HTTPS sender endpoint as "
+                    "EMAIL_SENDER_WEBHOOK_URL in Streamlit Secrets. Provider credentials stay downstream."
+                )
+
+            eligible_email_buyers = [
+                buyer
+                for buyer in buyers
+                if buyer.email.strip() and buyer.email_consent and not buyer.do_not_contact
+            ]
+            if not eligible_email_buyers:
+                st.info(
+                    "No saved buyer currently has an email address, saved email consent, and an active contact status."
+                )
+            else:
+                email_buyer_options = {
+                    email_buyer_label(buyer): buyer for buyer in eligible_email_buyers
+                }
+                selected_email_buyer_label = st.selectbox(
+                    "Buyer with saved email consent",
+                    list(email_buyer_options),
+                    key="email_sender_buyer",
+                )
+                selected_email_buyer = email_buyer_options[selected_email_buyer_label]
+                email_variation_number = st.selectbox(
+                    "Locked email variation",
+                    list(range(1, len(package.message_variants) + 1)),
+                    format_func=lambda value: f"Variation {value}",
+                    key="email_sender_variation",
+                )
+                chosen_email_message = package.message_variants[email_variation_number - 1]
+                st.text_input(
+                    "Exact subject that will be handed to the sender",
+                    value=package.subject,
+                    disabled=True,
+                    key="email_sender_locked_subject",
+                )
+                st.text_area(
+                    "Exact message that will be handed to the sender",
+                    value=chosen_email_message,
+                    height=160,
+                    disabled=True,
+                    key="email_sender_locked_message",
+                )
+                email_requested_by = st.text_input(
+                    "Requested by",
+                    value="Sabrina",
+                    key="email_sender_requested_by",
+                )
+                email_confirmed = st.checkbox(
+                    "I confirm this buyer has saved email consent and I want the approved CFH email sender workflow to send this exact locked message.",
+                    key="email_sender_confirm",
+                )
+                email_send_clicked = st.button(
+                    "Send via Approved Email Sender",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not email_settings.configured or not email_confirmed,
+                )
+                if email_send_clicked:
+                    try:
+                        receipt = dispatch_email_handoff(
+                            st.secrets,
+                            buyer=selected_email_buyer,
+                            property_record=selected,
+                            campaign=campaign,
+                            subject=package.subject,
+                            message=chosen_email_message,
+                            tracked_link=package.tracked_link,
+                            requested_by=email_requested_by,
+                        )
+                        st.success(
+                            f"Email sender handoff accepted (HTTP {receipt.status_code}). "
+                            "This confirms the handoff only; it does not claim inbox delivery."
+                        )
+                    except EmailHandoffError as exc:
+                        record_operational_failure(
+                            st.secrets,
+                            CriticalFailureType.EMAIL,
+                            summary=f"Email sender handoff failed for {selected.display_address}.",
+                            technical_detail=str(exc),
+                            property_id=str(selected.property_id),
+                            property_address=selected.display_address,
+                            channel="email",
+                            campaign=campaign,
+                            source="approved_email_sender",
+                            buyer_id=str(selected_email_buyer.buyer_id),
+                        )
+                        st.error(
+                            f"Email handoff failed and was sent to the main critical-failure ledger: {exc}"
+                        )
 
         if key == "sms":
             st.divider()
