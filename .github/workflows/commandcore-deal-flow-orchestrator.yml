@@ -1,0 +1,26 @@
+name: CommandCore Deal Flow Orchestrator
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "27 * * * *"
+
+jobs:
+  advance-safe-internal-work:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Advance approved deal work through safe internal preparation
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-deal-flow-orchestrator"
+          RESPONSE="$(curl --silent --show-error --fail \
+            -X POST \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$URL")"
+          echo "$RESPONSE" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("external_action_started") is False; assert data.get("owner_approval_bypassed") is False; print("prepared_count=", data.get("prepared_count", 0))'
