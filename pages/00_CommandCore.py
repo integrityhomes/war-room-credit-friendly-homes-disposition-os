@@ -151,7 +151,9 @@ area = st.segmented_control(
         "Deals",
         "Tasks & Follow-Up",
         "Marketing & Dispo",
+        "Marketing Planning",
         "Management",
+        "System & Setup",
     ],
     default="Home / Command Center",
 )
@@ -230,19 +232,11 @@ if area == "Home / Command Center":
 elif area == "Leads & CRM":
     st.subheader("Leads & CRM")
     st.caption("Seller and agent leads, contacts, properties, and intake records.")
-    c1, c2 = st.columns(2)
-    with c1:
-        link(
-            "pages/44_CommandCore_CRM.py",
-            "CRM Workspace",
-            "Search, create, and update contacts, properties, and deals.",
-        )
-    with c2:
-        link(
-            "pages/43_CommandCore_CRM_Migration.py",
-            "CRM Migration",
-            "Stage, review, and safely import existing CRM records.",
-        )
+    link(
+        "pages/44_CommandCore_CRM.py",
+        "CRM Workspace",
+        "Search, create, and update contacts, properties, and deals.",
+    )
 
 elif area == "Deals":
     st.subheader("Deals")
@@ -298,13 +292,18 @@ elif area == "Tasks & Follow-Up":
 
 elif area == "Marketing & Dispo":
     st.subheader("Marketing & Dispo")
-    st.caption("The existing Credit Friendly Homes marketing and disposition engine remains intact here.")
+    st.caption("Property marketing, buyer outreach, social promotion, attribution, and disposition.")
     c1, c2, c3 = st.columns(3)
     with c1:
         link(
             "pages/90_CFH_Marketing_Dispo.py",
-            "CFH Marketing Flow",
-            "Open the preserved owner-finance marketing and launch workspace.",
+            "Marketing Command",
+            "Open the preserved Credit Friendly Homes marketing and launch workspace.",
+        )
+        link(
+            "pages/29_Email_SMS_Reactivation.py",
+            "Buyer Outreach",
+            "Prepare and, when approved connections exist, hand off consent-checked buyer outreach.",
         )
     with c2:
         link(
@@ -312,21 +311,43 @@ elif area == "Marketing & Dispo":
             "Property Records",
             "Manage owner-finance property records used by marketing.",
         )
+        link(
+            "pages/26_Instagram_TikTok_YouTube_Shorts.py",
+            "Social Video",
+            "Build fact-locked Instagram, TikTok, and YouTube packages with an approved manual or adapter handoff.",
+        )
     with c3:
         link(
             "pages/23_Daily_Executive_Disposition_Command.py",
             "Disposition Command",
             "Open the executive disposition workspace.",
         )
-    link(
-        "pages/19_Dwelyx_Results_Attribution.py",
-        "Buyer & Dwelyx Results",
-        "Review buyer traffic and attribution.",
-    )
+        link(
+            "pages/19_Dwelyx_Results_Attribution.py",
+            "Buyer & Dwelyx Results",
+            "Review buyer traffic and attribution.",
+        )
 
-else:
+elif area == "Marketing Planning":
+    st.subheader("Marketing Planning")
+    st.caption("Prepare paid acquisition plans without creating campaigns or authorizing spend.")
+    c1, c2 = st.columns(2)
+    with c1:
+        link(
+            "pages/28_Meta_Google_Paid_Traffic.py",
+            "Meta & Google Ads Plan",
+            "Prepare fact-locked housing/search ad plans. Budgets remain proposed until owner approval.",
+        )
+    with c2:
+        link(
+            "pages/33_ChatGPT_Ads_Channel_16.py",
+            "ChatGPT Ads Plan",
+            "Prepare buyer-acquisition campaign concepts for current Ads Manager workflows without starting spend.",
+        )
+
+elif area == "Management":
     st.subheader("Management")
-    st.caption("Operations visibility, workload, coverage, audits, migration, and exceptions.")
+    st.caption("Operations visibility, workload, coverage, audits, and exceptions.")
     c1, c2, c3 = st.columns(3)
     with c1:
         link(
@@ -361,11 +382,33 @@ else:
             "Rebalance Audit",
             "See automatic internal workload moves and skipped actions.",
         )
-    link(
-        "pages/43_CommandCore_CRM_Migration.py",
-        "CRM Migration",
-        "Controlled import and migration tools.",
-    )
+
+else:
+    st.subheader("System & Setup")
+    st.caption("Migration, launch readiness, connection status, and diagnostics kept separate from daily work.")
+    c1, c2 = st.columns(2)
+    with c1:
+        link(
+            "pages/43_CommandCore_CRM_Migration.py",
+            "CRM Migration",
+            "Stage, review, and safely import existing CRM records.",
+        )
+        link(
+            "pages/31_16_Channel_Completion_Audit.py",
+            "Marketing Completion Audit",
+            "See which marketing channels are usable now and which are externally blocked.",
+        )
+    with c2:
+        link(
+            "pages/32_Go_Live_Connection_Center.py",
+            "Go-Live Connections",
+            "See actual sender, outreach, social, and paid-platform setup status without false readiness.",
+        )
+        link(
+            "pages/34_Safe_Full_Payload_Test.py",
+            "Safe Payload Diagnostic",
+            "Run a controlled test payload without publishing, messaging, creating ads, or spending money.",
+        )
 
 st.divider()
 st.caption(

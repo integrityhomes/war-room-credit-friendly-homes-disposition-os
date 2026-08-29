@@ -23,12 +23,17 @@ if render_public_request(storage):
     st.stop()
 
 pages = {
-    "Home / Command Center": [
-        st.Page("pages/00_CommandCore.py", title="Command Center", icon="🧭", default=True),
+    "Home": [
+        st.Page(
+            "pages/00_CommandCore.py",
+            title="Command Center",
+            icon="🧭",
+            default=True,
+        ),
+        st.Page("pages/49_CommandCore_Command_Bot.py", title="Command Bot", icon="🤖"),
     ],
     "Leads & CRM": [
         st.Page("pages/44_CommandCore_CRM.py", title="CRM Workspace", icon="🏠"),
-        st.Page("pages/43_CommandCore_CRM_Migration.py", title="CRM Migration", icon="📥"),
     ],
     "Deals": [
         st.Page("pages/45_CommandCore_Deal_Record.py", title="Unified Deal Record", icon="📂"),
@@ -41,10 +46,20 @@ pages = {
         st.Page("pages/36_CommandCore_Coverage.py", title="Coverage", icon="🛡️"),
     ],
     "Marketing & Dispo": [
-        st.Page("pages/90_CFH_Marketing_Dispo.py", title="CFH Marketing Flow", icon="📣"),
+        st.Page("pages/90_CFH_Marketing_Dispo.py", title="Marketing Command", icon="📣"),
         st.Page("pages/01_Record_Manager.py", title="Property Records", icon="🏘️"),
+        st.Page("pages/29_Email_SMS_Reactivation.py", title="Buyer Outreach", icon="✉️"),
+        st.Page(
+            "pages/26_Instagram_TikTok_YouTube_Shorts.py",
+            title="Social Video",
+            icon="🎬",
+        ),
         st.Page("pages/19_Dwelyx_Results_Attribution.py", title="Buyer & Dwelyx Results", icon="📊"),
         st.Page("pages/23_Daily_Executive_Disposition_Command.py", title="Disposition Command", icon="🎯"),
+    ],
+    "Marketing Planning": [
+        st.Page("pages/28_Meta_Google_Paid_Traffic.py", title="Meta & Google Ads Plan", icon="📈"),
+        st.Page("pages/33_ChatGPT_Ads_Channel_16.py", title="ChatGPT Ads Plan", icon="💬"),
     ],
     "Management": [
         st.Page("pages/39_CommandCore_Operations_Hub.py", title="Operations Hub", icon="🧭"),
@@ -53,6 +68,12 @@ pages = {
         st.Page("pages/40_CommandCore_Team_Health.py", title="Team Health", icon="🩺"),
         st.Page("pages/41_CommandCore_Workload_Balance.py", title="Workload Balance", icon="⚖️"),
         st.Page("pages/42_CommandCore_Rebalance_Audit.py", title="Rebalance Audit", icon="🧾"),
+    ],
+    "System & Setup": [
+        st.Page("pages/43_CommandCore_CRM_Migration.py", title="CRM Migration", icon="📥"),
+        st.Page("pages/31_16_Channel_Completion_Audit.py", title="Marketing Completion Audit", icon="✅"),
+        st.Page("pages/32_Go_Live_Connection_Center.py", title="Go-Live Connections", icon="🔌"),
+        st.Page("pages/34_Safe_Full_Payload_Test.py", title="Safe Payload Diagnostic", icon="🧪"),
     ],
 }
 
