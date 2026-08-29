@@ -15,6 +15,10 @@ from .automatic_launch import (
     serialize_launch_payload,
     sign_launch_payload,
 )
+from .email_handoff import EmailHandoffSettings
+from .reactivation_autopilot import ReactivationDispatchSettings
+from .rei_blackbook_sms import SmsHandoffSettings
+from .social_publish_handoff import SocialPublishSettings
 
 CONNECTION_TEST_EVENT = "credit_friendly_homes.connection.test"
 CONNECTION_TEST_SCHEMA_VERSION = "1.0"
@@ -25,6 +29,7 @@ class ConnectionStatus:
     key: str
     name: str
     configured: bool
+    status_label: str
     required_for: str
     next_step: str
 
@@ -42,59 +47,114 @@ def _has(values: Mapping[str, Any], *keys: str) -> bool:
 
 def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus, ...]:
     automation = AutomationDispatchSettings.from_mapping(values)
-    rows = (
+    email = EmailHandoffSettings.from_mapping(values)
+    sms = SmsHandoffSettings.from_mapping(values)
+    reactivation = ReactivationDispatchSettings.from_mapping(values)
+    social = SocialPublishSettings.from_mapping(values)
+    meta_present = _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN")
+    google_present = _has(values, "GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN")
+
+    return (
         ConnectionStatus(
             "publishing_webhook",
-            "Automation Publishing Engine",
+            "General Automation Webhook",
             automation.configured,
-            "Blog, Market SEO, Email/SMS handoff, paid/social publishing workflows",
+            "Handoff configured" if automation.configured else "Needs connection",
+            "Legacy/general external campaign automation only; Blog and Market SEO no longer depend on this webhook",
             (
-                "Create the Zapier Catch Hook, then save its webhook URL as "
-                "AUTOMATION_WEBHOOK_URL in Streamlit Secrets."
-            )
-            if not automation.configured
-            else "Connected. Run the safe webhook test before any live campaign dispatch.",
+                "Add the approved AUTOMATION_WEBHOOK_URL only if the general external automation workflow is still needed."
+                if not automation.configured
+                else "Configured. Use the safe webhook test before any external campaign handoff."
+            ),
         ),
         ConnectionStatus(
-            "email_sender", "Email Sender",
-            _has(values, "EMAIL_SENDER_WEBHOOK_URL", "EMAIL_PROVIDER_API_KEY"),
-            "Matched Buyer Email and email reactivation",
-            "Connect the approved email sender before live sending."
-            if not _has(values, "EMAIL_SENDER_WEBHOOK_URL", "EMAIL_PROVIDER_API_KEY")
-            else "Connected. Continue enforcing saved email consent and unsubscribe status.",
+            "email_sender",
+            "Email Sender Handoff",
+            email.configured,
+            "Handoff configured" if email.configured else "Needs connection",
+            "Matched Buyer Email",
+            (
+                "Add the approved HTTPS EMAIL_SENDER_WEBHOOK_URL. Provider credentials remain downstream."
+                if not email.configured
+                else "Configured. Live use still requires saved buyer email consent and operator confirmation."
+            ),
         ),
         ConnectionStatus(
-            "sms_sender", "SMS Sender",
-            _has(values, "SMS_SENDER_WEBHOOK_URL", "SMS_PROVIDER_API_KEY"),
-            "Matched Buyer SMS and SMS reactivation",
-            "Connect the approved SMS sender before live sending."
-            if not _has(values, "SMS_SENDER_WEBHOOK_URL", "SMS_PROVIDER_API_KEY")
-            else "Connected. Continue enforcing saved SMS consent and STOP/do-not-contact status.",
+            "sms_sender",
+            "REI BlackBook / Profit Dial SMS Handoff",
+            sms.configured,
+            "Handoff configured" if sms.configured else "Needs connection",
+            "Matched Buyer SMS",
+            (
+                "Add the approved Zapier HTTPS endpoint as SMS_SENDER_WEBHOOK_URL."
+                if not sms.configured
+                else "Configured. Live use still requires saved SMS consent and operator confirmation."
+            ),
         ),
         ConnectionStatus(
-            "meta_ads", "Meta Ads Account", _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN"),
-            "Meta Housing Ads",
-            "Add the approved Meta ad-account connection when ready for live paid campaigns."
-            if not _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN")
-            else "Connection details present. Final campaign targeting and spend still require approval.",
+            "buyer_reactivation",
+            "Buyer Reactivation Outreach",
+            reactivation.configured,
+            "Handoff configured" if reactivation.configured else "Needs connection",
+            "Approved email/SMS reactivation jobs",
+            (
+                "Add BUYER_OUTREACH_WEBHOOK_URL or the approved reactivation automation endpoint."
+                if not reactivation.configured
+                else "Configured. Jobs still require approval and a fresh consent/DNC recheck before dispatch."
+            ),
         ),
         ConnectionStatus(
-            "google_ads", "Google Ads Account",
-            _has(values, "GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN"),
-            "Google Search Ads",
-            "Add the approved Google Ads connection when ready for live paid campaigns."
-            if not _has(values, "GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN")
-            else "Connection details present. Final keywords, negatives, and spend still require approval.",
+            "social_publish",
+            "Social Publication Adapter",
+            social.configured,
+            "Handoff configured" if social.configured else "Optional / manual final post",
+            "Instagram, TikTok, and YouTube approved-package handoff",
+            (
+                "Add SOCIAL_PUBLISH_WEBHOOK_URL only when an approved publication adapter is available; manual final posting remains supported."
+                if not social.configured
+                else "Configured. Adapter acceptance is a handoff only, not proof that a platform published the post."
+            ),
+        ),
+        ConnectionStatus(
+            "meta_ads",
+            "Meta Ads Account Details",
+            meta_present,
+            "Account details present" if meta_present else "Needs account setup",
+            "Meta Housing Ads planning-to-launch transition",
+            (
+                "Add approved Meta account connection details when ready for a separately owner-approved live campaign."
+                if not meta_present
+                else "Account details are present. This is not launch authority; targeting and spend still require owner approval."
+            ),
+        ),
+        ConnectionStatus(
+            "google_ads",
+            "Google Ads Account Details",
+            google_present,
+            "Account details present" if google_present else "Needs account setup",
+            "Google Search Ads planning-to-launch transition",
+            (
+                "Add approved Google Ads connection details when ready for a separately owner-approved live campaign."
+                if not google_present
+                else "Account details are present. This is not launch authority; keywords, targeting, and spend still require owner approval."
+            ),
         ),
     )
-    return rows
 
 
 def connection_summary(rows: tuple[ConnectionStatus, ...]) -> dict[str, int]:
-    return {"total": len(rows), "connected": sum(row.configured for row in rows), "remaining": sum(not row.configured for row in rows)}
+    return {
+        "total": len(rows),
+        "configured": sum(row.configured for row in rows),
+        "remaining": sum(not row.configured for row in rows),
+    }
 
 
-def build_publishing_connection_test_payload(*, requested_by: str, now: datetime | None = None) -> dict[str, Any]:
+def build_publishing_connection_test_payload(
+    *,
+    requested_by: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     timestamp = now or datetime.now(UTC)
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
@@ -104,40 +164,68 @@ def build_publishing_connection_test_payload(*, requested_by: str, now: datetime
         "sent_at": timestamp.astimezone(UTC).isoformat(),
         "requested_by": requested_by.strip() or "Connection Center",
         "test_only": True,
-        "instructions": "Connection test only. Do not publish, send messages, create ads, or spend money.",
+        "instructions": (
+            "Connection test only. Do not publish, send messages, create ads, or spend money."
+        ),
     }
 
 
-def dispatch_publishing_connection_test(values: Mapping[str, Any], *, requested_by: str,
-                                        now: datetime | None = None) -> ConnectionTestReceipt:
+def dispatch_publishing_connection_test(
+    values: Mapping[str, Any],
+    *,
+    requested_by: str,
+    now: datetime | None = None,
+) -> ConnectionTestReceipt:
     settings = AutomationDispatchSettings.from_mapping(values)
     if not settings.configured:
-        raise ValueError("Publishing webhook is not configured. Add AUTOMATION_WEBHOOK_URL first.")
-    payload = build_publishing_connection_test_payload(requested_by=requested_by, now=now)
+        raise ValueError(
+            "General automation webhook is not configured. Add AUTOMATION_WEBHOOK_URL first."
+        )
+    payload = build_publishing_connection_test_payload(
+        requested_by=requested_by,
+        now=now,
+    )
     body = serialize_launch_payload(payload)
-    headers = {"Content-Type": "application/json", "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
-               "X-CFH-Event": CONNECTION_TEST_EVENT}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
+        "X-CFH-Event": CONNECTION_TEST_EVENT,
+    }
     signature = sign_launch_payload(body, settings.signing_secret)
     if signature:
         headers["X-CFH-Signature"] = signature
     request = Request(settings.webhook_url, data=body, headers=headers, method="POST")
     try:
-        with urlopen(request, timeout=settings.timeout_seconds or AUTOMATION_TIMEOUT_SECONDS) as response:
+        with urlopen(
+            request,
+            timeout=settings.timeout_seconds or AUTOMATION_TIMEOUT_SECONDS,
+        ) as response:
             status_code = int(getattr(response, "status", 200))
             response_text = response.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:AUTOMATION_RESPONSE_LIMIT]
-        raise ValueError(f"The automation engine rejected the safe test (HTTP {exc.code}). {detail}") from exc
+        raise ValueError(
+            f"The automation engine rejected the safe test (HTTP {exc.code}). {detail}"
+        ) from exc
     except (URLError, TimeoutError) as exc:
         raise ValueError("The automation engine could not be reached by the safe test.") from exc
     if not 200 <= status_code < 300:
-        raise ValueError(f"The automation engine returned HTTP {status_code} during the safe test.")
+        raise ValueError(
+            f"The automation engine returned HTTP {status_code} during the safe test."
+        )
     sent_at = now or datetime.now(UTC)
     if sent_at.tzinfo is None:
         sent_at = sent_at.replace(tzinfo=UTC)
-    return ConnectionTestReceipt(status_code=status_code, sent_at=sent_at.astimezone(UTC),
-                                 response_text=response_text[:AUTOMATION_RESPONSE_LIMIT])
+    return ConnectionTestReceipt(
+        status_code=status_code,
+        sent_at=sent_at.astimezone(UTC),
+        response_text=response_text[:AUTOMATION_RESPONSE_LIMIT],
+    )
 
 
 def automation_connection_sample_json(*, requested_by: str = "Connection Center") -> str:
-    return json.dumps(build_publishing_connection_test_payload(requested_by=requested_by), indent=2, sort_keys=True)
+    return json.dumps(
+        build_publishing_connection_test_payload(requested_by=requested_by),
+        indent=2,
+        sort_keys=True,
+    )
