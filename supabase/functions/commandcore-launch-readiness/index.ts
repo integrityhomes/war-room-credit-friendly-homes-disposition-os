@@ -1,10 +1,15 @@
-const SERVICE_VERSION = "2026-08-29.5";
+const SERVICE_VERSION = "2026-08-29.6";
 
 type Row = Record<string, unknown>;
 
 type ServiceCheck = {
   service: string;
   required: boolean;
+};
+
+type SafetyPolicy = {
+  healthy: boolean;
+  reason: string | null;
 };
 
 const SYSTEM_OF_RECORD_ENTITIES = [
@@ -90,15 +95,50 @@ async function getServiceHealth(url: string, key: string, service: string): Prom
   };
 }
 
+function evaluateSafetyPolicy(service: string, health: Row): SafetyPolicy {
+  if (service === "commandcore-inbound-lead-capture") {
+    const healthy =
+      health.automatic_owner_routing === true &&
+      health.external_assignment_override_allowed === false &&
+      health.internal_assignment_override_requires_service_role === true &&
+      health.external_execution_enabled === false;
+    return {
+      healthy,
+      reason: healthy ? null : "inbound_assignment_boundary_not_verified",
+    };
+  }
+
+  if (service === "commandcore-auto-rebalance") {
+    const healthy =
+      health.low_risk_assignment_only === true &&
+      health.high_confidence_only === true &&
+      health.external_execution_enabled === false &&
+      health.readiness_mutation_enabled === false &&
+      health.approval_mutation_enabled === false &&
+      health.consent_mutation_enabled === false;
+    return {
+      healthy,
+      reason: healthy ? null : "auto_rebalance_safety_posture_not_verified",
+    };
+  }
+
+  return { healthy: true, reason: null };
+}
+
 async function checkService(url: string, key: string, item: ServiceCheck): Promise<Row> {
   const startedAt = Date.now();
   try {
     const parsed = await getServiceHealth(url, key, item.service);
-    const healthy = parsed.http_ok === true && parsed.ok === true;
+    const endpointHealthy = parsed.http_ok === true && parsed.ok === true;
+    const policy = evaluateSafetyPolicy(item.service, parsed);
+    const healthy = endpointHealthy && policy.healthy;
     return {
       service: item.service,
       required: item.required,
       healthy,
+      health_endpoint_healthy: endpointHealthy,
+      safety_policy_healthy: policy.healthy,
+      safety_policy_failure: policy.reason,
       http_status: parsed.http_status,
       reported_status: String(parsed.status ?? "").trim() || null,
       version: String(parsed.version ?? "").trim() || null,
@@ -109,6 +149,9 @@ async function checkService(url: string, key: string, item: ServiceCheck): Promi
       service: item.service,
       required: item.required,
       healthy: false,
+      health_endpoint_healthy: false,
+      safety_policy_healthy: false,
+      safety_policy_failure: "health_check_failed",
       error: error instanceof Error ? error.message : "health_check_failed",
       duration_ms: Date.now() - startedAt,
     };
@@ -200,6 +243,7 @@ Deno.serve(async (req) => {
       crm_cutover_assessment_included: true,
       crm_source_reconciliation_included: true,
       auto_rebalance_chain_included: true,
+      safety_posture_assessment_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
@@ -216,6 +260,7 @@ Deno.serve(async (req) => {
     assessCrmCutover(url, key),
   ]);
   const failed = checks.filter((item) => item.required === true && item.healthy !== true);
+  const safetyFailures = checks.filter((item) => item.required === true && item.safety_policy_healthy !== true);
   const ready = failed.length === 0;
 
   return json(ready ? 200 : 503, {
@@ -225,6 +270,8 @@ Deno.serve(async (req) => {
     healthy_service_count: checks.filter((item) => item.healthy === true).length,
     failed_required_count: failed.length,
     failed_required_services: failed.map((item) => item.service),
+    safety_posture_failure_count: safetyFailures.length,
+    safety_posture_failed_services: safetyFailures.map((item) => item.service),
     checks,
     crm_cutover: crmCutover,
     external_action_started: false,
