@@ -15,23 +15,31 @@ def test_go_live_connections_report_all_categories():
         "publishing_webhook",
         "email_sender",
         "sms_sender",
+        "buyer_reactivation",
+        "social_publish",
         "meta_ads",
         "google_ads",
     }
     assert all(not row.configured for row in rows)
-    assert connection_summary(rows) == {"total": 5, "connected": 0, "remaining": 5}
+    assert connection_summary(rows) == {
+        "total": 7,
+        "configured": 0,
+        "remaining": 7,
+    }
 
 
-def test_existing_automation_alias_counts_as_connected():
+def test_existing_automation_alias_counts_as_configured():
     rows = build_connection_status({"MAKE_WEBHOOK_URL": "https://example.com/hooks/cfh"})
     by_key = {row.key: row for row in rows}
     assert by_key["publishing_webhook"].configured is True
 
 
-def test_provider_connections_are_detected_without_exposing_values():
+def test_actual_handoff_and_account_settings_are_detected_without_exposing_values():
     secrets = {
-        "EMAIL_PROVIDER_API_KEY": "email-secret",
+        "EMAIL_SENDER_WEBHOOK_URL": "https://example.com/email",
         "SMS_SENDER_WEBHOOK_URL": "https://example.com/sms",
+        "BUYER_OUTREACH_WEBHOOK_URL": "https://example.com/reactivation",
+        "SOCIAL_PUBLISH_WEBHOOK_URL": "https://example.com/social",
         "META_AD_ACCOUNT_ID": "123456789",
         "GOOGLE_ADS_CUSTOMER_ID": "123-456-7890",
     }
@@ -39,9 +47,13 @@ def test_provider_connections_are_detected_without_exposing_values():
     by_key = {row.key: row for row in rows}
     assert by_key["email_sender"].configured is True
     assert by_key["sms_sender"].configured is True
+    assert by_key["buyer_reactivation"].configured is True
+    assert by_key["social_publish"].configured is True
     assert by_key["meta_ads"].configured is True
     assert by_key["google_ads"].configured is True
-    rendered = " ".join(row.next_step for row in rows)
+    rendered = " ".join(
+        [*(row.next_step for row in rows), *(row.status_label for row in rows)]
+    )
     for secret_value in secrets.values():
         assert secret_value not in rendered
 
