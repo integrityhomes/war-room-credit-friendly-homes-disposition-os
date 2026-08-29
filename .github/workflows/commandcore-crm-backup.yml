@@ -1,0 +1,95 @@
+name: CommandCore CRM Private Backup
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/commandcore-crm-backup/**"
+      - ".github/workflows/commandcore-crm-backup.yml"
+      - "tests/test_commandcore_crm_backup.py"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/functions/commandcore-crm-backup/**"
+      - ".github/workflows/commandcore-crm-backup.yml"
+      - "tests/test_commandcore_crm_backup.py"
+  workflow_dispatch:
+  schedule:
+    - cron: "10 6 * * *"
+
+jobs:
+  validate:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check CRM backup function
+        run: deno check supabase/functions/commandcore-crm-backup/index.ts
+
+  deploy:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy private CRM backup function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          supabase functions deploy commandcore-crm-backup --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Verify backup service health
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-backup"
+          response="$(curl --silent --show-error --fail "$URL")"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("backup_bucket_private_required") is True; assert data.get("destructive_cleanup_enabled") is False'
+
+  initial_snapshot:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create verified private CRM snapshot
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-backup"
+          response="$(curl --silent --show-error --fail \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{}')"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("source_records_modified") is False; assert data.get("destructive_action_started") is False; assert data.get("external_action_started") is False; print("snapshot=" + str(data.get("snapshot_id")))'
+
+  scheduled_snapshot:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create nightly private CRM snapshot
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-backup"
+          response="$(curl --silent --show-error --fail \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{}')"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("source_records_modified") is False; assert data.get("destructive_action_started") is False; assert data.get("external_action_started") is False; print("snapshot=" + str(data.get("snapshot_id")))'
