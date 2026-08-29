@@ -7,11 +7,13 @@ on:
       - "supabase/functions/commandcore-crm-import-staging/**"
       - ".github/workflows/deploy-commandcore-crm-import-staging.yml"
       - "tests/test_commandcore_crm_import_preview.py"
+      - "tests/test_commandcore_crm_full_history_migration.py"
   pull_request:
     paths:
       - "supabase/functions/commandcore-crm-import-staging/**"
       - ".github/workflows/deploy-commandcore-crm-import-staging.yml"
       - "tests/test_commandcore_crm_import_preview.py"
+      - "tests/test_commandcore_crm_full_history_migration.py"
   workflow_dispatch:
 
 jobs:
@@ -48,8 +50,8 @@ jobs:
         run: |
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-crm-import-staging"
           response="$(curl --fail --silent --show-error "$URL")"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("commit_enabled") is False'
-      - name: Verify non-writing staging canary
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("status") == "healthy"; assert data.get("commit_enabled") is False; assert data.get("source_payload_preserved") is True; assert len(data.get("supported_entities",[])) == 9'
+      - name: Verify non-writing full-history staging canary
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -60,5 +62,5 @@ jobs:
             -X POST "$URL" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
-            --data '{"source":"deployment-canary","entity":"contacts","rows":[{"Contact ID":"staging-canary-contact","First Name":"Canary"}]}')"
-          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("input_rows") == 1; assert data.get("staged_rows") == 1; assert data.get("commit_performed") is False; assert data.get("destructive_delete_used") is False; assert data.get("external_action_started") is False; print("crm_import_staging=verified")'
+            --data '{"source":"deployment-canary","entity":"activities","rows":[{"Activity ID":"staging-canary-activity","Activity Type":"note","Notes":"Canary history row","Legacy Extra Field":"preserve-me"}]}')"
+          printf '%s' "$response" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("input_rows") == 1; assert data.get("staged_rows") == 1; assert data.get("source_payload_preserved") is True; assert data.get("records_committed") == 0; staged=data.get("staged",[]); assert staged and staged[0].get("entity") == "activities"; record=staged[0].get("record",{}); assert record.get("source_payload",{}).get("Legacy Extra Field") == "preserve-me"; assert data.get("destructive_delete_used") is False; assert data.get("external_action_started") is False; print("crm_import_staging_full_history=verified")'

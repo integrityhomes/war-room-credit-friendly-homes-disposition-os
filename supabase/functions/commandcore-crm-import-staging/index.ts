@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-28.1";
+const SERVICE_VERSION = "2026-08-29.2";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_ROWS = 2000;
 
@@ -60,6 +60,103 @@ const RULES: EntityRule[] = [
       notes: ["notes", "deal notes", "lead notes"],
     },
     requiredAny: ["title", "status", "stage", "asking_price", "offer_price"],
+  },
+  {
+    entity: "activities",
+    fields: {
+      external_id: ["id", "activity id", "activity_id", "record id"],
+      activity_type: ["activity type", "activity_type", "type", "event type"],
+      occurred_at: ["occurred at", "occurred_at", "activity date", "date", "created at", "created_at"],
+      title: ["title", "subject", "activity"],
+      notes: ["notes", "note", "description", "details"],
+      contact_identity_key: ["contact id", "contact_id", "seller id", "seller_id"],
+      property_identity_key: ["property id", "property_id"],
+      deal_identity_key: ["deal id", "deal_id", "lead id", "lead_id"],
+    },
+    requiredAny: ["activity_type", "occurred_at", "title", "notes", "deal_identity_key", "contact_identity_key"],
+  },
+  {
+    entity: "communications",
+    fields: {
+      external_id: ["id", "communication id", "communication_id", "message id", "message_id", "record id"],
+      channel: ["channel", "communication channel", "message type", "type"],
+      direction: ["direction", "inbound outbound", "message direction"],
+      occurred_at: ["occurred at", "occurred_at", "sent at", "sent_at", "date", "created at", "created_at"],
+      subject: ["subject", "title"],
+      body: ["body", "message", "text", "content"],
+      from: ["from", "sender", "from address", "from number"],
+      to: ["to", "recipient", "to address", "to number"],
+      contact_identity_key: ["contact id", "contact_id", "seller id", "seller_id"],
+      property_identity_key: ["property id", "property_id"],
+      deal_identity_key: ["deal id", "deal_id", "lead id", "lead_id"],
+    },
+    requiredAny: ["body", "subject", "channel", "occurred_at", "deal_identity_key", "contact_identity_key"],
+  },
+  {
+    entity: "tasks",
+    fields: {
+      external_id: ["id", "task id", "task_id", "record id"],
+      title: ["title", "task", "task name", "subject"],
+      status: ["status", "task status"],
+      priority: ["priority", "task priority"],
+      due_at: ["due at", "due_at", "due date", "due_date", "date due"],
+      completed_at: ["completed at", "completed_at", "completion date"],
+      assigned_to: ["assigned to", "assignee", "owner", "user"],
+      notes: ["notes", "note", "description", "details"],
+      contact_identity_key: ["contact id", "contact_id", "seller id", "seller_id"],
+      property_identity_key: ["property id", "property_id"],
+      deal_identity_key: ["deal id", "deal_id", "lead id", "lead_id"],
+    },
+    requiredAny: ["title", "status", "due_at", "notes", "deal_identity_key", "contact_identity_key"],
+  },
+  {
+    entity: "offers",
+    fields: {
+      external_id: ["id", "offer id", "offer_id", "record id"],
+      status: ["status", "offer status"],
+      amount: ["amount", "offer", "offer amount", "offer price", "price"],
+      offer_type: ["offer type", "offer_type", "type"],
+      created_at: ["created at", "created_at", "offer date", "date"],
+      expires_at: ["expires at", "expires_at", "expiration date"],
+      terms: ["terms", "offer terms"],
+      notes: ["notes", "note", "comments"],
+      contact_identity_key: ["contact id", "contact_id", "seller id", "seller_id"],
+      property_identity_key: ["property id", "property_id"],
+      deal_identity_key: ["deal id", "deal_id", "lead id", "lead_id"],
+    },
+    requiredAny: ["amount", "status", "terms", "deal_identity_key", "property_identity_key"],
+  },
+  {
+    entity: "documents",
+    fields: {
+      external_id: ["id", "document id", "document_id", "file id", "file_id", "record id"],
+      title: ["title", "document name", "file name", "name"],
+      document_type: ["document type", "document_type", "type", "category"],
+      status: ["status", "document status"],
+      url: ["url", "link", "file url", "document url"],
+      created_at: ["created at", "created_at", "uploaded at", "upload date", "date"],
+      notes: ["notes", "note", "description"],
+      contact_identity_key: ["contact id", "contact_id", "seller id", "seller_id"],
+      property_identity_key: ["property id", "property_id"],
+      deal_identity_key: ["deal id", "deal_id", "lead id", "lead_id"],
+    },
+    requiredAny: ["title", "document_type", "url", "deal_identity_key", "property_identity_key"],
+  },
+  {
+    entity: "transactions",
+    fields: {
+      external_id: ["id", "transaction id", "transaction_id", "record id"],
+      transaction_type: ["transaction type", "transaction_type", "type"],
+      status: ["status", "transaction status"],
+      amount: ["amount", "transaction amount", "price"],
+      occurred_at: ["occurred at", "occurred_at", "transaction date", "date", "created at", "created_at"],
+      reference: ["reference", "reference number", "confirmation", "confirmation number"],
+      notes: ["notes", "note", "description"],
+      contact_identity_key: ["contact id", "contact_id", "seller id", "seller_id"],
+      property_identity_key: ["property id", "property_id"],
+      deal_identity_key: ["deal id", "deal_id", "lead id", "lead_id"],
+    },
+    requiredAny: ["transaction_type", "status", "amount", "occurred_at", "deal_identity_key"],
   },
 ];
 
@@ -169,7 +266,7 @@ function makeExternalId(entity: string, source: string, mapped: Row, rowIndex: n
     const title = text(mapped.title).toLowerCase();
     if (title) return `title:${title}`;
   }
-  return `${source}:row:${rowIndex + 1}`;
+  return `${source}:${entity}:row:${rowIndex + 1}`;
 }
 
 function duplicateKey(entity: string, mapped: Row): string {
@@ -185,10 +282,8 @@ function duplicateKey(entity: string, mapped: Row): string {
     const address = normalizedAddress(mapped);
     if (address) return `property:address:${address}`;
   }
-  if (entity === "deals") {
-    const externalId = text(mapped.external_id).toLowerCase();
-    if (externalId) return `deal:id:${externalId}`;
-  }
+  const externalId = text(mapped.external_id).toLowerCase();
+  if (externalId) return `${entity}:id:${externalId}`;
   return "";
 }
 
@@ -200,6 +295,7 @@ Deno.serve(async (req) => {
       version: SERVICE_VERSION,
       status: "healthy",
       supported_entities: RULES.map((rule) => rule.entity),
+      source_payload_preserved: true,
       commit_enabled: false,
       destructive_delete_enabled: false,
       external_execution_enabled: false,
@@ -238,10 +334,12 @@ Deno.serve(async (req) => {
       ...mapped,
       source,
       external_id: externalId,
+      source_payload: sourceRow,
       import_metadata: {
         row_number: index + 1,
         original_columns: Object.keys(sourceRow),
         unmapped_columns: Object.keys(unmapped),
+        source_payload_preserved: true,
       },
     };
     const key = duplicateKey(rule.entity, record);
@@ -259,30 +357,26 @@ Deno.serve(async (req) => {
     });
   });
 
-  const duplicateIndexes = new Set<number>();
-  for (const indexes of duplicates.values()) if (indexes.length > 1) indexes.forEach((index) => duplicateIndexes.add(index));
-  staged.forEach((row, index) => {
-    if (duplicateIndexes.has(index)) row.duplicate_in_file = true;
-  });
-
-  const ready = staged.filter((row) => row.ready_for_import === true && row.duplicate_in_file !== true).length;
-  const duplicateGroups = [...duplicates.entries()].filter(([, indexes]) => indexes.length > 1).map(([key, indexes]) => ({
-    key,
-    row_numbers: indexes.map((index) => index + 1),
-  }));
+  const duplicateGroups: Row[] = [];
+  for (const [key, indexes] of duplicates.entries()) {
+    if (indexes.length < 2) continue;
+    duplicateGroups.push({ key, row_numbers: indexes.map((index) => index + 1) });
+    for (const index of indexes) staged[index].duplicate_in_file = true;
+  }
 
   return jsonResponse(200, {
     ok: true,
     source,
-    requested_entity: requestedEntity || "auto",
     input_rows: rows.length,
     staged_rows: staged.length,
-    ready_for_import: ready,
-    needs_review: staged.length - ready,
-    duplicate_groups: duplicateGroups,
+    ready_for_import: staged.filter((row) => row.ready_for_import === true && row.duplicate_in_file !== true).length,
+    needs_review: staged.filter((row) => row.ready_for_import !== true || row.duplicate_in_file === true).length,
+    supported_entities: RULES.map((rule) => rule.entity),
+    source_payload_preserved: true,
     mapping_summary: mappingSummary,
+    duplicate_groups: duplicateGroups,
     staged,
-    commit_performed: false,
+    records_committed: 0,
     destructive_delete_used: false,
     external_action_started: false,
   });

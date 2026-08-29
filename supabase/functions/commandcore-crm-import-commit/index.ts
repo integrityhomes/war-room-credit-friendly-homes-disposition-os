@@ -1,8 +1,20 @@
-const SERVICE_VERSION = "2026-08-29.3";
+const SERVICE_VERSION = "2026-08-29.4";
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_ROWS = 1000;
 const PREVIEW_CHUNK_SIZE = 250;
 const PREVIEW_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+const SUPPORTED_ENTITIES = [
+  "contacts",
+  "properties",
+  "deals",
+  "activities",
+  "communications",
+  "tasks",
+  "offers",
+  "documents",
+  "transactions",
+] as const;
 
 type Row = Record<string, unknown>;
 
@@ -61,7 +73,7 @@ function identity(row: Row): string {
 
 function entityOf(row: Row): string {
   const value = text(row.entity || row.entity_type).toLowerCase();
-  return ["contacts", "properties", "deals"].includes(value) ? value : "";
+  return SUPPORTED_ENTITIES.includes(value as typeof SUPPORTED_ENTITIES[number]) ? value : "";
 }
 
 function recordFor(row: Row): Row {
@@ -230,6 +242,7 @@ Deno.serve(async (req) => {
       service: "commandcore-crm-import-commit",
       version: SERVICE_VERSION,
       status: "healthy",
+      supported_entities: [...SUPPORTED_ENTITIES],
       approved_rows_only: true,
       deterministic_upsert: true,
       cross_record_linking: true,
@@ -409,7 +422,17 @@ Deno.serve(async (req) => {
   }
 
   const ordered = [...approved].sort((a, b) => {
-    const order: Record<string, number> = { contacts: 0, properties: 1, deals: 2 };
+    const order: Record<string, number> = {
+      contacts: 0,
+      properties: 1,
+      deals: 2,
+      activities: 3,
+      communications: 4,
+      tasks: 5,
+      offers: 6,
+      documents: 7,
+      transactions: 8,
+    };
     return order[entityOf(a)] - order[entityOf(b)];
   });
   const ids = new Map<string, string>();
