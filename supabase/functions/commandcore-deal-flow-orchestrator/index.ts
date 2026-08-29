@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.3";
+const SERVICE_VERSION = "2026-08-29.4";
 
 type Row = Record<string, unknown>;
 
@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
   try {
     const release = await invokeStep(url, key, "commandcore-owner-approval-release");
     const executedContract = await invokeStep(url, key, "commandcore-executed-contract-handoff");
+    const closingDispo = await invokeStep(url, key, "commandcore-closing-dispo-handoff");
     const coordinate = await invokeStep(url, key, "commandcore-deal-lifecycle-coordinator");
     const readiness = await invokeStep(url, key, "commandcore-deal-lifecycle-readiness");
     const specialistPrep = await invokeStep(url, key, "commandcore-deal-specialist-prep", { apply: true });
@@ -80,6 +81,7 @@ Deno.serve(async (req) => {
       steps: {
         owner_approval_release: release,
         executed_contract_handoff: executedContract,
+        closing_dispo_handoff: closingDispo,
         lifecycle_coordination: coordinate,
         lifecycle_readiness: readiness,
         specialist_prep: specialistPrep,
@@ -87,6 +89,7 @@ Deno.serve(async (req) => {
       },
       released_count: release.released_count ?? 0,
       executed_contract_released_count: executedContract.released_count ?? 0,
+      closing_dispo_released_count: closingDispo.released_count ?? 0,
       coordinated_count: coordinate.coordinated_count ?? coordinate.updated_count ?? 0,
       ready_count: readiness.ready_count ?? 0,
       prepared_count: specialistPrep.prepared_count ?? 0,
@@ -96,6 +99,7 @@ Deno.serve(async (req) => {
       owner_approval_bypassed: false,
       legal_terms_generated: false,
       signing_started: false,
+      marketing_execution_started: false,
     });
   } catch (error) {
     console.error("CommandCore deal flow orchestrator failed", error);
@@ -106,6 +110,7 @@ Deno.serve(async (req) => {
       owner_approval_bypassed: false,
       legal_terms_generated: false,
       signing_started: false,
+      marketing_execution_started: false,
     });
   }
 });
