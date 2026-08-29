@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - "supabase/functions/commandcore-approval-engine/**"
+      - "supabase/functions/commandcore-dispatch-worker/**"
       - ".github/workflows/deploy-commandcore-receiver.yml"
       - "tests/test_commandcore_approval_engine_idempotency.py"
+      - "tests/test_commandcore_dispatch_worker_state_preservation.py"
   workflow_dispatch:
   push:
     branches:
@@ -74,6 +76,8 @@ jobs:
           deno-version: v2.x
       - name: Check approval engine
         run: deno check supabase/functions/commandcore-approval-engine/index.ts
+      - name: Check dispatch worker
+        run: deno check supabase/functions/commandcore-dispatch-worker/index.ts
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -171,10 +175,32 @@ jobs:
               && echo "$RESPONSE" | grep -q '"immutable_approval_evidence_enabled":true' \
               && echo "$RESPONSE" | grep -q '"external_execution_enabled":false'; then
               echo "Approval engine immutable evidence health contract passed."
-              exit 0
+              break
             fi
             echo "Approval engine immutable evidence contract not ready yet (attempt $attempt/5)."
+            if [ "$attempt" -eq 5 ]; then
+              echo "Approval engine immutable evidence health contract failed."
+              exit 1
+            fi
             sleep 3
           done
-          echo "Approval engine immutable evidence health contract failed."
+
+      - name: Verify dispatch worker state-preservation health contract
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-dispatch-worker"
+          for attempt in 1 2 3 4 5; do
+            RESPONSE="$(curl --silent --show-error --fail "$URL" || true)"
+            if echo "$RESPONSE" | grep -q '"version":"2026-08-29.1"' \
+              && echo "$RESPONSE" | grep -q '"idempotent_dispatch_processing_enabled":true' \
+              && echo "$RESPONSE" | grep -q '"approval_state_preservation_enabled":true' \
+              && echo "$RESPONSE" | grep -q '"external_execution_enabled":false'; then
+              echo "Dispatch worker state-preservation health contract passed."
+              exit 0
+            fi
+            echo "Dispatch worker state-preservation contract not ready yet (attempt $attempt/5)."
+            sleep 3
+          done
+          echo "Dispatch worker state-preservation health contract failed."
           exit 1

@@ -1,5 +1,5 @@
 const DISPATCH_BUCKET = "commandcore-dispatch-queue";
-const WORKER_VERSION = "2026-08-27.7";
+const WORKER_VERSION = "2026-08-29.1";
 const MAX_BODY_BYTES = 16 * 1024;
 
 function jsonResponse(status: number, payload: Record<string, unknown>): Response {
@@ -254,8 +254,42 @@ async function buildWorkOrders(queued: Record<string, unknown>, leadLink: Record
   return orders;
 }
 
+function existingWorkOrders(queued: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(queued.work_orders)
+    ? queued.work_orders.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function existingReplayResponse(queued: Record<string, unknown>, queueObject: string, dispatchId: string): Record<string, unknown> {
+  const workOrders = existingWorkOrders(queued);
+  const payload = campaignPayload(queued);
+  const marketing = queued.marketing_copy_result && typeof queued.marketing_copy_result === "object" && !Array.isArray(queued.marketing_copy_result)
+    ? queued.marketing_copy_result as Record<string, unknown>
+    : null;
+  return {
+    ok: true,
+    accepted: true,
+    idempotent_replay: true,
+    state_preserved: true,
+    dispatch_id: String(queued.dispatch_id || dispatchId),
+    queue_object: queueObject,
+    status: String(queued.status || ""),
+    worker_processed_at: queued.worker_processed_at || null,
+    work_order_count: workOrders.length,
+    outbound_handoff_count: Number(queued.outbound_handoff_count || 0),
+    readiness_counts: queued.readiness_counts || {},
+    action_queue_ready: queued.action_queue_ready === true,
+    action_queue_summary: queued.action_queue_summary || null,
+    lead_form_url: payload.lead_form_url || null,
+    marketing_package_count: Array.isArray(marketing?.packages) ? marketing.packages.length : 0,
+    approval: queued.approval || null,
+    channel_results: workOrders.map((item) => ({ channel_key: item.channel_key, status: item.result_status, state: item.state, readiness: item.execution_readiness, readiness_reasons: item.readiness_reasons || [], lead_form_url: item.lead_form_url || null, copy_ready: Boolean(item.copy_ready), outbound_handoff_ready: Boolean(item.outbound_handoff_ready) })),
+    external_action_started: queued.external_action_started === true,
+  };
+}
+
 Deno.serve(async (req) => {
-  if (req.method === "GET") return jsonResponse(200, { ok: true, service: "commandcore-dispatch-worker", version: WORKER_VERSION, status: "healthy", external_execution_enabled: false, market_seo_adapter_enabled: true, property_lead_links_enabled: true, marketing_copy_packages_enabled: true, outbound_handoff_preparation_enabled: true, execution_readiness_enabled: true, action_queue_enabled: true });
+  if (req.method === "GET") return jsonResponse(200, { ok: true, service: "commandcore-dispatch-worker", version: WORKER_VERSION, status: "healthy", external_execution_enabled: false, market_seo_adapter_enabled: true, property_lead_links_enabled: true, marketing_copy_packages_enabled: true, outbound_handoff_preparation_enabled: true, execution_readiness_enabled: true, action_queue_enabled: true, idempotent_dispatch_processing_enabled: true, approval_state_preservation_enabled: true });
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
   if (!isAuthenticated(req)) return jsonResponse(401, { ok: false, error: "unauthorized" });
 
@@ -272,6 +306,11 @@ Deno.serve(async (req) => {
 
   try {
     const queued = await readQueueObject(queueObject);
+    const queuedStatus = String(queued.status || "").trim();
+    if (queuedStatus === "action_queue_generated" || queuedStatus === "approval_recorded") {
+      return jsonResponse(200, existingReplayResponse(queued, queueObject, dispatchId));
+    }
+
     const resolvedDispatchId = safePart(queued.dispatch_id || dispatchId);
     const resolvedPropertyId = safePart(queued.property_id || propertyId);
     const leadLink = await generatePropertyLeadLink(queued);
@@ -315,6 +354,8 @@ Deno.serve(async (req) => {
     return jsonResponse(200, {
       ok: true,
       accepted: true,
+      idempotent_replay: false,
+      state_preserved: true,
       dispatch_id: String(queued.dispatch_id || dispatchId),
       queue_object: queueObject,
       status: "action_queue_generated",
