@@ -27,6 +27,7 @@ pages = {
     "Deals": [
         st.Page("pages/45_CommandCore_Deal_Record.py", title="Unified Deal Record", icon="📂"),
         st.Page("pages/46_CommandCore_Pipeline_Followup.py", title="Pipeline & Follow-Up", icon="📈"),
+        st.Page("pages/47_CommandCore_Deal_Workflow_Queue.py", title="Deal Workflow", icon="🔄"),
     ],
     "Tasks & Follow-Up": [
         st.Page("pages/35_CommandCore_My_Work.py", title="My Work", icon="👤"),
