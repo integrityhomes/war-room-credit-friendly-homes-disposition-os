@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from cfh_disposition.blog_public import render_blog_request
 from cfh_disposition.market_seo_public import render_market_seo_request
 from cfh_disposition.public_pages import render_public_request
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
@@ -14,6 +15,8 @@ def get_storage():
 
 
 storage = get_storage()
+if render_blog_request(storage):
+    st.stop()
 if render_market_seo_request(storage):
     st.stop()
 if render_public_request(storage):
