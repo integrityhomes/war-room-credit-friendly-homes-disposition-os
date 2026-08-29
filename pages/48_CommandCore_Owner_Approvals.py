@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_contract_controls import legal_template_blocker, pending_document
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Owner Approvals", page_icon="✅", layout="wide")
@@ -76,15 +77,6 @@ def now_iso() -> str:
 
 def pending_offer(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() == "draft_pending_owner_approval"
-
-
-def pending_document(record: dict[str, Any]) -> bool:
-    return text(record.get("status")).lower() in {
-        "needs_owner_approval",
-        "owner_approval_required",
-        "needs_approved_legal_template",
-        "internal_review_ready",
-    }
 
 
 def verify_owner_pin(supplied: str) -> bool:
@@ -170,6 +162,10 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
             facts = record.get("facts")
             if isinstance(facts, dict):
                 st.json(facts, expanded=False)
+            template_reference = record.get("approved_template_reference")
+            if isinstance(template_reference, dict):
+                st.caption("Approved legal template reference")
+                st.json(template_reference, expanded=False)
 
         owner_name = st.selectbox(
             "Decision maker",
@@ -230,6 +226,20 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
                 st.rerun()
 
 
+def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
+    deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
+    deal = deals_by_id.get(deal_id, {})
+    title = text(deal.get("title")) or text(record.get("name")) or "Contract preparation"
+    with st.container(border=True):
+        st.markdown(f"#### {title}")
+        st.error("Blocked: an approved legal contract template is required before this can become an owner-approval item.")
+        st.caption(f"Deal ID: {deal_id or 'Not linked'}")
+        facts = record.get("facts")
+        if isinstance(facts, dict):
+            st.json(facts, expanded=False)
+        st.caption("This item cannot be approved here. No legal terms will be generated, changed, signed, or sent automatically.")
+
+
 require_password()
 if st.sidebar.button("Log out", key="owner_approval_logout"):
     st.session_state.authenticated = False
@@ -246,7 +256,9 @@ if not str(st.secrets.get("OWNER_APPROVAL_PIN", "")).strip():
 
 try:
     offers = [record for record in list_records("offers") if pending_offer(record)]
-    documents = [record for record in list_records("documents") if pending_document(record)]
+    all_documents = list_records("documents")
+    documents = [record for record in all_documents if pending_document(record)]
+    legal_blockers = [record for record in all_documents if legal_template_blocker(record)]
     deals = list_records("deals")
 except RuntimeError as exc:
     st.error(f"Owner approval data could not be loaded: {exc}")
@@ -254,10 +266,16 @@ except RuntimeError as exc:
 
 deals_by_id = {text(record.get("id")): record for record in deals if text(record.get("id"))}
 
-m1, m2, m3 = st.columns(3)
+m1, m2, m3, m4 = st.columns(4)
 m1.metric("Pending approvals", len(offers) + len(documents))
 m2.metric("Offer decisions", len(offers))
 m3.metric("Document / closing decisions", len(documents))
+m4.metric("Legal template blockers", len(legal_blockers))
+
+if legal_blockers:
+    st.subheader("Blocked contract preparation")
+    for item in legal_blockers:
+        render_legal_template_blocker(item, deals_by_id)
 
 if not offers and not documents:
     st.success("No owner-gated approvals are waiting right now.")
