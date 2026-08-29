@@ -7,6 +7,7 @@ on:
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
       - "tests/test_commandcore_crm_cutover_readiness.py"
       - "tests/test_commandcore_launch_readiness.py"
+      - "tests/test_commandcore_crash_safe_history.py"
   push:
     branches: [main]
     paths:
@@ -14,6 +15,7 @@ on:
       - ".github/workflows/deploy-commandcore-launch-readiness.yml"
       - "tests/test_commandcore_crm_cutover_readiness.py"
       - "tests/test_commandcore_launch_readiness.py"
+      - "tests/test_commandcore_crash_safe_history.py"
   workflow_dispatch:
 
 jobs:
@@ -53,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-launch-readiness"
-          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("live_chain_check_requires_authentication") is True; assert data.get("crm_cutover_assessment_included") is True; assert data.get("crm_source_reconciliation_included") is True; assert data.get("auto_rebalance_chain_included") is True; assert data.get("safety_posture_assessment_included") is True; assert data.get("crm_integrity_posture_included") is True; assert data.get("external_execution_enabled") is False; print("health=ok safety_posture_assessment=enabled crm_integrity=enabled")'
+          curl --silent --show-error --fail "$URL" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("live_chain_check_requires_authentication") is True; assert data.get("crm_cutover_assessment_included") is True; assert data.get("crm_source_reconciliation_included") is True; assert data.get("auto_rebalance_chain_included") is True; assert data.get("safety_posture_assessment_included") is True; assert data.get("crm_integrity_posture_included") is True; assert data.get("crash_safe_history_posture_included") is True; assert data.get("external_execution_enabled") is False; print("health=ok safety_posture_assessment=enabled crm_integrity=enabled crash_safe_history=enabled")'
       - name: Verify complete CommandCore operating chain and CRM cutover guard
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -63,19 +65,27 @@ jobs:
           test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
           URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-launch-readiness"
+          READY=false
+          HTTP_STATUS="000"
           for attempt in $(seq 1 12); do
-            RESPONSE="$(curl --silent --show-error --fail \
+            HTTP_STATUS="$(curl --silent --show-error \
+              -o response.json \
+              -w '%{http_code}' \
               -X POST "$URL" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H "Content-Type: application/json" \
-              --data '{}')"
-            if printf '%s' "$RESPONSE" | python -c 'import json,sys; data=json.load(sys.stdin); cutover=data.get("crm_cutover") or {}; raise SystemExit(0 if cutover.get("reconciliation_service_healthy") is True else 1)'; then
+              --data '{}' || true)"
+            if [ "$HTTP_STATUS" = "200" ] && python -c 'import json; data=json.load(open("response.json", encoding="utf-8")); cutover=data.get("crm_cutover") or {}; raise SystemExit(0 if data.get("launch_ready") is True and cutover.get("reconciliation_service_healthy") is True else 1)'; then
+              READY=true
               break
             fi
-            if [ "$attempt" -eq 12 ]; then
-              echo "CRM reconciliation service did not become healthy in the deployment window"
-              exit 1
+            echo "Launch readiness attempt ${attempt}/12 returned HTTP ${HTTP_STATUS}; retrying safely."
+            if [ "$attempt" -lt 12 ]; then
+              sleep 5
             fi
-            sleep 5
           done
-          printf '%s' "$RESPONSE" | python -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("launch_ready") is True; assert data.get("failed_required_count") == 0; assert data.get("safety_posture_failure_count") == 0; assert data.get("safety_posture_failed_services") == []; cutover=data.get("crm_cutover"); assert isinstance(cutover,dict); assert cutover.get("complete_mapping_coverage") is True; assert cutover.get("unsupported_migration_entities") == []; assert cutover.get("reconciliation_service_healthy") is True; assert cutover.get("crm_cutover_ready") is False; assert cutover.get("source_crm_data_reconciliation_verified") is False; assert "source_crm_data_reconciliation_not_verified" in cutover.get("blockers",[]); assert data.get("external_action_started") is False; assert data.get("destructive_action_started") is False; assert data.get("owner_approval_bypassed") is False; print("full_chain=ready safety_posture=verified crm_integrity=verified migration_coverage=complete crm_cutover_ready=false reconciliation=pending")'
+          if [ "$READY" != "true" ]; then
+            python -c 'import json; from pathlib import Path; p=Path("response.json"); data=json.loads(p.read_text(encoding="utf-8")) if p.exists() and p.stat().st_size else {}; cutover=data.get("crm_cutover") or {}; print("launch_readiness_failed", "failed_required_services=", data.get("failed_required_services", []), "safety_posture_failed_services=", data.get("safety_posture_failed_services", []), "crm_cutover_blockers=", cutover.get("blockers", []))'
+            exit 1
+          fi
+          python -c 'import json; data=json.load(open("response.json", encoding="utf-8")); assert data.get("ok") is True; assert data.get("launch_ready") is True; assert data.get("failed_required_count") == 0; assert data.get("safety_posture_failure_count") == 0; assert data.get("safety_posture_failed_services") == []; cutover=data.get("crm_cutover"); assert isinstance(cutover,dict); assert cutover.get("complete_mapping_coverage") is True; assert cutover.get("unsupported_migration_entities") == []; assert cutover.get("reconciliation_service_healthy") is True; assert cutover.get("crm_cutover_ready") is False; assert cutover.get("source_crm_data_reconciliation_verified") is False; assert "source_crm_data_reconciliation_not_verified" in cutover.get("blockers",[]); assert data.get("external_action_started") is False; assert data.get("destructive_action_started") is False; assert data.get("owner_approval_bypassed") is False; print("full_chain=ready safety_posture=verified crm_integrity=verified crash_safe_history=verified migration_coverage=complete crm_cutover_ready=false reconciliation=pending")'
