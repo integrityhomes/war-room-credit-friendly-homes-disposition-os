@@ -42,8 +42,10 @@ jobs:
         run: supabase functions deploy commandcore-scheduled-coverage --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
       - name: Health check
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        run: curl --fail --silent --show-error "$SUPABASE_URL/functions/v1/commandcore-scheduled-coverage"
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
+          curl --fail --silent --show-error "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/commandcore-scheduled-coverage"
 
   monitor:
     if: github.event_name == 'schedule'
@@ -51,14 +53,15 @@ jobs:
     steps:
       - name: Evaluate live team shifts and apply safe coverage
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL" && exit 1)
+          test -n "$SUPABASE_PROJECT_REF" || (echo "Missing SUPABASE_PROJECT_REF" && exit 1)
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          BASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co"
           response="$(curl --silent --show-error --fail \
-            -X POST "$SUPABASE_URL/functions/v1/commandcore-scheduled-coverage" \
+            -X POST "$BASE_URL/functions/v1/commandcore-scheduled-coverage" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             --data '{"grace_minutes":15,"auto_apply":true}')"
