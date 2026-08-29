@@ -4,7 +4,12 @@ from uuid import UUID
 
 import streamlit as st
 
-from .campaign_launch import CampaignLaunchStore, LaunchStatus, LaunchStoreError, campaign_slug
+from .campaign_launch import (
+    CampaignLaunchStore,
+    LaunchStatus,
+    LaunchStoreError,
+    campaign_slug,
+)
 from .channel_tracking import build_channel_links
 from .dwelyx import dwelyx_base_url, tracking_app_base_url
 from .owned_web_channels import OwnedWebPackageError, build_owned_web_package
@@ -85,7 +90,9 @@ def render_blog_request(storage: Storage) -> bool:
             layout="wide",
         )
         st.title("Credit Friendly Homes")
-        st.warning("This article is temporarily unavailable because its verified property facts are incomplete.")
+        st.warning(
+            "This article is temporarily unavailable because its verified property facts are incomplete."
+        )
         return True
 
     st.set_page_config(page_title=package.title, page_icon="🏠", layout="wide")
