@@ -32,8 +32,12 @@ def test_launch_readiness_checks_full_critical_chain() -> None:
         "commandcore-execution-readiness",
         "commandcore-dispatch-worker",
         "commandcore-deal-flow-orchestrator",
+        "commandcore-workload-balance-advisor",
+        "commandcore-safe-rebalance-apply",
+        "commandcore-auto-rebalance",
     ):
         assert service in source
+    assert "auto_rebalance_chain_included: true" in source
 
 
 def test_live_chain_check_is_authenticated_and_non_executing() -> None:
