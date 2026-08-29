@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.1";
+const SERVICE_VERSION = "2026-08-29.2";
 
 type Row = Record<string, unknown>;
 
@@ -57,6 +57,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       external_execution_enabled: false,
       consequential_approval_bypass_enabled: false,
+      legal_terms_generated: false,
     });
   }
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
@@ -71,6 +72,7 @@ Deno.serve(async (req) => {
     const coordinate = await invokeStep(url, key, "commandcore-deal-lifecycle-coordinator");
     const readiness = await invokeStep(url, key, "commandcore-deal-lifecycle-readiness");
     const specialistPrep = await invokeStep(url, key, "commandcore-deal-specialist-prep", { apply: true });
+    const contractDocuments = await invokeStep(url, key, "commandcore-contract-document-coordinator", { apply: true });
 
     return json(200, {
       ok: true,
@@ -79,14 +81,18 @@ Deno.serve(async (req) => {
         lifecycle_coordination: coordinate,
         lifecycle_readiness: readiness,
         specialist_prep: specialistPrep,
+        contract_document_coordination: contractDocuments,
       },
       released_count: release.released_count ?? 0,
       coordinated_count: coordinate.coordinated_count ?? coordinate.updated_count ?? 0,
       ready_count: readiness.ready_count ?? 0,
       prepared_count: specialistPrep.prepared_count ?? 0,
+      contract_package_ready_count: contractDocuments.package_ready_count ?? 0,
+      contract_template_blocker_count: contractDocuments.blocker_count ?? 0,
       external_action_started: false,
       owner_approval_bypassed: false,
       legal_terms_generated: false,
+      signing_started: false,
     });
   } catch (error) {
     console.error("CommandCore deal flow orchestrator failed", error);
@@ -95,6 +101,8 @@ Deno.serve(async (req) => {
       error: error instanceof Error ? error.message : "deal_flow_orchestrator_unavailable",
       external_action_started: false,
       owner_approval_bypassed: false,
+      legal_terms_generated: false,
+      signing_started: false,
     });
   }
 });
