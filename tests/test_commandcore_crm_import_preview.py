@@ -74,7 +74,8 @@ def test_importer_deploy_workflows_use_project_ref_and_non_writing_canaries() ->
         assert "secrets.SUPABASE_URL" not in workflow
         assert "deno check supabase/functions/commandcore-crm-import-" in workflow
 
-    assert 'data.get("commit_performed") is False' in staging
+    assert 'data.get("records_committed") == 0' in staging
+    assert 'data.get("source_payload_preserved") is True' in staging
     assert '"apply":false' in commit
     assert 'data.get("records_written") == 0' in commit
     assert 'data.get("source_records_modified") is False' in commit
