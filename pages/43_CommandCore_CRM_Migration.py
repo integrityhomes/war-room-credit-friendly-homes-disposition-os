@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib import error, request
 
@@ -249,7 +249,7 @@ def build_source_manifest(source: str, real_source_export: bool) -> tuple[dict[s
         return None, status_rows
     return {
         "source_system": text(source).lower(),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "real_source_export": real_source_export,
         "entities": entities,
     }, status_rows
