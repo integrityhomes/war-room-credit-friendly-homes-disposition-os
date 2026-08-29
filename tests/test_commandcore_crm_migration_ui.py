@@ -24,6 +24,18 @@ def test_crm_migration_page_requires_fresh_guarded_preview_before_apply() -> Non
     assert '"allow_updates": allow_updates' in source
 
 
+def test_crm_migration_page_invalidates_preview_when_rows_change() -> None:
+    source = PAGE.read_text(encoding="utf-8")
+    assert "def payload_signature" in source
+    assert "hashlib.sha256" in source
+    assert "current_payload_signature = payload_signature(payload_rows)" in source
+    assert 'st.session_state.crm_migration_preview_signature = current_payload_signature' in source
+    assert "stored_preview_signature != current_payload_signature" in source
+    assert 'st.session_state.pop("crm_migration_preview", None)' in source
+    assert 'st.session_state.pop("crm_migration_preview_signature", None)' in source
+    assert "The approved migration rows changed" in source
+
+
 def test_crm_migration_page_requires_explicit_overwrite_permission() -> None:
     source = PAGE.read_text(encoding="utf-8")
     assert "would_update > 0" in source
