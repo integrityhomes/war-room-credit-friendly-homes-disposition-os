@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.2";
+const SERVICE_VERSION = "2026-08-29.3";
 
 type Row = Record<string, unknown>;
 
@@ -10,6 +10,7 @@ const FINAL_OUTCOME_TYPES = new Set([
 ]);
 const FINAL_OUTCOME_STATUSES = new Set(["completed", "closed", "settled", "activated", "active"]);
 const TERMINAL_DEAL_STATUSES = new Set(["completed", "closed", "sold", "cancelled", "canceled", "dead"]);
+const COMPLETED_DEAL_STATUSES = new Set(["completed", "closed", "sold"]);
 const TERMINAL_TASK_STATUSES = new Set(["done", "completed", "closed", "cancelled", "canceled"]);
 
 function text(value: unknown): string { return String(value ?? "").trim(); }
@@ -43,6 +44,9 @@ function verifiedFinalOutcome(transaction: Row): boolean {
 function terminalDeal(deal: Row): boolean {
   return TERMINAL_DEAL_STATUSES.has(text(deal.status || deal.stage).toLowerCase());
 }
+function completedDeal(deal: Row): boolean {
+  return COMPLETED_DEAL_STATUSES.has(text(deal.status || deal.stage).toLowerCase());
+}
 function openLifecycleTask(task: Row, dealId: string): boolean {
   return text(task.task_type) === "deal_lifecycle_request" &&
     text(links(task).deal_id || task.deal_id) === dealId &&
@@ -67,6 +71,35 @@ async function upsert(url: string, key: string, entity: string, record: Row): Pr
   return obj(result.record);
 }
 
+async function writeCompletionHistory(
+  url: string,
+  key: string,
+  transaction: Row,
+  dealId: string,
+  completedAt: string,
+  lifecycleTasksCompleted: number,
+): Promise<void> {
+  const transactionId = text(transaction.id);
+  await upsert(url, key, "activities", {
+    source: "commandcore-deal-completion",
+    external_id: `deal-completion-${transactionId || dealId}`,
+    activity_type: "deal_completed",
+    title: "Deal completed from verified final outcome",
+    summary: "CommandCore recorded the deal as completed only after explicit verified disposition/owner-finance outcome evidence.",
+    occurred_at: completedAt,
+    details: {
+      transaction_type: text(transaction.transaction_type),
+      completion_verified: true,
+      buyer_contract_executed: true,
+      lifecycle_tasks_completed: lifecycleTasksCompleted,
+      marketing_sold_flag_sufficient: false,
+      history_preserved: true,
+      external_action_started: false,
+    },
+    links: { deal_id: dealId, transaction_id: transactionId || null },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return json(200, {
@@ -76,6 +109,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       explicit_completion_evidence_required: true,
       marketing_sold_flag_sufficient: false,
+      crash_safe_history_enabled: true,
       external_execution_enabled: false,
     });
   }
@@ -108,7 +142,14 @@ Deno.serve(async (req) => {
         results.push({ transaction_id: transactionId, deal_id: dealId, status: "blocked_missing_deal" });
         continue;
       }
+
+      const completedAt = effectiveAt(transaction);
+      const openTasks = tasks.filter((item) => openLifecycleTask(item, dealId));
+
       if (terminalDeal(deal)) {
+        if (completedDeal(deal)) {
+          await writeCompletionHistory(url, key, transaction, dealId, completedAt, openTasks.length);
+        }
         await upsert(url, key, "transactions", {
           ...transaction,
           deal_completion_status: "released",
@@ -119,7 +160,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const completedAt = effectiveAt(transaction);
+      await writeCompletionHistory(url, key, transaction, dealId, completedAt, openTasks.length);
+
       await upsert(url, key, "deals", {
         ...deal,
         status: "completed",
@@ -132,7 +174,7 @@ Deno.serve(async (req) => {
       });
 
       let lifecycleTasksCompleted = 0;
-      for (const task of tasks.filter((item) => openLifecycleTask(item, dealId))) {
+      for (const task of openTasks) {
         await upsert(url, key, "tasks", {
           ...task,
           status: "completed",
@@ -143,24 +185,10 @@ Deno.serve(async (req) => {
         lifecycleTasksCompleted += 1;
       }
 
-      await upsert(url, key, "activities", {
-        source: "commandcore-deal-completion",
-        external_id: `deal-completion-${transactionId || dealId}`,
-        activity_type: "deal_completed",
-        title: "Deal completed from verified final outcome",
-        summary: "CommandCore recorded the deal as completed only after explicit verified disposition/owner-finance outcome evidence.",
-        occurred_at: completedAt,
-        details: {
-          transaction_type: text(transaction.transaction_type),
-          completion_verified: true,
-          buyer_contract_executed: true,
-          lifecycle_tasks_completed: lifecycleTasksCompleted,
-          marketing_sold_flag_sufficient: false,
-          history_preserved: true,
-          external_action_started: false,
-        },
-        links: { deal_id: dealId, transaction_id: transactionId || null },
-      });
+      if (lifecycleTasksCompleted !== openTasks.length) {
+        await writeCompletionHistory(url, key, transaction, dealId, completedAt, lifecycleTasksCompleted);
+      }
+
       await upsert(url, key, "transactions", {
         ...transaction,
         deal_completion_status: "released",
@@ -178,6 +206,7 @@ Deno.serve(async (req) => {
       explicit_completion_evidence_required: true,
       marketing_sold_flag_sufficient: false,
       history_preserved: true,
+      crash_safe_history_enabled: true,
       external_action_started: false,
     });
   } catch (error) {
