@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.2";
+const SERVICE_VERSION = "2026-08-29.3";
 
 type Row = Record<string, unknown>;
 
@@ -6,6 +6,18 @@ type ServiceCheck = {
   service: string;
   required: boolean;
 };
+
+const SYSTEM_OF_RECORD_ENTITIES = [
+  "contacts",
+  "properties",
+  "deals",
+  "activities",
+  "communications",
+  "tasks",
+  "offers",
+  "documents",
+  "transactions",
+] as const;
 
 const REQUIRED_SERVICES: ServiceCheck[] = [
   { service: "commandcore-crm-core", required: true },
@@ -59,23 +71,32 @@ function authed(req: Request): boolean {
   return Boolean(expected && supplied && constantTimeEqual(expected, supplied));
 }
 
+async function getServiceHealth(url: string, key: string, service: string): Promise<Row> {
+  const response = await fetch(`${url}/functions/v1/${service}`, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${key}`,
+      "cache-control": "no-cache",
+    },
+  });
+  const parsed = await response.json().catch(() => ({})) as Row;
+  return {
+    ...parsed,
+    http_status: response.status,
+    http_ok: response.ok,
+  };
+}
+
 async function checkService(url: string, key: string, item: ServiceCheck): Promise<Row> {
   const startedAt = Date.now();
   try {
-    const response = await fetch(`${url}/functions/v1/${item.service}`, {
-      method: "GET",
-      headers: {
-        authorization: `Bearer ${key}`,
-        "cache-control": "no-cache",
-      },
-    });
-    const parsed = await response.json().catch(() => ({})) as Row;
-    const healthy = response.ok && parsed.ok === true;
+    const parsed = await getServiceHealth(url, key, item.service);
+    const healthy = parsed.http_ok === true && parsed.ok === true;
     return {
       service: item.service,
       required: item.required,
       healthy,
-      http_status: response.status,
+      http_status: parsed.http_status,
       reported_status: String(parsed.status ?? "").trim() || null,
       version: String(parsed.version ?? "").trim() || null,
       duration_ms: Date.now() - startedAt,
@@ -91,6 +112,65 @@ async function checkService(url: string, key: string, item: ServiceCheck): Promi
   }
 }
 
+async function assessCrmCutover(url: string, key: string): Promise<Row> {
+  try {
+    const [staging, commit, backup] = await Promise.all([
+      getServiceHealth(url, key, "commandcore-crm-import-staging"),
+      getServiceHealth(url, key, "commandcore-crm-import-commit"),
+      getServiceHealth(url, key, "commandcore-crm-backup"),
+    ]);
+
+    const supported = Array.isArray(staging.supported_entities)
+      ? staging.supported_entities.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    const missing = SYSTEM_OF_RECORD_ENTITIES.filter((entity) => !supported.includes(entity));
+    const stagingHealthy = staging.http_ok === true && staging.ok === true;
+    const commitHealthy = commit.http_ok === true && commit.ok === true;
+    const backupHealthy = backup.http_ok === true && backup.ok === true;
+    const guardedApply =
+      commit.signed_preview_required_for_apply === true &&
+      commit.pre_apply_backup_required === true &&
+      commit.explicit_update_permission_required === true;
+    const privateBackup =
+      backup.backup_bucket_private_required === true &&
+      backup.destructive_cleanup_enabled === false;
+    const completeMappingCoverage = missing.length === 0;
+    const platformReady = stagingHealthy && commitHealthy && backupHealthy && guardedApply && privateBackup && completeMappingCoverage;
+
+    const blockers: string[] = [];
+    if (!stagingHealthy) blockers.push("crm_import_staging_unhealthy");
+    if (!commitHealthy) blockers.push("crm_import_commit_unhealthy");
+    if (!backupHealthy) blockers.push("crm_backup_unhealthy");
+    if (!guardedApply) blockers.push("crm_import_apply_guard_not_verified");
+    if (!privateBackup) blockers.push("crm_private_backup_not_verified");
+    for (const entity of missing) blockers.push(`migration_mapping_missing:${entity}`);
+    blockers.push("source_crm_data_reconciliation_not_verified");
+
+    return {
+      assessed: true,
+      system_of_record_entities: [...SYSTEM_OF_RECORD_ENTITIES],
+      migration_supported_entities: supported,
+      unsupported_migration_entities: missing,
+      complete_mapping_coverage: completeMappingCoverage,
+      guarded_apply_verified: guardedApply,
+      private_backup_verified: privateBackup,
+      migration_platform_ready: platformReady,
+      crm_cutover_ready: false,
+      source_crm_data_reconciliation_verified: false,
+      blockers,
+    };
+  } catch (error) {
+    return {
+      assessed: false,
+      migration_platform_ready: false,
+      crm_cutover_ready: false,
+      source_crm_data_reconciliation_verified: false,
+      blockers: ["crm_cutover_assessment_unavailable"],
+      error: error instanceof Error ? error.message : "crm_cutover_assessment_failed",
+    };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return json(200, {
@@ -99,6 +179,7 @@ Deno.serve(async (req) => {
       version: SERVICE_VERSION,
       status: "healthy",
       live_chain_check_requires_authentication: true,
+      crm_cutover_assessment_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
@@ -110,7 +191,10 @@ Deno.serve(async (req) => {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!url || !key) return json(500, { ok: false, error: "service_not_configured" });
 
-  const checks = await Promise.all(REQUIRED_SERVICES.map((item) => checkService(url, key, item)));
+  const [checks, crmCutover] = await Promise.all([
+    Promise.all(REQUIRED_SERVICES.map((item) => checkService(url, key, item))),
+    assessCrmCutover(url, key),
+  ]);
   const failed = checks.filter((item) => item.required === true && item.healthy !== true);
   const ready = failed.length === 0;
 
@@ -122,6 +206,7 @@ Deno.serve(async (req) => {
     failed_required_count: failed.length,
     failed_required_services: failed.map((item) => item.service),
     checks,
+    crm_cutover: crmCutover,
     external_action_started: false,
     destructive_action_started: false,
     owner_approval_bypassed: false,
