@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.1";
+const SERVICE_VERSION = "2026-08-29.2";
 const MAX_BODY_BYTES = 32 * 1024;
 
 type Row = Record<string, unknown>;
@@ -116,6 +116,38 @@ async function routeTask(url: string, key: string, task: Row, deal: Row | undefi
   };
 }
 
+async function writeRoutingHistory(
+  url: string,
+  key: string,
+  task: Row,
+  dealId: string,
+  assignedTo: string | null,
+  coordinationStatus: string,
+  coordinationReason: string | null,
+  occurredAt: string,
+): Promise<void> {
+  const taskId = text(task.id);
+  const workType = text(task.work_type);
+  const stableKey = taskId || `${dealId}-${workType}`;
+  await upsertEntity(url, key, "activities", {
+    source: "commandcore-deal-lifecycle-coordinator",
+    external_id: `deal-lifecycle-routing-${stableKey}`,
+    activity_type: "deal_lifecycle_routed",
+    title: "Deal lifecycle work coordinated",
+    summary: `${text(task.title) || workType} → ${assignedTo || "needs owner"}`,
+    occurred_at: occurredAt,
+    details: {
+      work_type: workType,
+      coordination_status: coordinationStatus,
+      coordination_reason: coordinationReason,
+      assigned_to: assignedTo,
+      approval_bypassed: false,
+      external_action_started: false,
+    },
+    links: { deal_id: dealId || null, task_id: taskId || null },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "GET") {
     return jsonResponse(200, {
@@ -124,6 +156,7 @@ Deno.serve(async (req) => {
       version: SERVICE_VERSION,
       status: "healthy",
       supported_work_types: ["deal_analysis", "prepare_offer", "prepare_contract", "title_closing", "marketing_dispo"],
+      crash_safe_history_enabled: true,
       external_execution_enabled: false,
       approval_bypass_enabled: false,
     });
@@ -158,6 +191,18 @@ Deno.serve(async (req) => {
       const deal = dealById.get(dealId);
       const alreadyCoordinated = text(task.coordination_status) === "routed" && text(task.assigned_to);
       if (alreadyCoordinated) {
+        if (apply) {
+          await writeRoutingHistory(
+            url,
+            key,
+            task,
+            dealId,
+            text(task.assigned_to) || null,
+            "routed",
+            text(task.coordination_reason) || null,
+            text(task.coordinated_at) || new Date().toISOString(),
+          );
+        }
         results.push({ task_id: text(task.id), deal_id: dealId, status: "already_routed", assigned_to: task.assigned_to });
         continue;
       }
@@ -169,30 +214,29 @@ Deno.serve(async (req) => {
       }
 
       const assignedTo = text(routing.owner_name) || text(routing.owner_id) || text(task.assigned_to) || null;
+      const coordinationStatus = text(routing.status) === "assigned" ? "routed" : "needs_owner";
+      const coordinationReason = text(routing.routing_reason || routing.reason) || null;
+      const coordinatedAt = new Date().toISOString();
+
+      await writeRoutingHistory(
+        url,
+        key,
+        task,
+        dealId,
+        assignedTo,
+        coordinationStatus,
+        coordinationReason,
+        coordinatedAt,
+      );
+
       const updated = await upsertEntity(url, key, "tasks", {
         ...task,
         assigned_to: assignedTo,
         priority: text(task.priority) || text(routing.priority) || "medium",
-        coordination_status: text(routing.status) === "assigned" ? "routed" : "needs_owner",
-        coordination_reason: text(routing.routing_reason || routing.reason) || null,
-        coordinated_at: new Date().toISOString(),
+        coordination_status: coordinationStatus,
+        coordination_reason: coordinationReason,
+        coordinated_at: coordinatedAt,
         external_action_started: false,
-      });
-
-      await upsertEntity(url, key, "activities", {
-        source: "commandcore-deal-lifecycle-coordinator",
-        activity_type: "deal_lifecycle_routed",
-        title: "Deal lifecycle work coordinated",
-        summary: `${text(task.title) || text(task.work_type)} → ${assignedTo || "needs owner"}`,
-        occurred_at: new Date().toISOString(),
-        details: {
-          work_type: text(task.work_type),
-          coordination_status: text(updated.coordination_status),
-          assigned_to: assignedTo,
-          approval_bypassed: false,
-          external_action_started: false,
-        },
-        links: { deal_id: dealId || null, task_id: text(updated.id || task.id) || null },
       });
 
       results.push({
@@ -211,6 +255,7 @@ Deno.serve(async (req) => {
       routed_count: results.filter((item) => item.status === "routed").length,
       needs_owner_count: results.filter((item) => item.status === "needs_owner").length,
       results,
+      crash_safe_history_enabled: true,
       approval_changed: false,
       external_action_started: false,
     });
