@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.1";
+const SERVICE_VERSION = "2026-08-29.2";
 
 type Row = Record<string, unknown>;
 
@@ -10,6 +10,7 @@ const FINAL_OUTCOME_TYPES = new Set([
 ]);
 const FINAL_OUTCOME_STATUSES = new Set(["completed", "closed", "settled", "activated", "active"]);
 const TERMINAL_DEAL_STATUSES = new Set(["completed", "closed", "sold", "cancelled", "canceled", "dead"]);
+const TERMINAL_TASK_STATUSES = new Set(["done", "completed", "closed", "cancelled", "canceled"]);
 
 function text(value: unknown): string { return String(value ?? "").trim(); }
 function obj(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
@@ -41,6 +42,11 @@ function verifiedFinalOutcome(transaction: Row): boolean {
 }
 function terminalDeal(deal: Row): boolean {
   return TERMINAL_DEAL_STATUSES.has(text(deal.status || deal.stage).toLowerCase());
+}
+function openLifecycleTask(task: Row, dealId: string): boolean {
+  return text(task.task_type) === "deal_lifecycle_request" &&
+    text(links(task).deal_id || task.deal_id) === dealId &&
+    !TERMINAL_TASK_STATUSES.has(text(task.status).toLowerCase());
 }
 async function crmCall(url: string, key: string, payload: Row): Promise<Row> {
   const response = await fetch(`${url}/functions/v1/commandcore-crm-core`, {
@@ -81,7 +87,11 @@ Deno.serve(async (req) => {
   if (!url || !key) return json(500, { ok: false, error: "service_not_configured" });
 
   try {
-    const [transactions, deals] = await Promise.all([listEntity(url, key, "transactions"), listEntity(url, key, "deals")]);
+    const [transactions, deals, tasks] = await Promise.all([
+      listEntity(url, key, "transactions"),
+      listEntity(url, key, "deals"),
+      listEntity(url, key, "tasks"),
+    ]);
     const dealById = new Map(deals.map((deal) => [text(deal.id), deal]));
     const candidates = transactions.filter((transaction) => verifiedFinalOutcome(transaction) && text(transaction.deal_completion_status) !== "released");
     const results: Row[] = [];
@@ -120,6 +130,19 @@ Deno.serve(async (req) => {
         completion_transaction_type: text(transaction.transaction_type) || null,
         external_action_started: false,
       });
+
+      let lifecycleTasksCompleted = 0;
+      for (const task of tasks.filter((item) => openLifecycleTask(item, dealId))) {
+        await upsert(url, key, "tasks", {
+          ...task,
+          status: "completed",
+          completed_at: completedAt,
+          completion_reason: "deal_completed_from_verified_final_outcome",
+          external_action_started: false,
+        });
+        lifecycleTasksCompleted += 1;
+      }
+
       await upsert(url, key, "activities", {
         source: "commandcore-deal-completion",
         external_id: `deal-completion-${transactionId || dealId}`,
@@ -131,7 +154,9 @@ Deno.serve(async (req) => {
           transaction_type: text(transaction.transaction_type),
           completion_verified: true,
           buyer_contract_executed: true,
+          lifecycle_tasks_completed: lifecycleTasksCompleted,
           marketing_sold_flag_sufficient: false,
+          history_preserved: true,
           external_action_started: false,
         },
         links: { deal_id: dealId, transaction_id: transactionId || null },
@@ -142,7 +167,7 @@ Deno.serve(async (req) => {
         deal_completion_recorded_at: new Date().toISOString(),
         external_action_started: false,
       });
-      results.push({ transaction_id: transactionId, deal_id: dealId, status: "completed" });
+      results.push({ transaction_id: transactionId, deal_id: dealId, status: "completed", lifecycle_tasks_completed: lifecycleTasksCompleted });
     }
 
     return json(200, {
@@ -152,6 +177,7 @@ Deno.serve(async (req) => {
       results,
       explicit_completion_evidence_required: true,
       marketing_sold_flag_sufficient: false,
+      history_preserved: true,
       external_action_started: false,
     });
   } catch (error) {
