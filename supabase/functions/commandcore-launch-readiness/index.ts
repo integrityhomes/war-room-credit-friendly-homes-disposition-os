@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.10";
+const SERVICE_VERSION = "2026-08-29.11";
 
 type Row = Record<string, unknown>;
 
@@ -145,6 +145,17 @@ function evaluateSafetyPolicy(service: string, health: Row): SafetyPolicy {
     return {
       healthy,
       reason: healthy ? null : "approval_engine_immutable_evidence_not_verified",
+    };
+  }
+
+  if (service === "commandcore-dispatch-worker") {
+    const healthy =
+      health.idempotent_dispatch_processing_enabled === true &&
+      health.approval_state_preservation_enabled === true &&
+      health.external_execution_enabled === false;
+    return {
+      healthy,
+      reason: healthy ? null : "dispatch_worker_state_preservation_not_verified",
     };
   }
 
@@ -298,6 +309,7 @@ Deno.serve(async (req) => {
       crash_safe_history_posture_included: true,
       owner_approval_release_posture_included: true,
       approval_engine_immutable_evidence_posture_included: true,
+      dispatch_worker_state_preservation_posture_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
