@@ -92,14 +92,22 @@ def test_do_not_contact_buyer_cannot_enter_new_follow_up_sequence() -> None:
         create_conversion_record(BuyerConversionLedger(), buyer(do_not_contact=True), property_record(), now=NOW)
 
 
-def test_sold_property_cannot_receive_new_conversion_record() -> None:
-    with pytest.raises(BuyerConversionError, match="sold property"):
-        create_conversion_record(
-            BuyerConversionLedger(),
-            buyer(),
-            property_record(status=PropertyStatus.SOLD),
-            now=NOW,
-        )
+def test_non_marketable_property_cannot_receive_new_conversion_record() -> None:
+    for status in (
+        PropertyStatus.DRAFT,
+        PropertyStatus.NEEDS_INFORMATION,
+        PropertyStatus.PAUSED,
+        PropertyStatus.PENDING,
+        PropertyStatus.FILLED,
+        PropertyStatus.SOLD,
+    ):
+        with pytest.raises(BuyerConversionError, match="Ready to Launch or Marketing Live"):
+            create_conversion_record(
+                BuyerConversionLedger(),
+                buyer(),
+                property_record(status=status),
+                now=NOW,
+            )
 
 
 def test_contact_permissions_honor_each_saved_consent() -> None:
