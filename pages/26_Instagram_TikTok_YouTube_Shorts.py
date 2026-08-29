@@ -6,7 +6,13 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
+from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
+from cfh_disposition.social_publish_handoff import (
+    SocialPublishHandoffError,
+    SocialPublishSettings,
+    dispatch_social_publish_handoff,
+)
 from cfh_disposition.social_video_channels import (
     SocialVideoPackageError,
     build_social_video_package,
@@ -54,20 +60,26 @@ def get_storage():
 require_password()
 st.title("Instagram Reels + TikTok + YouTube Shorts")
 st.caption(
-    "Creates ready-to-post short-form social packages for each platform while keeping Dwelyx attribution separate by channel, campaign, and property."
+    "One canonical social-video workspace for fact-locked creative, Dwelyx attribution, approval, and optional publication handoff."
 )
 st.info(
-    "Each platform gets its own tracked Dwelyx link plus platform-specific titles, caption variations, hashtags, on-screen text, scripts, and posting notes."
+    "Each platform gets its own tracked Dwelyx link plus platform-specific titles, caption variations, hashtags, on-screen text, scripts, and posting notes. Property facts are read-only here."
 )
 
 try:
-    properties = get_storage().list_properties()
+    properties = [
+        item
+        for item in get_storage().list_properties()
+        if item.status in MARKETABLE_PROPERTY_STATUSES
+    ]
 except StorageError as exc:
     st.error(f"Social video channels could not load saved properties: {exc}")
     st.stop()
 
 if not properties:
-    st.warning("Add and save a property before creating social content.")
+    st.warning(
+        "No Ready to Launch or Marketing Live property is available for social promotion."
+    )
     st.stop()
 
 property_options = {item.display_address or str(item.property_id): item for item in properties}
@@ -105,11 +117,23 @@ for channel_key, channel_name in SOCIAL_CHANNELS:
         st.info("Correct the property facts in Record Manager, then return to this page.")
         st.stop()
 
-summary = st.columns(4)
+publish_settings = SocialPublishSettings.from_mapping(st.secrets)
+summary = st.columns(5)
 summary[0].metric("Property", selected.city or selected.state or "Saved property")
 summary[1].metric("Platforms", "3")
 summary[2].metric("Caption variations", "9 total")
 summary[3].metric("Attribution", "Separate by channel")
+summary[4].metric("Publish adapter", "Connected" if publish_settings.configured else "Not connected")
+
+if publish_settings.configured:
+    st.success(
+        "An approved social publication adapter is configured. A handoff still requires an operator confirmation for each platform."
+    )
+else:
+    st.warning(
+        "Automatic social publication is not connected. The complete posting pack remains usable for a manual final post. "
+        "To enable an approved adapter later, add SOCIAL_PUBLISH_WEBHOOK_URL in Streamlit Secrets."
+    )
 
 st.write("### Ready-to-post packages")
 tabs = st.tabs([name for _, name in SOCIAL_CHANNELS])
@@ -117,8 +141,18 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
     package = packages[channel_key]
     with tab:
         st.write(f"#### {channel_name}")
-        st.text_input("Post / video title", value=package.post_title, key=f"title_{channel_key}")
-        st.text_input("Tracked Dwelyx link", value=package.tracked_link, key=f"link_{channel_key}")
+        st.text_input(
+            "Post / video title",
+            value=package.post_title,
+            key=f"title_{channel_key}",
+            disabled=True,
+        )
+        st.text_input(
+            "Tracked Dwelyx link",
+            value=package.tracked_link,
+            key=f"link_{channel_key}",
+            disabled=True,
+        )
 
         st.write("**Hook**")
         st.code(package.hook, language=None)
@@ -130,6 +164,7 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
                 value=caption,
                 height=220,
                 key=f"caption_{channel_key}_{index}",
+                disabled=True,
             )
 
         st.write("**Hashtags**")
@@ -141,6 +176,7 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
             value=package.short_script,
             height=220,
             key=f"script_{channel_key}",
+            disabled=True,
         )
 
         st.write("**On-screen text sequence**")
@@ -162,8 +198,52 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
             st.write(f"- {note}")
 
         st.write(f"**Call to action:** {package.call_to_action}")
+
+        st.divider()
+        st.write("### Approval & publication handoff")
+        variation_number = st.selectbox(
+            "Approved caption variation",
+            list(range(1, len(package.caption_variants) + 1)),
+            format_func=lambda value: f"Variation {value}",
+            key=f"publish_variation_{channel_key}",
+        )
+        approved_caption = package.caption_variants[variation_number - 1]
+        approved_by = st.text_input(
+            "Approved by",
+            value="Sabrina",
+            key=f"publish_approved_by_{channel_key}",
+        )
+        confirmed = st.checkbox(
+            f"I reviewed the current property facts and approve this exact {channel_name} package for publication handoff.",
+            key=f"publish_confirm_{channel_key}",
+        )
+        handoff_clicked = st.button(
+            f"Hand Off Approved {channel_name} Package",
+            type="primary",
+            use_container_width=True,
+            key=f"publish_button_{channel_key}",
+            disabled=not publish_settings.configured or not confirmed,
+        )
+        if handoff_clicked:
+            try:
+                receipt = dispatch_social_publish_handoff(
+                    st.secrets,
+                    property_record=selected,
+                    package=package,
+                    campaign=campaign,
+                    caption=approved_caption,
+                    approved_by=approved_by,
+                )
+                st.success(
+                    f"The {channel_name} adapter accepted the approved package (HTTP {receipt.status_code}). "
+                    "This confirms the handoff only; it does not claim the platform published the post."
+                )
+            except SocialPublishHandoffError as exc:
+                st.error(f"Social publication handoff failed: {exc}")
+
         st.caption(
-            "Final publication stays approval-controlled. Keep the exact tracked link with the platform content so downstream buyer activity remains attributable."
+            "If no publication adapter is connected, use the exact package above for the manual final post. "
+            "Keep the tracked link wherever the platform permits it so buyer activity remains attributable."
         )
 
 st.write("### Downloadable three-channel posting pack")
