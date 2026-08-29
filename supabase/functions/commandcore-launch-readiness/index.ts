@@ -1,4 +1,4 @@
-const SERVICE_VERSION = "2026-08-29.3";
+const SERVICE_VERSION = "2026-08-29.4";
 
 type Row = Record<string, unknown>;
 
@@ -114,10 +114,11 @@ async function checkService(url: string, key: string, item: ServiceCheck): Promi
 
 async function assessCrmCutover(url: string, key: string): Promise<Row> {
   try {
-    const [staging, commit, backup] = await Promise.all([
+    const [staging, commit, backup, reconciliation] = await Promise.all([
       getServiceHealth(url, key, "commandcore-crm-import-staging"),
       getServiceHealth(url, key, "commandcore-crm-import-commit"),
       getServiceHealth(url, key, "commandcore-crm-backup"),
+      getServiceHealth(url, key, "commandcore-crm-reconciliation"),
     ]);
 
     const supported = Array.isArray(staging.supported_entities)
@@ -127,6 +128,7 @@ async function assessCrmCutover(url: string, key: string): Promise<Row> {
     const stagingHealthy = staging.http_ok === true && staging.ok === true;
     const commitHealthy = commit.http_ok === true && commit.ok === true;
     const backupHealthy = backup.http_ok === true && backup.ok === true;
+    const reconciliationHealthy = reconciliation.http_ok === true && reconciliation.ok === true;
     const guardedApply =
       commit.signed_preview_required_for_apply === true &&
       commit.pre_apply_backup_required === true &&
@@ -135,16 +137,26 @@ async function assessCrmCutover(url: string, key: string): Promise<Row> {
       backup.backup_bucket_private_required === true &&
       backup.destructive_cleanup_enabled === false;
     const completeMappingCoverage = missing.length === 0;
-    const platformReady = stagingHealthy && commitHealthy && backupHealthy && guardedApply && privateBackup && completeMappingCoverage;
+    const sourceReconciled = reconciliationHealthy && reconciliation.reconciliation_verified === true;
+    const platformReady =
+      stagingHealthy &&
+      commitHealthy &&
+      backupHealthy &&
+      reconciliationHealthy &&
+      guardedApply &&
+      privateBackup &&
+      completeMappingCoverage;
+    const cutoverReady = platformReady && sourceReconciled;
 
     const blockers: string[] = [];
     if (!stagingHealthy) blockers.push("crm_import_staging_unhealthy");
     if (!commitHealthy) blockers.push("crm_import_commit_unhealthy");
     if (!backupHealthy) blockers.push("crm_backup_unhealthy");
+    if (!reconciliationHealthy) blockers.push("crm_source_reconciliation_unhealthy");
     if (!guardedApply) blockers.push("crm_import_apply_guard_not_verified");
     if (!privateBackup) blockers.push("crm_private_backup_not_verified");
     for (const entity of missing) blockers.push(`migration_mapping_missing:${entity}`);
-    blockers.push("source_crm_data_reconciliation_not_verified");
+    if (!sourceReconciled) blockers.push("source_crm_data_reconciliation_not_verified");
 
     return {
       assessed: true,
@@ -154,9 +166,12 @@ async function assessCrmCutover(url: string, key: string): Promise<Row> {
       complete_mapping_coverage: completeMappingCoverage,
       guarded_apply_verified: guardedApply,
       private_backup_verified: privateBackup,
+      reconciliation_service_healthy: reconciliationHealthy,
       migration_platform_ready: platformReady,
-      crm_cutover_ready: false,
-      source_crm_data_reconciliation_verified: false,
+      crm_cutover_ready: cutoverReady,
+      source_crm_data_reconciliation_verified: sourceReconciled,
+      latest_reconciliation_verification_id: reconciliation.latest_verification_id || null,
+      latest_reconciliation_verified_at: reconciliation.latest_verified_at || null,
       blockers,
     };
   } catch (error) {
@@ -180,6 +195,7 @@ Deno.serve(async (req) => {
       status: "healthy",
       live_chain_check_requires_authentication: true,
       crm_cutover_assessment_included: true,
+      crm_source_reconciliation_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
