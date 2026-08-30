@@ -117,7 +117,9 @@ with st.expander("Tracking link & launch requirements", expanded=False):
     for note in plan.notes:
         st.write(f"- {note}")
     st.warning(
-        "Viewing or downloading this plan does not record owner approval. A real campaign still requires account/billing setup, current policy review, exact budget approval, and an explicit external launch step."
+        "Viewing or downloading this plan does not record owner approval. "
+        "A real campaign still requires account/billing setup, current policy review, "
+        "exact budget approval, and an explicit external launch step."
     )
 
 rows = []
