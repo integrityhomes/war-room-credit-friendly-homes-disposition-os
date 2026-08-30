@@ -9,6 +9,22 @@ from typing import Any
 from .mode import HarnessMode, parse_mode
 
 Executor = Callable[[str, dict[str, Any]], Any]
+REDACTED = "[REDACTED]"
+_SENSITIVE_KEY_PARTS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "cookie",
+    "account_number",
+    "routing_number",
+    "card_number",
+    "cvv",
+    "pin",
+)
 
 
 class ActionType(StrEnum):
@@ -57,11 +73,34 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _is_sensitive_key(key: Any) -> bool:
+    normalized = str(key).strip().casefold().replace("-", "_")
+    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def _redact_for_report(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): REDACTED if _is_sensitive_key(key) else _redact_for_report(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_for_report(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_for_report(item) for item in value]
+    return value
+
+
 def _owner_approval_present(approval: dict[str, Any] | None) -> bool:
     if not approval:
         return False
     status = _text(approval.get("status") or approval.get("approval_status")).casefold()
-    return approval.get("approved") is True or status in {"approved", "owner_approved", "released", "approved_for_release"}
+    return approval.get("approved") is True or status in {
+        "approved",
+        "owner_approved",
+        "released",
+        "approved_for_release",
+    }
 
 
 class SideEffectBus:
@@ -128,7 +167,7 @@ class SideEffectBus:
             approval_present=approval_present,
             decision=decision,
             reason=reason,
-            payload_summary=dict(payload),
+            payload_summary=_redact_for_report(payload),
             timestamp=datetime.now(UTC).isoformat(),
         )
         self.records.append(record)
