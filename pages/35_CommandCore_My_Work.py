@@ -7,6 +7,7 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.my_work_operator import render_operator_review
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore My Work", page_icon="👤", layout="wide")
@@ -423,6 +424,13 @@ for item in filtered:
                 st.caption(f"Projected workload after assignment: {workload}")
 
 st.divider()
+render_operator_review(
+    filtered,
+    client=get_supabase(),
+    call_function=call_commandcore_function,
+)
+
+st.divider()
 st.caption(
-    "Assignment, shift briefing, takeover tracking, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, or external execution permissions."
+    "Assignment, shift briefing, takeover tracking, operator review, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, legal terms, or external execution permissions."
 )
