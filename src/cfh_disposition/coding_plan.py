@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Protocol
 
-from .coding_agent import CodingTicket
 from .coding_repo import RepositorySnapshot
+
+
+class TicketLike(Protocol):
+    ticket_id: str
+    goal: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +25,7 @@ class ChangePlan:
         return asdict(self)
 
 
-def build_change_plan(ticket: CodingTicket, snapshot: RepositorySnapshot) -> ChangePlan:
+def build_change_plan(ticket: TicketLike, snapshot: RepositorySnapshot) -> ChangePlan:
     """Create a conservative plan from a ticket and read-only repository snapshot."""
     goal = ticket.goal.casefold()
     likely: list[str] = []
