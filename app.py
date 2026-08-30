@@ -44,9 +44,9 @@ def render_commandcore_sidebar() -> None:
         st.markdown("#### Management")
         sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "✅")
         sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations", "🧭")
-        sidebar_link("pages/50_CommandCore_Contract_Templates.py", "Contract Templates", "📄")
 
         with st.expander("Admin & setup", expanded=False):
+            sidebar_link("pages/50_CommandCore_Contract_Templates.py", "Contract Templates", "📄")
             sidebar_link("pages/36_CommandCore_Coverage.py", "Coverage", "🛡️")
             sidebar_link("pages/38_CommandCore_Management_Alerts.py", "Alerts", "⚠️")
             sidebar_link("pages/37_CommandCore_Coverage_Exceptions.py", "Coverage Exceptions", "🚨")
