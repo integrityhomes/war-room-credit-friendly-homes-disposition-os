@@ -17,28 +17,33 @@ def _links(record: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _linked_deal_id(contact_id: str, deals: list[dict[str, Any]]) -> str:
+    for deal in deals:
+        if _text(_links(deal).get("contact_id")) == contact_id:
+            return _text(deal.get("id"))
+    return ""
+
+
 def _linked_property_context(
     contact_id: str,
     deals: list[dict[str, Any]],
     properties: list[dict[str, Any]],
-) -> tuple[str, str, str, str, str]:
+) -> tuple[str, str, str, str]:
     property_by_id = {_text(row.get("id")): row for row in properties if _text(row.get("id"))}
     for deal in deals:
         deal_links = _links(deal)
         if _text(deal_links.get("contact_id")) != contact_id:
             continue
-        deal_id = _text(deal.get("id"))
         property_record = property_by_id.get(_text(deal_links.get("property_id")))
         if not property_record:
-            return deal_id, "", "", "", ""
+            return "", "", "", ""
         return (
-            deal_id,
             _text(property_record.get("address")),
             _text(property_record.get("city")),
             _text(property_record.get("state")),
             _text(deal.get("listing_url") or property_record.get("listing_url") or property_record.get("zillow_url")),
         )
-    return "", "", "", "", ""
+    return "", "", "", ""
 
 
 def _result_key(contact_id: str) -> str:
@@ -93,7 +98,8 @@ def render_agent_finder(
         part for part in [_text(contact.get("first_name")), _text(contact.get("last_name"))] if part
     )
     brokerage = _text(contact.get("company") or contact.get("brokerage"))
-    deal_id, address, city, state, listing_url = _linked_property_context(contact_id, deals, properties)
+    deal_id = _linked_deal_id(contact_id, deals)
+    address, city, state, listing_url = _linked_property_context(contact_id, deals, properties)
 
     with st.expander("Find Contact Info", expanded=False):
         st.write("Search public sources for this agent's phone and email without leaving CommandCore.")
