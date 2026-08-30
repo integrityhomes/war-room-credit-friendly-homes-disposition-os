@@ -75,11 +75,26 @@ def due_date(record: dict[str, Any]) -> date | None:
 
 
 def is_open_task(record: dict[str, Any]) -> bool:
-    return text(record.get("status")).lower() not in {"done", "completed", "closed", "cancelled", "canceled"}
+    return text(record.get("status")).lower() not in {
+        "done",
+        "completed",
+        "closed",
+        "cancelled",
+        "canceled",
+    }
 
 
 def deal_title(record: dict[str, Any]) -> str:
     return text(record.get("title")) or text(record.get("external_id")) or text(record.get("id"))
+
+
+def open_deal_button(deal: dict[str, Any], *, key: str, label: str = "Open Deal") -> None:
+    deal_id = text(deal.get("id"))
+    if not deal_id:
+        return
+    if st.button(label, key=key, use_container_width=True):
+        st.session_state["commandcore_selected_deal_id"] = deal_id
+        st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
 
 require_password()
@@ -88,7 +103,9 @@ if st.sidebar.button("Log out", key="commandcore_pipeline_logout"):
     st.rerun()
 
 st.title("CommandCore Pipeline + Follow-up")
-st.caption("See where every deal sits, what needs follow-up now, and create the next action without leaving the CRM.")
+st.caption(
+    "See where every deal sits, what needs follow-up now, and open the exact deal without searching for it again."
+)
 
 deals = list_records("deals")
 tasks = list_records("tasks")
@@ -115,8 +132,13 @@ with pipeline_tab:
         for index, stage in enumerate(stages):
             with columns[index % len(columns)]:
                 st.subheader(stage)
-                stage_deals = [deal for deal in deals if (text(deal.get("stage")) or "Unassigned Stage") == stage]
+                stage_deals = [
+                    deal
+                    for deal in deals
+                    if (text(deal.get("stage")) or "Unassigned Stage") == stage
+                ]
                 for deal in stage_deals:
+                    deal_id = text(deal.get("id")) or str(index)
                     with st.container(border=True):
                         st.markdown(f"**{deal_title(deal)}**")
                         st.caption(f"Owner: {text(deal.get('assigned_to')) or 'Unassigned'}")
@@ -124,11 +146,17 @@ with pipeline_tab:
                         offer = text(deal.get("offer_price"))
                         if asking or offer:
                             st.caption(f"Ask: {asking or '—'}  |  Offer: {offer or '—'}")
+                        open_deal_button(deal, key=f"pipeline_open_{deal_id}")
 
     st.divider()
     st.subheader("Update deal stage")
     if deals:
         selected = st.selectbox("Deal", deals, format_func=deal_title)
+        open_deal_button(
+            selected,
+            key=f"pipeline_selected_open_{text(selected.get('id'))}",
+            label="Open Selected Deal",
+        )
         c1, c2 = st.columns(2)
         new_stage = c1.text_input("Stage", value=text(selected.get("stage")))
         new_status = c2.text_input("Status", value=text(selected.get("status")))
@@ -146,9 +174,10 @@ with followup_tab:
         st.success("No overdue or due-today follow-ups.")
     for task in attention:
         task_due = due_date(task)
-        links = task.get("links") if isinstance(task.get("links"), dict) else {}
-        deal_id = text(links.get("deal_id") if isinstance(links, dict) else "")
+        task_links = task.get("links") if isinstance(task.get("links"), dict) else {}
+        deal_id = text(task_links.get("deal_id") if isinstance(task_links, dict) else "")
         linked_deal = next((deal for deal in deals if text(deal.get("id")) == deal_id), None)
+        task_key = text(task.get("id")) or f"{deal_id}_{text(task.get('title'))}"
         with st.container(border=True):
             st.markdown(f"**{text(task.get('title')) or 'Follow up'}**")
             st.caption(
@@ -156,6 +185,8 @@ with followup_tab:
                 f"Due: {task_due.isoformat() if task_due else 'No date'}  |  "
                 f"Owner: {text(task.get('assigned_to')) or 'Unassigned'}"
             )
+            if linked_deal:
+                open_deal_button(linked_deal, key=f"followup_open_{task_key}")
 
     st.divider()
     st.subheader("Schedule next follow-up")
@@ -179,9 +210,14 @@ with followup_tab:
             }
             result = upsert("tasks", record)
             if result.get("ok"):
-                st.success("Follow-up created. Due follow-ups are synced into the CommandCore Action Queue by the background service.")
+                st.success(
+                    "Follow-up created. Due follow-ups are synced into the CommandCore Action Queue by the background service."
+                )
                 st.rerun()
             st.error(text(result.get("error")) or "Could not create the follow-up.")
 
 st.divider()
-st.caption("This workspace changes internal CRM records only. It does not send seller messages, make offers, sign contracts, move money, or perform external actions.")
+st.caption(
+    "This workspace changes internal CRM records only. It does not send seller messages, make offers, sign contracts, "
+    "move money, or perform external actions."
+)
