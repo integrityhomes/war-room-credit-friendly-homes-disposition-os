@@ -20,10 +20,7 @@ def test_completion_ledger_has_no_duplicate_paths() -> None:
 def test_current_internal_finish_backlog_is_explicit() -> None:
     backlog = {row.path for row in needs_work()}
 
-    assert backlog == {
-        "pages/14_AI_Creative_Winner_Rotation.py",
-        "pages/15_AI_Buyer_Acquisition_Growth.py",
-    }
+    assert backlog == {"pages/14_AI_Creative_Winner_Rotation.py"}
 
 
 def test_external_blockers_are_not_mislabeled_as_internal_work() -> None:
