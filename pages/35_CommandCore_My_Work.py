@@ -432,5 +432,6 @@ render_operator_review(
 
 st.divider()
 st.caption(
-    "Assignment, shift briefing, takeover tracking, operator review, rebalancing, and audit history only. These controls never change readiness, approvals, consent, budgets, legal terms, or external execution permissions."
+    "Assignment, shift briefing, takeover tracking, operator review, rebalancing, and audit history only. "
+    "These controls never change readiness, approvals, consent, budgets, legal terms, or external execution permissions."
 )
