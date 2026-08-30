@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 import pytest
 
 from cfh_disposition.contract_workspace import (
