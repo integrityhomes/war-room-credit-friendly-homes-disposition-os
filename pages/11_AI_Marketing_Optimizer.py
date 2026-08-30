@@ -9,6 +9,13 @@ import streamlit as st
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.channels import CHANNELS, CHANNELS_BY_KEY
+from cfh_disposition.marketing_intelligence_optimizer import build_market_informed_tests
+from cfh_disposition.marketing_intelligence_pipeline import build_current_intelligence_brief
+from cfh_disposition.marketing_intelligence_planner import build_planner_improvement_briefs
+from cfh_disposition.marketing_intelligence_store import (
+    MarketingIntelligenceStore,
+    MarketingIntelligenceStoreError,
+)
 from cfh_disposition.marketing_optimizer import (
     AIMarketingPlan,
     MarketingOptimizerError,
@@ -137,6 +144,34 @@ def _display_plan(plan: AIMarketingPlan) -> None:
             st.warning(gap)
 
 
+def _market_intelligence_rows(performance) -> list[dict[str, str]]:
+    try:
+        intelligence_store = MarketingIntelligenceStore(st.secrets)
+        intelligence_ledger = intelligence_store.load()
+        brief = build_current_intelligence_brief(intelligence_ledger)
+    except MarketingIntelligenceStoreError:
+        return []
+
+    measured_actions = {row.channel_key: row.action.value for row in performance}
+    candidates = build_market_informed_tests(brief, measured_actions)
+    planner_briefs = build_planner_improvement_briefs(candidates)
+    return [
+        {
+            "Area": item.surface.value.replace("_", " ").title(),
+            "Market": item.market,
+            "Measured Decision": item.measured_decision,
+            "Research-Informed Test": item.test_angle,
+            "Recommended Use": item.recommended_action,
+            "Approval": (
+                "Owner approval required"
+                if item.requires_owner_approval
+                else "Existing channel rules apply"
+            ),
+        }
+        for item in planner_briefs
+    ]
+
+
 require_password()
 st.title("AI Marketing Optimizer")
 st.caption(
@@ -250,6 +285,23 @@ with plan_tab:
             use_container_width=True,
             hide_index=True,
         )
+
+        intelligence_rows = _market_intelligence_rows(performance)
+        st.write("### Market Intelligence Test Ideas")
+        st.caption(
+            "These are research-informed challenger ideas only. Competitor visibility never overrides CommandCore's own measured scale, pause, or repair decision."
+        )
+        if intelligence_rows:
+            st.dataframe(
+                pd.DataFrame(intelligence_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info(
+                "No recent repeated market pattern is ready to influence a test yet. The measured optimizer continues normally."
+            )
+
         settings = MarketingOptimizerSettings.from_mapping(st.secrets)
         plan_key = _plan_key(
             period_start,
