@@ -60,6 +60,19 @@ def test_contract_facts_never_guess_contract_type_or_state() -> None:
         )
 
 
+def test_complete_facts_can_move_to_approved_template_matching() -> None:
+    record = contract_prep_document(
+        deal_id="deal-1",
+        deal=sample_deal(),
+        seller={"name": "Seller LLC"},
+        property_record=sample_property(),
+    )
+
+    assert record["status"] == "needs_approved_legal_template"
+    assert record["generation_ready"] is True
+    assert record["missing_facts"] == []
+
+
 def test_missing_legal_or_party_facts_are_visible_and_block_generation_readiness() -> None:
     property_record = {**sample_property(), "legal_description": "", "parcel_number": ""}
     deal = {**sample_deal(), "buyer_1_name": ""}
@@ -70,7 +83,7 @@ def test_missing_legal_or_party_facts_are_visible_and_block_generation_readiness
         property_record=property_record,
     )
 
-    assert record["status"] == "needs_approved_legal_template"
+    assert record["status"] == "needs_missing_facts"
     assert record["generation_ready"] is False
     assert set(record["missing_facts"]) == {
         "seller name",
