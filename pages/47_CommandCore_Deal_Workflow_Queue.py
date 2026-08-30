@@ -7,7 +7,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from supabase import create_client
 
-st.set_page_config(page_title="CommandCore Deal Next Steps", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="CommandCore Deal Work Queue", page_icon="🔄", layout="wide")
 
 WORK_TYPE_LABELS = {
     "deal_analysis": "Deal Analysis",
@@ -25,7 +25,7 @@ def require_password() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.title("CommandCore Deal Next Steps")
+    st.title("CommandCore Deal Work Queue")
     with st.form("commandcore_deal_workflow_login"):
         password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -107,8 +107,8 @@ if st.sidebar.button("Log out", key="commandcore_deal_workflow_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Deal Next Steps")
-st.caption("See what each deal needs next, what is ready to move, and what is blocked by missing information.")
+st.title("CommandCore Deal Work Queue")
+st.caption("See work across all deals: what is ready to move, what needs information, and what still needs an owner.")
 
 try:
     tasks = [
@@ -118,7 +118,7 @@ try:
     ]
     deals = list_records("deals")
 except RuntimeError as exc:
-    st.error(f"Deal next-step data could not be loaded: {exc}")
+    st.error(f"Deal work data could not be loaded: {exc}")
     st.stop()
 
 deal_by_id = {text(deal.get("id")): deal for deal in deals}
@@ -130,7 +130,7 @@ contracts = [task for task in tasks if text(task.get("work_type")) == "prepare_c
 closing = [task for task in tasks if text(task.get("work_type")) == "title_closing"]
 
 metrics = st.columns(6)
-metrics[0].metric("Open Next Steps", len(tasks))
+metrics[0].metric("Open Work", len(tasks))
 metrics[1].metric("Ready to Work", len(ready))
 metrics[2].metric("Needs Information", len(missing))
 metrics[3].metric("Needs Owner", len(unassigned))
@@ -138,12 +138,12 @@ metrics[4].metric("Contract Prep", len(contracts))
 metrics[5].metric("Title / Closing", len(closing))
 
 if missing:
-    st.warning(f"{len(missing)} deal next step(s) are waiting for missing deal information.")
+    st.warning(f"{len(missing)} deal work item(s) are waiting for missing deal information.")
 if unassigned:
-    st.warning(f"{len(unassigned)} deal next step(s) do not currently have an owner.")
+    st.warning(f"{len(unassigned)} deal work item(s) do not currently have an owner.")
 if not tasks:
     with st.container(border=True):
-        st.markdown("### No deal next steps are waiting")
+        st.markdown("### No deal work is waiting")
         st.write("There is no open lifecycle work in the queue right now.")
         left, right = st.columns(2)
         if left.button("Open Deal Workspace", type="primary", use_container_width=True):
@@ -159,7 +159,7 @@ status_filter = st.segmented_control(
     default="All",
 )
 work_filter = st.selectbox(
-    "Next-step type",
+    "Work type",
     ["All", *WORK_TYPE_LABELS],
     format_func=lambda value: "All" if value == "All" else work_type_label(value),
 )

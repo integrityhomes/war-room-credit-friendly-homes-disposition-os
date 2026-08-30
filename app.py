@@ -32,7 +32,7 @@ def render_commandcore_sidebar() -> None:
 
         st.markdown("#### Deals")
         sidebar_link("pages/45_CommandCore_Deal_Record.py", "Deal Workspace", "📂")
-        sidebar_link("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Next Steps", "🔄")
+        sidebar_link("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Work Queue", "🔄")
 
         st.markdown("#### Tasks & Follow-Up")
         sidebar_link("pages/35_CommandCore_My_Work.py", "My Work", "👤")
@@ -86,7 +86,7 @@ pages = {
     ],
     "Deals": [
         st.Page("pages/45_CommandCore_Deal_Record.py", title="Deal Workspace", icon="📂"),
-        st.Page("pages/47_CommandCore_Deal_Workflow_Queue.py", title="Deal Next Steps", icon="🔄"),
+        st.Page("pages/47_CommandCore_Deal_Workflow_Queue.py", title="Deal Work Queue", icon="🔄"),
     ],
     "Tasks & Follow-Up": [
         st.Page("pages/35_CommandCore_My_Work.py", title="My Work", icon="👤"),

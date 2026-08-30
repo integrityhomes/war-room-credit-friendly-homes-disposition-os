@@ -9,7 +9,7 @@ def test_sidebar_uses_plain_business_labels() -> None:
     for marker in (
         'title="Leads"',
         'title="Deal Workspace"',
-        'title="Deal Next Steps"',
+        'title="Deal Work Queue"',
         'title="Follow-Up & Pipeline"',
         'title="Marketing Home"',
         'title="Buyer Results"',
