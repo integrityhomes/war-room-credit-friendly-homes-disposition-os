@@ -25,6 +25,7 @@ from cfh_disposition.buyer_acquisition import (
     upsert_outcome,
 )
 from cfh_disposition.dwelyx import dwelyx_base_url
+from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
@@ -136,11 +137,17 @@ with create_tab:
     )
     property_record = None
     if scope == "Promote one available property":
-        if not properties:
-            st.info("Add a property before creating a property-specific buyer campaign.")
+        marketable_properties = [
+            item for item in properties if item.status in MARKETABLE_PROPERTY_STATUSES
+        ]
+        if not marketable_properties:
+            st.info(
+                "No properties are currently Ready to Launch or Marketing Live. "
+                "A property-specific buyer campaign cannot be created yet."
+            )
         else:
             property_options = {
-                item.display_address or str(item.property_id): item for item in properties
+                item.display_address or str(item.property_id): item for item in marketable_properties
             }
             property_name = st.selectbox("Property", list(property_options))
             property_record = property_options[property_name]
