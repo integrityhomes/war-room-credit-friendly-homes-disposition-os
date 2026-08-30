@@ -6,18 +6,21 @@ def read_reconciliation_service() -> str:
 def test_synthetic_and_test_source_names_cannot_satisfy_cutover_reconciliation() -> None:
     source = read_reconciliation_service()
 
-    for marker in ("synthetic", "test", "fixture", "sample"):
-        assert f'"{marker}"' in source
+    assert 'source.startsWith("deployment-canary")' in source
+    assert 'source.startsWith("synthetic")' in source
+    assert 'source.startsWith("test-")' in source
+    assert 'source === "test"' in source
     assert "real_source_export" in source
-    assert "source_export_not_verified_as_real" in source or "real_source" in source
+    assert 'error: "real_source_export_required"' in source
 
 
-def test_owner_confirmation_is_required_before_reconciliation_is_recorded() -> None:
+def test_explicit_owner_approval_is_required_before_reconciliation_is_recorded() -> None:
     source = read_reconciliation_service()
 
-    assert "owner_confirmation" in source
-    assert "owner_confirmation_required" in source
-    assert "reconciliation_verified" in source
+    assert "body.owner_approved !== true" in source
+    assert 'text(body.confirmation_phrase) !== "VERIFY CRM RECONCILIATION"' in source
+    assert 'error: "explicit_owner_reconciliation_approval_required"' in source
+    assert "verification_record_written: true" in source
 
 
 def test_reconciliation_checks_counts_and_external_id_fingerprints() -> None:
@@ -30,9 +33,11 @@ def test_reconciliation_checks_counts_and_external_id_fingerprints() -> None:
     assert "exact_match" in source
 
 
-def test_reconciliation_does_not_modify_source_or_commandcore_records() -> None:
+def test_reconciliation_preview_and_verification_do_not_modify_records() -> None:
     source = read_reconciliation_service()
 
     assert "source_records_modified: false" in source
     assert "commandcore_records_modified: false" in source
-    assert 'req.method === "PUT"' in source or 'req.method !== "POST"' in source
+    assert 'req.method !== "POST"' in source
+    assert "destructive_delete_enabled: false" in source
+    assert "external_execution_enabled: false" in source
