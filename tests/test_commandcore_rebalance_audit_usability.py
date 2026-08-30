@@ -10,8 +10,8 @@ def test_workload_audit_summarizes_business_results_first() -> None:
 
     for marker in (
         'st.subheader("Recent Automatic Workload Reviews")',
-        '"What moved"',
-        '"Why some moves were skipped"',
+        'st.markdown("**What moved**")',
+        'st.markdown("**Why some moves were skipped**")',
         'with st.expander("Technical audit details", expanded=False):',
     ):
         assert marker in source
