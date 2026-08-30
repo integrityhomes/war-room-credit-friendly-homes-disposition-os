@@ -128,21 +128,6 @@ if st.sidebar.button("Log out", key="commandcore_shell_logout"):
 st.title("CommandCore")
 st.caption("One operating system for leads, deals, follow-up, marketing, disposition, and management.")
 
-with st.container(border=True):
-    st.markdown("### Command Bot")
-    st.caption(
-        "Tell CommandCore what you need in plain English. The current safe version can create internal deal work "
-        "for analysis, offer prep, contract/CFD prep, title/closing, and marketing/dispo."
-    )
-    st.page_link(
-        "pages/49_CommandCore_Command_Bot.py",
-        label="Open Command Bot",
-        icon="🤖",
-        use_container_width=True,
-    )
-    st.caption("Command Bot cannot send, sign, approve, change legal terms, move money, or start an outside transaction.")
-
-st.divider()
 area = st.segmented_control(
     "Workspace",
     [
@@ -151,15 +136,29 @@ area = st.segmented_control(
         "Deals",
         "Tasks & Follow-Up",
         "Marketing & Dispo",
-        "Marketing Planning",
         "Management",
-        "System & Setup",
     ],
     default="Home / Command Center",
 )
 area = area or "Home / Command Center"
 
 if area == "Home / Command Center":
+    with st.container(border=True):
+        st.markdown("### Command Bot")
+        st.caption(
+            "Tell CommandCore what you need in plain English. The safe version can create internal deal work "
+            "for analysis, offer prep, contract/CFD prep, title/closing, and marketing/dispo."
+        )
+        st.page_link(
+            "pages/49_CommandCore_Command_Bot.py",
+            label="Open Command Bot",
+            icon="🤖",
+            use_container_width=True,
+        )
+        st.caption(
+            "Command Bot cannot send, sign, approve, change legal terms, move money, or start an outside transaction."
+        )
+
     st.subheader("Today")
     st.caption("Start here. CommandCore surfaces the work and exceptions that matter now.")
     try:
@@ -203,6 +202,7 @@ if area == "Home / Command Center":
     except RuntimeError as exc:
         st.error(f"CommandCore home data could not be loaded: {exc}")
 
+    st.markdown("### Quick actions")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         link(
@@ -292,68 +292,76 @@ elif area == "Tasks & Follow-Up":
 
 elif area == "Marketing & Dispo":
     st.subheader("Marketing & Dispo")
-    st.caption("Property marketing, buyer outreach, social promotion, attribution, and disposition.")
+    st.caption("Run property marketing and disposition first; planning and advanced tools stay grouped underneath.")
+
+    st.markdown("### Run marketing & disposition")
     c1, c2, c3 = st.columns(3)
     with c1:
         link(
             "pages/90_CFH_Marketing_Dispo.py",
             "Marketing Command",
-            "Open the preserved Credit Friendly Homes marketing and launch workspace.",
+            "Launch and manage the preserved Credit Friendly Homes marketing workflow.",
         )
         link(
             "pages/29_Email_SMS_Reactivation.py",
             "Buyer Outreach",
-            "Prepare and, when approved connections exist, hand off consent-checked buyer outreach.",
+            "Prepare consent-checked email, SMS, and reactivation work; live handoff requires a connected sender.",
         )
     with c2:
         link(
             "pages/01_Record_Manager.py",
             "Property Records",
-            "Manage owner-finance property records used by marketing.",
+            "Manage the owner-finance property facts used by every marketing channel.",
         )
         link(
             "pages/26_Instagram_TikTok_YouTube_Shorts.py",
             "Social Video",
-            "Build fact-locked Instagram, TikTok, and YouTube packages with an approved manual or adapter handoff.",
+            "Build fact-locked Instagram, TikTok, and YouTube packages with an approved handoff.",
         )
     with c3:
         link(
             "pages/23_Daily_Executive_Disposition_Command.py",
             "Disposition Command",
-            "Open the executive disposition workspace.",
+            "Review disposition performance and the next property actions.",
         )
         link(
             "pages/19_Dwelyx_Results_Attribution.py",
-            "Buyer & Dwelyx Results",
-            "Review buyer traffic and attribution.",
+            "Buyer Results",
+            "Review buyer traffic and attribution. Dwelyx live feed setup can be completed separately.",
         )
 
-elif area == "Marketing Planning":
-    st.subheader("Marketing Planning")
-    st.caption("Prepare paid acquisition plans without creating campaigns or authorizing spend.")
-    c1, c2 = st.columns(2)
-    with c1:
+    st.markdown("### Plan & optimize")
+    p1, p2, p3 = st.columns(3)
+    with p1:
         link(
             "pages/28_Meta_Google_Paid_Traffic.py",
             "Meta & Google Ads Plan",
-            "Prepare fact-locked housing/search ad plans. Budgets remain proposed until owner approval.",
+            "Prepare fact-locked paid-traffic plans. No campaign or spend starts here.",
         )
-    with c2:
+    with p2:
         link(
             "pages/33_ChatGPT_Ads_Channel_16.py",
             "ChatGPT Ads Plan",
-            "Prepare buyer-acquisition campaign concepts for current Ads Manager workflows without starting spend.",
+            "Prepare buyer-acquisition concepts without starting spend.",
+        )
+    with p3:
+        link(
+            "pages/11_AI_Marketing_Optimizer.py",
+            "Marketing Optimizer",
+            "Use saved performance data to prioritize the next marketing improvements.",
         )
 
 elif area == "Management":
     st.subheader("Management")
-    st.caption("Operations visibility, workload, coverage, audits, and exceptions.")
+    st.caption("Operations, people, exceptions, audits, and system setup in one management workspace.")
+
+    st.markdown("### Operations & people")
     c1, c2, c3 = st.columns(3)
     with c1:
         link(
             "pages/39_CommandCore_Operations_Hub.py",
             "Operations Hub",
-            "See human-work escalations and aged coverage failures first.",
+            "See human-work escalations, operating readiness, and aged coverage failures first.",
         )
         link(
             "pages/38_CommandCore_Management_Alerts.py",
@@ -383,11 +391,10 @@ elif area == "Management":
             "See automatic internal workload moves and skipped actions.",
         )
 
-else:
-    st.subheader("System & Setup")
-    st.caption("Migration, launch readiness, connection status, and diagnostics kept separate from daily work.")
-    c1, c2 = st.columns(2)
-    with c1:
+    st.markdown("### System & setup")
+    st.caption("Migration, connection status, completion audits, and diagnostics stay separate from daily work.")
+    s1, s2 = st.columns(2)
+    with s1:
         link(
             "pages/43_CommandCore_CRM_Migration.py",
             "CRM Migration",
@@ -398,16 +405,16 @@ else:
             "Marketing Completion Audit",
             "See which marketing channels are usable now and which are externally blocked.",
         )
-    with c2:
+    with s2:
         link(
             "pages/32_Go_Live_Connection_Center.py",
             "Go-Live Connections",
-            "See actual sender, outreach, social, and paid-platform setup status without false readiness.",
+            "See sender, outreach, social, and paid-platform setup status without false readiness.",
         )
         link(
             "pages/34_Safe_Full_Payload_Test.py",
             "Safe Payload Diagnostic",
-            "Run a controlled test payload without publishing, messaging, creating ads, or spending money.",
+            "Run a controlled diagnostic without publishing, messaging, creating ads, or spending money.",
         )
 
 st.divider()
