@@ -156,7 +156,17 @@ st.caption(
     "Open one deal and see the seller, property, tasks, communications, offers, documents, transactions, "
     "and activity history together."
 )
-st.page_link("pages/44_CommandCore_CRM.py", label="← Back to Leads & CRM")
+nav_left, nav_middle, nav_right = st.columns(3)
+with nav_left:
+    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
+with nav_middle:
+    st.page_link("pages/44_CommandCore_CRM.py", label="Leads & CRM", use_container_width=True)
+with nav_right:
+    st.page_link(
+        "pages/46_CommandCore_Pipeline_Followup.py",
+        label="Pipeline & Follow-Up",
+        use_container_width=True,
+    )
 
 deals = list_records("deals")
 if not deals:
@@ -242,8 +252,16 @@ related = {
     for entity in RELATED_ENTITIES
 }
 
-overview, workflow_tab, tasks_tab, communications_tab, offers_tab, documents_tab, history_tab = st.tabs(
-    ["Overview", "Workflow", "Tasks", "Communications", "Offers", "Documents", "History"]
+overview, next_step_tab, tasks_tab, messages_tab, offers_tab, closing_tab, history_tab = st.tabs(
+    [
+        "Overview",
+        "Next Step",
+        "Tasks",
+        "Messages",
+        "Offers & Approval",
+        "Documents & Closing",
+        "History",
+    ]
 )
 
 with overview:
@@ -251,11 +269,11 @@ with overview:
     st.write(text(deal.get("notes")) or "No deal notes yet.")
     stats = st.columns(6)
     stats[0].metric("Tasks", len(related["tasks"]))
-    stats[1].metric("Communications", len(related["communications"]))
+    stats[1].metric("Messages", len(related["communications"]))
     stats[2].metric("Offers", len(related["offers"]))
     stats[3].metric("Documents", len(related["documents"]))
-    stats[4].metric("Transactions", len(related["transactions"]))
-    stats[5].metric("Activities", len(related["activities"]))
+    stats[4].metric("Closing / Transactions", len(related["transactions"]))
+    stats[5].metric("History", len(related["activities"]))
     with st.form("quick_activity"):
         note = st.text_area("Add internal deal note", height=90)
         if st.form_submit_button("Save note", type="primary") and note.strip():
@@ -269,8 +287,8 @@ with overview:
                 st.rerun()
             st.error("CommandCore could not save the note.")
 
-with workflow_tab:
-    st.markdown("### Deal lifecycle")
+with next_step_tab:
+    st.markdown("### What should happen next?")
     st.caption(
         "Start the next internal work from this deal. These buttons create tracked work requests only; they do "
         "not send offers, sign contracts, change legal terms, spend money, or contact outside parties."
@@ -313,7 +331,7 @@ with workflow_tab:
         for task in related["tasks"]
         if text(task.get("task_type")) == "deal_lifecycle_request"
     ]
-    st.markdown("### Lifecycle work already started")
+    st.markdown("### Work already started")
     show_related_table("tasks", lifecycle_rows)
 
 with tasks_tab:
@@ -339,23 +357,29 @@ with tasks_tab:
             st.error("CommandCore could not add the task.")
     show_related_table("tasks", related["tasks"])
 
-with communications_tab:
+with messages_tab:
     st.caption(
         "Communication history is shown here. Sending remains controlled by the communication/approval workflows."
     )
     show_related_table("communications", related["communications"])
 
 with offers_tab:
+    st.page_link(
+        "pages/48_CommandCore_Owner_Approvals.py",
+        label="Open Owner Approvals",
+        use_container_width=True,
+    )
     show_related_table("offers", related["offers"])
 
-with documents_tab:
+with closing_tab:
+    st.markdown("### Documents")
     show_related_table("documents", related["documents"])
+    st.markdown("### Closing / Transactions")
+    show_related_table("transactions", related["transactions"])
 
 with history_tab:
-    st.markdown("### Activities")
+    st.markdown("### Complete activity history")
     show_related_table("activities", related["activities"])
-    st.markdown("### Transactions")
-    show_related_table("transactions", related["transactions"])
 
 st.divider()
 st.caption(
