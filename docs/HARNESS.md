@@ -28,7 +28,7 @@ All harness-connected consequential actions use `cfh_disposition.harness.side_ef
 - `crm.commit`
 - `money.move`
 
-New automation and agent work should use this same bus rather than adding another outbound safety mechanism. This first slice does not claim every historical provider call in the repository has already been migrated to the bus.
+New automation and agent work should use this same bus rather than adding another outbound safety mechanism. This harness does not claim every historical provider call in the repository has already been migrated to the bus.
 
 ## Fixture family
 
@@ -53,6 +53,16 @@ python -m cfh_disposition.harness.runner --scenario contract_no_sign --mode simu
 ```
 
 This calls the existing Illinois contract generation/storage pipeline against an in-memory fake private storage client. The fixture already contains contract version 1, so the scenario builds version 2 without overwrite. It then attempts `contract.send` and `contract.sign` through the bus and proves both are blocked.
+
+### CRM stage, no production commit
+
+```bash
+python -m cfh_disposition.harness.runner --scenario crm_stage_no_commit --mode simulation
+```
+
+This uses a thin network-free adapter around the existing CommandCore CRM import staging/commit contract. It prepares the fixture Contact, Property, and Deal as approved internal-only staging rows and produces the same important no-write preview facts used by the current import cutover: `apply_requested: false`, would-create/would-update counts, `records_written: 0`, `source_records_modified: false`, `destructive_delete_used: false`, and `external_action_started: false`. It then attempts `crm.commit` through the harness bus and proves the production commit is blocked.
+
+The adapter does not call or replace the existing Supabase import-staging or import-commit services. It exists only so pytest and the CLI can verify the boundary with no network and no production data.
 
 ## Reports
 
