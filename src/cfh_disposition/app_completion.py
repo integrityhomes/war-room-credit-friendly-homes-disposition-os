@@ -124,6 +124,7 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deals", AppCompletionState.COMPLETE, "Internal deal workflow queue."),
     AppCompletion("pages/48_CommandCore_Owner_Approvals.py", "Management", AppCompletionState.COMPLETE, "Owner Approval Queue with separate PIN and crash-safe history."),
     AppCompletion("pages/49_CommandCore_Command_Bot.py", "Home / Command Center", AppCompletionState.COMPLETE, "Command Bot with idempotent internal request creation."),
+    AppCompletion("pages/50_CommandCore_Contract_Templates.py", "Management", AppCompletionState.COMPLETE, "Versioned contract-template workspace with private storage and legal/owner approval gating."),
     AppCompletion("pages/90_CFH_Marketing_Dispo.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Preserved canonical CFH marketing/disposition workspace."),
 )
 
