@@ -14,12 +14,9 @@ def test_pipeline_starts_with_followup_today_and_shows_upcoming_work() -> None:
         assert marker in source
 
 
-def test_pipeline_has_clear_daily_navigation() -> None:
+def test_pipeline_uses_sidebar_instead_of_duplicate_top_navigation() -> None:
     source = Path("pages/46_CommandCore_Pipeline_Followup.py").read_text(encoding="utf-8")
 
-    for marker in (
-        'label="← Command Center"',
-        'label="My Work"',
-        'label="Unified Deal Record"',
-    ):
-        assert marker in source
+    assert 'label="← Command Center"' not in source
+    assert 'label="My Work"' not in source
+    assert 'label="Unified Deal Record"' not in source
