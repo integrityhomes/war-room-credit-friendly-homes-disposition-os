@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cfh_disposition.harness.mode import HarnessMode
-from cfh_disposition.harness.side_effects import ActionType, REDACTED, SideEffectBus
+from cfh_disposition.harness.side_effects import REDACTED, ActionType, SideEffectBus
 
 
 def test_report_redacts_nested_secrets_but_executor_receives_original_payload() -> None:
