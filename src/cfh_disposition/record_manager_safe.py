@@ -45,16 +45,21 @@ def _render_properties(storage: Storage) -> None:
         for item in st.session_state.properties
     }
     if not options:
-        st.info("No properties are saved yet.")
+        st.info("No property records are saved here yet.")
+        left, right = st.columns(2)
+        if left.button("Open Marketing Home", type="primary", use_container_width=True):
+            st.switch_page("pages/90_CFH_Marketing_Dispo.py")
+        if right.button("Open Deal Workspace", use_container_width=True):
+            st.switch_page("pages/45_CommandCore_Deal_Record.py")
         return
 
-    selected_name = st.selectbox("Choose a property to manage", list(options), key="safe_record_property")
+    selected_name = st.selectbox("Select property", list(options), key="safe_record_property")
     selected = options[selected_name]
     plan = build_launch_plan(selected)
     if plan.can_launch:
-        st.success("This property currently passes the launch-readiness gate.")
+        st.success("Ready for marketing: this property currently passes the launch-readiness check.")
     else:
-        st.warning(f"This property has {len(plan.validation.errors)} blocking issue(s).")
+        st.warning(f"Not ready for marketing: {len(plan.validation.errors)} required item(s) still need attention.")
 
     st.write("#### Property photos")
     existing_urls = [str(item) for item in selected.photo_urls]
@@ -93,8 +98,8 @@ def _render_properties(storage: Storage) -> None:
             st.error(str(exc))
 
     st.divider()
-    st.write("#### Central property truth")
-    st.info("This is the only place to change locked marketing facts. Downstream marketing must read from this record.")
+    st.write("#### Property details")
+    st.info("These saved facts are used by downstream marketing. Update them here when the property information changes.")
 
     with st.form("safe_edit_property_form"):
         left, middle, right = st.columns(3)
@@ -153,8 +158,8 @@ def _render_properties(storage: Storage) -> None:
 
 
 def _render_add_buyer(storage: Storage) -> None:
-    st.write("#### Add buyer for marketing outreach")
-    st.caption("Use a real contact only. Consent must reflect what the person actually authorized.")
+    st.write("#### Add buyer")
+    st.caption("Add a real buyer contact only. Consent must match what the person actually authorized.")
     with st.form("safe_add_buyer_form", clear_on_submit=True):
         left, right = st.columns(2)
         first_name = left.text_input("First name*")
@@ -163,7 +168,7 @@ def _render_add_buyer(storage: Storage) -> None:
         source = right.text_input("Buyer source", value="CFH marketing")
         sms_consent = left.checkbox("SMS consent confirmed")
         do_not_contact = right.checkbox("Do not contact")
-        st.info("For the controlled Zapier test, use a phone number you control and check SMS consent only if you authorize this test message.")
+        st.info("Only confirm SMS consent when the buyer has actually authorized SMS contact.")
         submitted = st.form_submit_button("Save Buyer", type="primary")
 
     if not submitted:
@@ -208,7 +213,7 @@ def _render_buyers(storage: Storage) -> None:
         st.info("No buyers are saved yet. Add the first buyer above.")
         return
 
-    selected_name = st.selectbox("Choose a buyer to edit", list(options), key="safe_record_buyer")
+    selected_name = st.selectbox("Select buyer to edit", list(options), key="safe_record_buyer")
     selected = options[selected_name]
     with st.form("safe_edit_buyer_form"):
         left, right = st.columns(2)
@@ -248,7 +253,7 @@ def _render_buyers(storage: Storage) -> None:
 
 def render_record_manager(storage: Storage) -> None:
     _load_state(storage)
-    st.subheader("Edit, Add Photos, or Delete Saved Records")
+    st.subheader("Review and update saved records")
     message = st.session_state.pop("record_manager_message", "")
     if message:
         st.success(message)

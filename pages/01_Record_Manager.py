@@ -8,7 +8,7 @@ from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
 st.set_page_config(
-    page_title="Record Manager",
+    page_title="Property & Buyer Records",
     page_icon="🏠",
     layout="wide",
 )
@@ -22,7 +22,7 @@ def require_password() -> None:
     if st.session_state.get("authenticated"):
         return
 
-    st.title("Record Manager")
+    st.title("Property & Buyer Records")
     st.caption("Private internal access")
     with st.form("record_manager_login"):
         submitted_password = st.text_input("App password", type="password")
@@ -41,9 +41,13 @@ def get_storage():
 
 
 require_password()
-st.title("Record Manager")
+st.title("Property & Buyer Records")
 st.caption(
-    "Central property and buyer records. Locked marketing facts must be changed here, not on downstream marketing screens."
+    "Review the property facts used by marketing and maintain buyer contact records in one controlled workspace."
+)
+st.info(
+    "Property facts saved here are the source of truth for downstream marketing. "
+    "Changing a fact here does not publish or send anything by itself."
 )
 
 if st.sidebar.button("Log out", key="record_manager_logout"):
