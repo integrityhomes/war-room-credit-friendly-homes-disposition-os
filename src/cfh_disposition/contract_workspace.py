@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 import re
@@ -131,7 +132,8 @@ class ContractFileStore:
             return
         try:
             bucket = self._client.storage.get_bucket(CONTRACT_BUCKET)
-            if bool(getattr(bucket, "public", False)):
+            bucket_public = bucket.get("public", False) if isinstance(bucket, dict) else getattr(bucket, "public", False)
+            if bool(bucket_public):
                 raise ContractWorkspaceError("Contract storage bucket must remain private.")
         except ContractWorkspaceError:
             raise
