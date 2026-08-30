@@ -35,10 +35,17 @@ def test_marketing_workspace_uses_live_channel_count_and_simple_default_flow() -
 def test_commandcore_is_primary_navigation() -> None:
     source = Path("app.py").read_text(encoding="utf-8")
     assert "st.navigation" in source
-    assert '"Home"' in source
-    assert '"Marketing & Dispo"' in source
-    assert '"Marketing Planning"' in source
-    assert '"System & Setup"' in source
+    for area in (
+        '"Home / Command Center"',
+        '"Leads & CRM"',
+        '"Deals"',
+        '"Tasks & Follow-Up"',
+        '"Marketing & Dispo"',
+        '"Management"',
+    ):
+        assert area in source
+    assert '"Marketing Planning"' not in source
+    assert '"System & Setup"' not in source
     assert '"pages/49_CommandCore_Command_Bot.py"' in source
     assert '"pages/29_Email_SMS_Reactivation.py"' in source
     assert '"pages/26_Instagram_TikTok_YouTube_Shorts.py"' in source
