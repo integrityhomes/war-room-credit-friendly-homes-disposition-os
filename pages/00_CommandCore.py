@@ -202,31 +202,31 @@ if area == "Home / Command Center":
     except RuntimeError as exc:
         st.error(f"CommandCore home data could not be loaded: {exc}")
 
-    st.markdown("### Quick actions")
+    st.markdown("### Start work")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
+        link(
+            "pages/35_CommandCore_My_Work.py",
+            "My Work",
+            "Start with the work assigned to you, handoffs, and high-priority items.",
+        )
+    with c2:
         link(
             "pages/48_CommandCore_Owner_Approvals.py",
             "Owner Approvals",
             "Review consequential decisions before anything external can move forward.",
         )
-    with c2:
-        link(
-            "pages/47_CommandCore_Deal_Workflow_Queue.py",
-            "Deal Workflow",
-            "See analysis, offer, contract, title, closing, and dispo work moving through the system.",
-        )
     with c3:
-        link(
-            "pages/46_CommandCore_Pipeline_Followup.py",
-            "Pipeline & Follow-Up",
-            "Open deals, overdue work, and today's follow-ups.",
-        )
-    with c4:
         link(
             "pages/45_CommandCore_Deal_Record.py",
             "Open a Deal",
             "Work the seller, property, tasks, offers, documents, and history from one record.",
+        )
+    with c4:
+        link(
+            "pages/46_CommandCore_Pipeline_Followup.py",
+            "Pipeline & Follow-Up",
+            "Review open deals, overdue work, and today's follow-ups.",
         )
 
 elif area == "Leads & CRM":
@@ -282,7 +282,7 @@ elif area == "Tasks & Follow-Up":
     )
 
     st.markdown("### Supporting work views")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         link(
             "pages/46_CommandCore_Pipeline_Followup.py",
@@ -295,49 +295,150 @@ elif area == "Tasks & Follow-Up":
             "Coverage",
             "Find missed handoffs and safely route uncovered internal work.",
         )
+    with c3:
+        link(
+            "pages/21_CommandCore_Operator_Dashboard.py",
+            "Team Queue",
+            "Use the broader operator queue when you need team-level assignment and workload visibility.",
+        )
 
 elif area == "Marketing & Dispo":
     st.subheader("Marketing & Dispo")
-    st.caption("Run property marketing and disposition first; planning and advanced tools stay grouped underneath.")
+    st.caption("Run property marketing, buyer movement, and disposition from one organized workspace.")
 
-    st.markdown("### Run marketing & disposition")
-    c1, c2, c3 = st.columns(3)
+    st.markdown("### Start here")
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
+        link(
+            "pages/01_Record_Manager.py",
+            "Property Records",
+            "Manage the locked owner-finance property facts used by every channel.",
+        )
+    with c2:
         link(
             "pages/90_CFH_Marketing_Dispo.py",
             "Marketing Command",
             "Launch and manage the preserved Credit Friendly Homes marketing workflow.",
         )
+    with c3:
+        link(
+            "pages/23_Daily_Executive_Disposition_Command.py",
+            "Disposition Command",
+            "Review property-level disposition performance and next actions.",
+        )
+    with c4:
+        link(
+            "pages/19_Dwelyx_Results_Attribution.py",
+            "Buyer Results",
+            "Review buyer traffic and attribution. Dwelyx live feed setup remains separate.",
+        )
+
+    st.markdown("### Buyer lifecycle")
+    b1, b2, b3 = st.columns(3)
+    with b1:
         link(
             "pages/29_Email_SMS_Reactivation.py",
             "Buyer Outreach",
-            "Prepare consent-checked email, SMS, and reactivation work; live handoff requires a connected sender.",
+            "Prepare consent-checked email and SMS handoffs.",
         )
-    with c2:
         link(
-            "pages/01_Record_Manager.py",
-            "Property Records",
-            "Manage the owner-finance property facts used by every marketing channel.",
+            "pages/13_AI_Buyer_Reactivation_Autopilot.py",
+            "Buyer Reactivation",
+            "Re-engage eligible buyers with cooldowns, approvals, consent rechecks, and history.",
         )
+    with b2:
+        link(
+            "pages/15_AI_Buyer_Acquisition_Growth.py",
+            "Buyer Acquisition",
+            "Build and measure campaigns that grow the owner-finance buyer pool.",
+        )
+        link(
+            "pages/16_AI_Buyer_Conversion_Command_Center.py",
+            "Buyer Conversion",
+            "Move matched buyers through follow-up and conversion without creating work on unavailable homes.",
+        )
+    with b3:
+        link(
+            "pages/22_Showing_to_Contract_Conversion.py",
+            "Showing to Contract",
+            "Track appointments, reminders, outcomes, and the path from showing to signed contract.",
+        )
+
+    st.markdown("### Marketing channels")
+    ch1, ch2, ch3 = st.columns(3)
+    with ch1:
+        link(
+            "pages/7_Facebook_Group_Posting_Center.py",
+            "Facebook Groups",
+            "Run the manual Facebook Group posting workflow with fact-safe property content.",
+        )
+        link(
+            "pages/10_Facebook_Daily_Assignments.py",
+            "Facebook Daily Assignments",
+            "See daily group assignments, cooldowns, and team posting responsibilities.",
+        )
+    with ch2:
         link(
             "pages/26_Instagram_TikTok_YouTube_Shorts.py",
             "Social Video",
             "Build fact-locked Instagram, TikTok, and YouTube packages with an approved handoff.",
         )
-    with c3:
         link(
-            "pages/23_Daily_Executive_Disposition_Command.py",
-            "Disposition Command",
-            "Review disposition performance and the next property actions.",
+            "pages/17_Nextdoor_Channel_15.py",
+            "Nextdoor",
+            "Prepare the manual-final-step Nextdoor property posting package.",
+        )
+    with ch3:
+        link(
+            "pages/27_Classifieds_Channel.py",
+            "Classifieds",
+            "Prepare compliant manual or platform-approved classified listings.",
         )
         link(
-            "pages/19_Dwelyx_Results_Attribution.py",
-            "Buyer Results",
-            "Review buyer traffic and attribution. Dwelyx live feed setup can be completed separately.",
+            "pages/30_Owned_Web_SEO_Channels.py",
+            "Owned Web & SEO",
+            "Use the CFH-owned Blog and Market SEO publishing paths.",
         )
 
-    st.markdown("### Plan & optimize")
-    p1, p2, p3 = st.columns(3)
+    st.markdown("### Optimize, recover & refresh")
+    o1, o2, o3 = st.columns(3)
+    with o1:
+        link(
+            "pages/11_AI_Marketing_Optimizer.py",
+            "Marketing Optimizer",
+            "Use saved performance data to prioritize the next marketing improvements.",
+        )
+        link(
+            "pages/14_AI_Creative_Winner_Rotation.py",
+            "Creative Testing",
+            "Test controlled fact-safe creative variations and approve winners.",
+        )
+    with o2:
+        link(
+            "pages/20_Vacant_Home_Disposition_Escalation.py",
+            "Vacant Home Escalation",
+            "Escalate stagnant vacant inventory using persisted campaign and buyer-response data.",
+        )
+        link(
+            "pages/18_Property_Shutdown_Buyer_Reroute.py",
+            "Property Shutdown & Reroute",
+            "Stop marketing on unavailable inventory and reroute buyer work safely.",
+        )
+    with o3:
+        link(
+            "pages/24_15_Channel_Campaign_Cadence_Refresh.py",
+            "Campaign Cadence & Refresh",
+            "Manage refresh timing across the property marketing channels.",
+        )
+        link(
+            "pages/25_Property_Channel_Tracking_Links.py",
+            "Tracking Links",
+            "Review channel-specific tracked links and attribution support.",
+        )
+
+    st.markdown("### Paid growth planning")
+    st.caption("Planning only. Connecting ad accounts or spending money still requires owner authorization.")
+    p1, p2 = st.columns(2)
     with p1:
         link(
             "pages/28_Meta_Google_Paid_Traffic.py",
@@ -349,12 +450,6 @@ elif area == "Marketing & Dispo":
             "pages/33_ChatGPT_Ads_Channel_16.py",
             "ChatGPT Ads Plan",
             "Prepare buyer-acquisition concepts without starting spend.",
-        )
-    with p3:
-        link(
-            "pages/11_AI_Marketing_Optimizer.py",
-            "Marketing Optimizer",
-            "Use saved performance data to prioritize the next marketing improvements.",
         )
 
 elif area == "Management":
