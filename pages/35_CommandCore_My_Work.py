@@ -166,14 +166,6 @@ def table_row(item: dict[str, Any]) -> dict[str, Any]:
         "Next Action": " • ".join(
             str(value) for value in required_actions if str(value).strip()
         ),
-        "Routing Reason": str(item.get("routing_reason", "") or "").replace(
-            "_", " "
-        ),
-        "Reassignment Reason": str(
-            item.get("reassignment_reason", "") or ""
-        ).replace("_", " "),
-        "Reassigned At": str(item.get("reassigned_at", "") or ""),
-        "Workload After": item.get("workload_after_assignment"),
     }
 
 
@@ -313,9 +305,14 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
     st.rerun()
 
 st.title("CommandCore My Work")
-st.caption(
-    "Shows assigned work, automatic reassignments, full handoff history, shift briefs, and takeover tracking."
-)
+st.caption("Start here for assigned work, urgent items, handoffs, and shift takeover.")
+nav_left, nav_middle, nav_right = st.columns(3)
+with nav_left:
+    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
+with nav_middle:
+    st.page_link("pages/46_CommandCore_Pipeline_Followup.py", label="Pipeline & Follow-Up", use_container_width=True)
+with nav_right:
+    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 try:
     items = load_items()
@@ -324,14 +321,11 @@ except Exception as exc:
     st.stop()
 
 owners = sorted({owner_name(item) for item in items})
-selected_owner = st.selectbox("Whose work?", ["All Team"] + owners)
-my_work_only = st.checkbox("My Work view", value=selected_owner != "All Team")
+selected_owner = st.selectbox("Show work for", ["All Team"] + owners)
 
 filtered = items
-if selected_owner != "All Team" and my_work_only:
-    filtered = [item for item in items if owner_name(item) == selected_owner]
-
 if selected_owner != "All Team":
+    filtered = [item for item in items if owner_name(item) == selected_owner]
     selected_owner_id = next(
         (
             owner_id(item)
@@ -356,31 +350,34 @@ reassigned_count = sum(
 )
 
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Visible Work", len(filtered))
+c1.metric("Open Work", len(filtered))
 c2.metric("Assigned", assigned_count)
 c3.metric("Unassigned", unassigned_count)
 c4.metric("High Priority", high_count)
-c5.metric("Auto Reassigned", reassigned_count)
+c5.metric("Reassigned", reassigned_count)
 
 if not filtered:
     st.success("No work is currently assigned for this view.")
     st.stop()
 
+st.subheader("What needs attention")
 st.dataframe([table_row(item) for item in filtered], use_container_width=True, hide_index=True)
 
-st.subheader("Assignment Details")
+st.subheader("Work Details")
 for item in filtered:
     assigned = owner_name(item)
     channel = str(item.get("channel_key", "")).replace("_", " ").title()
     property_id = str(item.get("property_id", "") or "No property ID")
+    item_action_id = action_id(item) or f"{assigned}_{channel}_{property_id}"
     with st.expander(f"{assigned} • {channel} • {property_id}"):
-        st.write(f"**Assigned to:** {assigned}")
-        if owner_id(item):
-            st.caption(f"Owner ID: {owner_id(item)}")
-        reason = str(
-            item.get("routing_reason", "") or "No routing reason recorded"
-        ).replace("_", " ")
-        st.write(f"**Why CommandCore routed it here:** {reason}")
+        actions = item.get("required_actions")
+        if isinstance(actions, list) and actions:
+            st.write("**What needs to happen next:**")
+            for action in actions:
+                st.write(f"• {action}")
+        else:
+            st.caption("No next action has been recorded yet.")
+
         reassignment_reason = str(
             item.get("reassignment_reason", "") or ""
         ).replace("_", " ")
@@ -388,18 +385,7 @@ for item in filtered:
         if reassignment_reason:
             st.info(f"Automatically reassigned because: {reassignment_reason}")
         if reassigned_at:
-            st.caption(f"Last automatically reassigned: {reassigned_at}")
-        score = item.get("routing_score")
-        if score is not None:
-            st.caption(f"Routing score: {score}")
-        workload = item.get("workload_after_assignment")
-        if workload is not None:
-            st.caption(f"Projected workload after assignment: {workload}")
-        actions = item.get("required_actions")
-        if isinstance(actions, list) and actions:
-            st.write("**What needs to happen:**")
-            for action in actions:
-                st.write(f"• {action}")
+            st.caption(f"Last reassigned: {reassigned_at}")
 
         history = matching_handoffs(item)
         st.write("**Handoff history:**")
@@ -417,13 +403,23 @@ for item in filtered:
                 handoff_reason = str(
                     record.get("handoff_reason", "") or "routing change"
                 ).replace("_", " ")
-                routing_reason = str(record.get("routing_reason", "") or "").replace(
-                    "_", " "
-                )
                 st.markdown(f"**{previous} → {new_owner}**")
                 st.caption(f"{handoff_at} • {handoff_reason}")
-                if routing_reason:
-                    st.caption(f"Replacement selected because: {routing_reason}")
+
+        if st.toggle("Show routing details", key=f"routing_details_{item_action_id}"):
+            st.caption(f"Assigned to: {assigned}")
+            if owner_id(item):
+                st.caption(f"Owner ID: {owner_id(item)}")
+            reason = str(
+                item.get("routing_reason", "") or "No routing reason recorded"
+            ).replace("_", " ")
+            st.caption(f"Routing reason: {reason}")
+            score = item.get("routing_score")
+            if score is not None:
+                st.caption(f"Routing score: {score}")
+            workload = item.get("workload_after_assignment")
+            if workload is not None:
+                st.caption(f"Projected workload after assignment: {workload}")
 
 st.divider()
 st.caption(
