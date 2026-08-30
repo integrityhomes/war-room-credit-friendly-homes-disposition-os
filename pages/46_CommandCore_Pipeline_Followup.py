@@ -132,13 +132,6 @@ st.title("CommandCore Pipeline + Follow-Up")
 st.caption(
     "See what needs attention now, what is coming next, and where every deal sits without searching twice."
 )
-nav_left, nav_middle, nav_right = st.columns(3)
-with nav_left:
-    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
-with nav_middle:
-    st.page_link("pages/35_CommandCore_My_Work.py", label="My Work", use_container_width=True)
-with nav_right:
-    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 deals = list_records("deals")
 tasks = list_records("tasks")
