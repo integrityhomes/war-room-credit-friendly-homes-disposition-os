@@ -21,26 +21,59 @@ def _linked_property_context(
     contact_id: str,
     deals: list[dict[str, Any]],
     properties: list[dict[str, Any]],
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str]:
     property_by_id = {_text(row.get("id")): row for row in properties if _text(row.get("id"))}
     for deal in deals:
         deal_links = _links(deal)
         if _text(deal_links.get("contact_id")) != contact_id:
             continue
+        deal_id = _text(deal.get("id"))
         property_record = property_by_id.get(_text(deal_links.get("property_id")))
         if not property_record:
-            continue
+            return deal_id, "", "", "", ""
         return (
+            deal_id,
             _text(property_record.get("address")),
             _text(property_record.get("city")),
             _text(property_record.get("state")),
             _text(deal.get("listing_url") or property_record.get("listing_url") or property_record.get("zillow_url")),
         )
-    return "", "", "", ""
+    return "", "", "", "", ""
 
 
 def _result_key(contact_id: str) -> str:
     return f"commandcore_agent_finder_result_{contact_id or 'new'}"
+
+
+def _research_activity(
+    *,
+    deal_id: str,
+    contact_id: str,
+    contact_name: str,
+    status: str,
+    confidence_score: int,
+    source_links: tuple[str, ...],
+    phone_saved: bool,
+    email_saved: bool,
+) -> dict[str, Any]:
+    saved_parts = []
+    if phone_saved:
+        saved_parts.append("phone")
+    if email_saved:
+        saved_parts.append("email")
+    saved_label = " and ".join(saved_parts) if saved_parts else "research details"
+    return {
+        "activity_type": "agent_contact_research_saved",
+        "summary": f"Agent Finder saved {saved_label} for {contact_name or 'this contact'}.",
+        "source": "commandcore-agent-finder",
+        "details": {
+            "status": status,
+            "confidence_score": confidence_score,
+            "source_count": len(source_links),
+            "requires_verification_before_outreach": True,
+        },
+        "links": {"deal_id": deal_id, "contact_id": contact_id},
+    }
 
 
 def render_agent_finder(
@@ -60,7 +93,7 @@ def render_agent_finder(
         part for part in [_text(contact.get("first_name")), _text(contact.get("last_name"))] if part
     )
     brokerage = _text(contact.get("company") or contact.get("brokerage"))
-    address, city, state, listing_url = _linked_property_context(contact_id, deals, properties)
+    deal_id, address, city, state, listing_url = _linked_property_context(contact_id, deals, properties)
 
     with st.expander("Find Contact Info", expanded=False):
         st.write("Search public sources for this agent's phone and email without leaving CommandCore.")
@@ -114,7 +147,8 @@ def render_agent_finder(
             st.info(status or "No verified public match was confirmed.")
 
         summary = st.columns(3)
-        summary[0].metric("Confidence", f"{int(getattr(result, 'confidence_score', 0) or 0)}%")
+        confidence_score = int(getattr(result, "confidence_score", 0) or 0)
+        summary[0].metric("Confidence", f"{confidence_score}%")
         summary[1].metric("Phone", _text(getattr(result, "phone", "")) or "Not found")
         summary[2].metric("Email", _text(getattr(result, "email", "")) or "Not found")
         st.caption(_text(getattr(result, "next_action", "")))
@@ -138,20 +172,42 @@ def render_agent_finder(
         )
         if st.button("Save Found Info", key=f"agent_finder_save_{contact_id}", use_container_width=True):
             updated = {**contact}
-            if found_phone and (replace_existing or not _text(contact.get("phone"))):
+            phone_saved = bool(found_phone and (replace_existing or not _text(contact.get("phone"))))
+            email_saved = bool(found_email and (replace_existing or not _text(contact.get("email"))))
+            if phone_saved:
                 updated["phone"] = found_phone
-            if found_email and (replace_existing or not _text(contact.get("email"))):
+            if email_saved:
                 updated["email"] = found_email
             updated["contact_research"] = {
                 "source": "commandcore-agent-finder",
                 "status": status,
-                "confidence_score": int(getattr(result, "confidence_score", 0) or 0),
+                "confidence_score": confidence_score,
                 "source_links": list(source_links),
                 "requires_verification_before_outreach": True,
             }
             saved = save_record("contacts", updated)
-            if saved.get("ok"):
-                st.success("Contact info saved to CommandCore. Verify it before outreach.")
-                st.session_state.pop(_result_key(contact_id), None)
-                st.rerun()
-            st.error(_text(saved.get("error")) or "CommandCore could not save the found contact info.")
+            if not saved.get("ok"):
+                st.error(_text(saved.get("error")) or "CommandCore could not save the found contact info.")
+                return
+
+            if deal_id:
+                history = save_record(
+                    "activities",
+                    _research_activity(
+                        deal_id=deal_id,
+                        contact_id=contact_id,
+                        contact_name=name,
+                        status=status,
+                        confidence_score=confidence_score,
+                        source_links=source_links,
+                        phone_saved=phone_saved,
+                        email_saved=email_saved,
+                    ),
+                )
+                if not history.get("ok"):
+                    st.warning("Contact info was saved, but CommandCore could not add the research event to Deal history.")
+                    return
+
+            st.success("Contact info saved to CommandCore. Verify it before outreach.")
+            st.session_state.pop(_result_key(contact_id), None)
+            st.rerun()
