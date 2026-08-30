@@ -1,6 +1,3 @@
-import re
-
-
 EXPECTED_ENTITIES = {
     "contacts",
     "properties",
@@ -19,21 +16,35 @@ def read_text(path: str) -> str:
         return handle.read()
 
 
+def quoted_values(block: str) -> set[str]:
+    values: set[str] = set()
+    for part in block.split('"')[1::2]:
+        value = part.strip()
+        if value and all(character.islower() or character == "_" for character in value):
+            values.add(value)
+    return values
+
+
 def staging_entities() -> set[str]:
     source = read_text("supabase/functions/commandcore-crm-import-staging/index.ts")
-    return set(re.findall(r'entity:\s*"([a-z_]+)"', source))
+    values: set[str] = set()
+    for line in source.splitlines():
+        if 'entity: "' not in line:
+            continue
+        values |= quoted_values(line)
+    return values
 
 
 def reconciliation_entities() -> set[str]:
     source = read_text("supabase/functions/commandcore-crm-reconciliation/index.ts")
     block = source.split("const ENTITY_TYPES = [", 1)[1].split("] as const", 1)[0]
-    return set(re.findall(r'"([a-z_]+)"', block))
+    return quoted_values(block)
 
 
 def launch_readiness_entities() -> set[str]:
     source = read_text("supabase/functions/commandcore-launch-readiness/index.ts")
     block = source.split("const SYSTEM_OF_RECORD_ENTITIES = [", 1)[1].split("] as const", 1)[0]
-    return set(re.findall(r'"([a-z_]+)"', block))
+    return quoted_values(block)
 
 
 def test_all_cutover_services_cover_the_same_system_of_record_entities() -> None:
