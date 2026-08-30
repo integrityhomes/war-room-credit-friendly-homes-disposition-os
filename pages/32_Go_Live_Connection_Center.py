@@ -11,7 +11,7 @@ from cfh_disposition.go_live_connections import (
     dispatch_publishing_connection_test,
 )
 
-st.set_page_config(page_title="Go-Live Connection Center", page_icon="🔌", layout="wide")
+st.set_page_config(page_title="CommandCore Connections", page_icon="🔌", layout="wide")
 
 
 def require_password() -> None:
@@ -33,88 +33,94 @@ def require_password() -> None:
 
 
 require_password()
-st.title("16-Channel Go-Live Connection Center")
-st.caption(
-    "Shows the outside handoffs and account setup that still stand between built software and controlled live operation."
-)
+st.title("CommandCore Connections")
+st.caption("See which outside accounts or handoffs still need setup before their related marketing paths can operate.")
 st.info(
-    "Secret values are never displayed. A present account ID or credential is not treated as launch authority, "
-    "and an accepted handoff is not treated as proof that an external platform completed the action."
+    "Secret values are never displayed. A configured account or credential is not launch authority, and a successful handoff is not proof that an outside platform completed an action."
 )
 
 rows = build_connection_status(st.secrets)
 summary = connection_summary(rows)
 cols = st.columns(3)
-cols[0].metric("Tracked setup categories", summary["total"])
-cols[1].metric("Configured / present", summary["configured"])
-cols[2].metric("Still missing", summary["remaining"])
+cols[0].metric("Setup Categories", summary["total"])
+cols[1].metric("Configured", summary["configured"])
+cols[2].metric("Still Missing", summary["remaining"])
+
+remaining = [row for row in rows if not row.configured]
+if remaining:
+    st.warning(f"{len(remaining)} connection or setup item(s) still need attention.")
+    st.write("### Finish These Next")
+    for row in remaining:
+        with st.container(border=True):
+            st.markdown(f"**{row.name}**")
+            st.write(row.next_step)
+            st.caption(f"Needed for: {row.required_for}")
+else:
+    st.success(
+        "All tracked setup categories have their required configuration present. "
+        "This does not by itself authorize sending, publishing, ad launch, or spend."
+    )
+
+left, right = st.columns(2)
+if left.button("Open Marketing Setup Status", type="primary", use_container_width=True):
+    st.switch_page("pages/31_16_Channel_Completion_Audit.py")
+if right.button("Open Marketing Home", use_container_width=True):
+    st.switch_page("pages/90_CFH_Marketing_Dispo.py")
 
 frame = pd.DataFrame(
     [
         {
-            "Connection / setup": row.name,
+            "Connection / Setup": row.name,
             "Status": row.status_label,
-            "Required for": row.required_for,
-            "Next step": row.next_step,
+            "Required For": row.required_for,
+            "Next Step": row.next_step,
         }
         for row in rows
     ]
 )
-st.dataframe(frame, use_container_width=True, hide_index=True)
 
-remaining = [row for row in rows if not row.configured]
-if remaining:
-    st.write("### Remaining external setup")
-    for index, row in enumerate(remaining, start=1):
-        st.write(f"{index}. **{row.name}** — {row.next_step}")
-else:
-    st.success(
-        "All tracked setup categories have their required configuration present. "
-        "That does not by itself authorize sending, publishing, ad launch, or spend."
+with st.expander("All connection and setup details", expanded=False):
+    st.dataframe(frame, use_container_width=True, hide_index=True)
+
+    st.write("### Manual final steps supported by design")
+    st.write(
+        "Facebook Marketplace, Facebook Groups, Craigslist/local classifieds, and Nextdoor can remain human-confirmed. "
+        "Instagram, TikTok, and YouTube can also use a manual final post when no approved social publication adapter is configured."
+    )
+
+    st.download_button(
+        "Download Connection Checklist CSV",
+        data=frame.to_csv(index=False).encode("utf-8"),
+        file_name="commandcore_connection_checklist.csv",
+        mime="text/csv",
     )
 
 publishing = next(row for row in rows if row.key == "publishing_webhook")
-st.write("### General Automation Webhook")
-st.caption(
-    "Blog and Market SEO are now CFH-owned routes and do not depend on this general webhook. "
-    "Use it only for legacy/general external automation that still needs this handoff."
-)
-if publishing.configured:
-    st.success("A general automation webhook URL is present in Streamlit Secrets.")
-    tester = st.text_input("Connection test requested by", value="Shawn")
+with st.expander("Advanced: general automation webhook", expanded=False):
     st.caption(
-        "This test sends no property, buyer, email, SMS, social post, ad, or spending instruction. "
-        "It only confirms that CFH can reach the configured general automation webhook."
+        "Blog and Market SEO are CommandCore-owned routes and do not depend on this general webhook. "
+        "Use this only for legacy/general external automation that still needs the handoff."
     )
-    if st.button("Send safe general-webhook connection test", type="primary"):
-        try:
-            receipt = dispatch_publishing_connection_test(
-                st.secrets,
-                requested_by=tester,
-            )
-        except ValueError as exc:
-            st.error(str(exc))
-        else:
-            st.success(f"General webhook reached successfully — HTTP {receipt.status_code}.")
-            if receipt.response_text:
-                st.caption(f"Webhook response: {receipt.response_text}")
-else:
-    st.info(
-        "The general automation webhook is not configured. That does not block CFH-owned Blog or Market SEO. "
-        "Add AUTOMATION_WEBHOOK_URL only if a remaining legacy/general automation workflow needs it."
-    )
-    with st.expander("Show the safe test payload for a future general automation webhook"):
-        st.code(automation_connection_sample_json(), language="json")
-
-st.write("### Manual final steps that remain supported by design")
-st.write(
-    "Facebook Marketplace, Facebook Groups, Craigslist/local classifieds, and Nextdoor can remain human-confirmed. "
-    "Instagram, TikTok, and YouTube can also use a manual final post when no approved social publication adapter is configured."
-)
-
-st.download_button(
-    "Download go-live connection checklist CSV",
-    data=frame.to_csv(index=False).encode("utf-8"),
-    file_name="cfh_go_live_connection_checklist.csv",
-    mime="text/csv",
-)
+    if publishing.configured:
+        st.success("A general automation webhook URL is present in Streamlit Secrets.")
+        tester = st.text_input("Connection test requested by", value="CommandCore Owner")
+        st.caption(
+            "This test sends no property, buyer, email, SMS, social post, ad, or spending instruction. "
+            "It only confirms that CommandCore can reach the configured general automation webhook."
+        )
+        if st.button("Send Safe General-Webhook Test", type="primary"):
+            try:
+                receipt = dispatch_publishing_connection_test(st.secrets, requested_by=tester)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"General webhook reached successfully — HTTP {receipt.status_code}.")
+                if receipt.response_text:
+                    st.caption(f"Webhook response: {receipt.response_text}")
+    else:
+        st.info(
+            "The general automation webhook is not configured. That does not block CommandCore-owned Blog or Market SEO. "
+            "Add AUTOMATION_WEBHOOK_URL only if a remaining legacy/general automation workflow needs it."
+        )
+        with st.expander("Show safe future test payload"):
+            st.code(automation_connection_sample_json(), language="json")
