@@ -56,6 +56,16 @@ def text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def open_coverage_exceptions(*, key: str, primary: bool = False) -> None:
+    if st.button(
+        "Open Coverage Exceptions",
+        key=key,
+        type="primary" if primary else "secondary",
+        use_container_width=True,
+    ):
+        st.switch_page("pages/37_CommandCore_Coverage_Exceptions.py")
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="commandcore_management_alerts_logout"):
@@ -63,7 +73,7 @@ if st.sidebar.button("Log out", key="commandcore_management_alerts_logout"):
     st.rerun()
 
 st.title("CommandCore Management Alerts")
-st.caption("One place for unresolved coverage failures that have aged past their normal response window.")
+st.caption("See unresolved coverage problems that have aged past the normal response window and what management should handle next.")
 
 result = call_commandcore({"action": "list", "days": 60, "status": "all"})
 if not result.get("ok"):
@@ -86,7 +96,14 @@ m3.metric("Escalated", sum(text(item.get("aging_level")).lower() == "escalated" 
 m4.metric("Overdue", sum(text(item.get("aging_level")).lower() == "overdue" for item in alerts))
 
 if not alerts:
-    st.success("No aged coverage exceptions currently need management attention.")
+    with st.container(border=True):
+        st.markdown("### Management alert queue is clear")
+        st.write("No aged coverage exception currently needs management attention.")
+        left, right = st.columns(2)
+        if left.button("Open Operations", type="primary", use_container_width=True):
+            st.switch_page("pages/39_CommandCore_Operations_Hub.py")
+        if right.button("Review Owner Approvals", use_container_width=True):
+            st.switch_page("pages/48_CommandCore_Owner_Approvals.py")
     st.stop()
 
 rank = {"executive": 0, "escalated": 1, "overdue": 2}
@@ -101,8 +118,8 @@ alerts.sort(
 executive = [item for item in alerts if text(item.get("aging_level")).lower() == "executive"]
 if executive:
     st.error(
-        f"{len(executive)} coverage exception(s) have aged into EXECUTIVE ATTENTION. "
-        "These should be reviewed before normal queue work."
+        f"{len(executive)} coverage exception(s) require executive attention. "
+        "Handle these before normal queue work."
     )
 
 st.subheader("Management Priority Queue")
@@ -110,33 +127,36 @@ rows = []
 for item in alerts:
     rows.append(
         {
-            "Aging": text(item.get("aging_level")).upper(),
+            "Urgency": text(item.get("aging_level")).upper(),
             "Severity": text(item.get("severity")).upper(),
-            "Owner": text(item.get("owner_name") or item.get("owner_id")),
-            "Status": text(item.get("status") or "open").upper(),
+            "Owner": text(item.get("owner_name") or item.get("owner_id")) or "Unassigned",
             "Age Hours": item.get("age_hours"),
-            "Type": text(item.get("exception_type") or item.get("type")).replace("_", " ").title(),
-            "Dispatch": text(item.get("dispatch_id")),
-            "Recommended Action": text(item.get("recommended_action")),
+            "Problem": text(item.get("exception_type") or item.get("type")).replace("_", " ").title(),
+            "Do This Next": text(item.get("recommended_action")) or "Review coverage and confirm safe ownership of urgent work.",
         }
     )
 
 st.dataframe(rows, use_container_width=True, hide_index=True)
 
-st.subheader("What To Handle First")
-for item in alerts[:10]:
+st.subheader("Handle These First")
+for index, item in enumerate(alerts[:10]):
     aging = text(item.get("aging_level")).upper()
-    owner = text(item.get("owner_name") or item.get("owner_id") or "Unknown owner")
+    owner = text(item.get("owner_name") or item.get("owner_id") or "Unassigned")
     exception_type = text(item.get("exception_type") or item.get("type") or "coverage_exception").replace("_", " ").title()
     age_hours = item.get("age_hours")
-    with st.expander(f"{aging} — {owner} — {exception_type}", expanded=aging == "EXECUTIVE"):
-        st.write(f"**Age:** {age_hours if age_hours is not None else 'Unknown'} hours")
-        dispatch_id = text(item.get("dispatch_id"))
-        if dispatch_id:
-            st.write(f"**Dispatch:** {dispatch_id}")
+    with st.container(border=True):
+        st.markdown(f"#### {aging} — {exception_type}")
+        summary = st.columns(3)
+        summary[0].write(f"**Owner:** {owner}")
+        summary[1].write(f"**Age:** {age_hours if age_hours is not None else 'Unknown'} hours")
+        summary[2].write(f"**Severity:** {text(item.get('severity')).upper() or 'Not set'}")
         action = text(item.get("recommended_action")) or "Review coverage and confirm safe ownership of urgent work."
         st.write(f"**Do this next:** {action}")
-        st.caption("Open CommandCore Coverage Exceptions to acknowledge, resolve, or reopen this exception.")
+        open_coverage_exceptions(key=f"open-coverage-exception-{index}", primary=index == 0)
+        dispatch_id = text(item.get("dispatch_id"))
+        if dispatch_id:
+            with st.expander("Technical details", expanded=False):
+                st.code(dispatch_id, language=None)
 
 st.divider()
 st.caption(
