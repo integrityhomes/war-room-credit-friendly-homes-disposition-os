@@ -1,8 +1,10 @@
-from pathlib import Path
+def read_app() -> str:
+    with open("app.py", encoding="utf-8") as handle:
+        return handle.read()
 
 
 def test_sidebar_uses_plain_business_labels() -> None:
-    source = Path("app.py").read_text(encoding="utf-8")
+    source = read_app()
 
     for marker in (
         'title="Leads"',
@@ -15,13 +17,14 @@ def test_sidebar_uses_plain_business_labels() -> None:
         'title="Operations"',
         'title="CRM Import"',
         'title="Connections"',
-        'title="System Diagnostic"',
     ):
         assert marker in source
 
+    assert 'title="System Diagnostic"' not in source
+
 
 def test_sidebar_keeps_the_six_approved_areas() -> None:
-    source = Path("app.py").read_text(encoding="utf-8")
+    source = read_app()
 
     for area in (
         '"Home / Command Center": [',
