@@ -1,4 +1,6 @@
-const SERVICE_VERSION = "2026-08-29.11";
+import { buildJourneyReadiness } from "../_shared/commandcore_journey_readiness.ts";
+
+const SERVICE_VERSION = "2026-08-30.1";
 
 type Row = Record<string, unknown>;
 
@@ -310,6 +312,7 @@ Deno.serve(async (req) => {
       owner_approval_release_posture_included: true,
       approval_engine_immutable_evidence_posture_included: true,
       dispatch_worker_state_preservation_posture_included: true,
+      core_journey_assessment_included: true,
       external_execution_enabled: false,
       destructive_action_enabled: false,
     });
@@ -327,6 +330,8 @@ Deno.serve(async (req) => {
   ]);
   const failed = checks.filter((item) => item.required === true && item.healthy !== true);
   const safetyFailures = checks.filter((item) => item.required === true && item.safety_policy_healthy !== true);
+  const journeys = buildJourneyReadiness(checks);
+  const failedJourneys = journeys.filter((item) => item.healthy !== true);
   const ready = failed.length === 0;
 
   return json(ready ? 200 : 503, {
@@ -338,6 +343,11 @@ Deno.serve(async (req) => {
     failed_required_services: failed.map((item) => item.service),
     safety_posture_failure_count: safetyFailures.length,
     safety_posture_failed_services: safetyFailures.map((item) => item.service),
+    core_journey_count: journeys.length,
+    healthy_core_journey_count: journeys.filter((item) => item.healthy === true).length,
+    failed_core_journey_count: failedJourneys.length,
+    failed_core_journeys: failedJourneys.map((item) => item.journey),
+    journeys,
     checks,
     crm_cutover: crmCutover,
     external_action_started: false,
