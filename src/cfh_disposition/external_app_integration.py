@@ -49,7 +49,10 @@ EXTERNAL_APP_INTEGRATION: tuple[ExternalAppIntegration, ...] = (
             "Preserve source links and confidence so contact data is reviewable.",
             "Do not auto-contact an agent merely because research found contact information.",
         ),
-        authority_boundary="Research/enrichment may run automatically; outbound contact remains governed by CommandCore communication/consent/routing rules.",
+        authority_boundary=(
+            "Research/enrichment may run automatically; outbound contact remains governed by "
+            "CommandCore communication/consent/routing rules."
+        ),
     ),
     ExternalAppIntegration(
         repository="integrityhomes/integrity-illinois-cfd-builder",
@@ -78,7 +81,10 @@ EXTERNAL_APP_INTEGRATION: tuple[ExternalAppIntegration, ...] = (
             "Store generated documents and their provenance on the Deal.",
             "Expose only the contract/document packages appropriate to the selected Deal/state/workflow.",
         ),
-        authority_boundary="CommandCore may prepare documents automatically from approved Deal facts; signing, binding agreements, legal-term changes, and final legal approval remain human-controlled.",
+        authority_boundary=(
+            "CommandCore may prepare documents automatically from approved Deal facts; signing, binding agreements, "
+            "legal-term changes, and final legal approval remain human-controlled."
+        ),
     ),
     ExternalAppIntegration(
         repository="integrityhomes/war-room-offer-engine",
@@ -109,7 +115,10 @@ EXTERNAL_APP_INTEGRATION: tuple[ExternalAppIntegration, ...] = (
             "Write analysis and evidence back to the same Deal rather than keeping a separate work file.",
             "Route any actual offer/send/binding action through Owner Approval where required.",
         ),
-        authority_boundary="Analysis, research, repair math, comps, and offer drafting may run automatically; sending/binding offers or changing approved financial/legal terms requires the appropriate human approval.",
+        authority_boundary=(
+            "Analysis, research, repair math, comps, and offer drafting may run automatically; sending/binding offers "
+            "or changing approved financial/legal terms requires the appropriate human approval."
+        ),
     ),
     ExternalAppIntegration(
         repository="integrityhomes/war-room-os",
