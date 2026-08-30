@@ -5,6 +5,7 @@ from typing import Any
 
 import streamlit as st
 
+from .commandcore_contract_review_ui import render_live_contract_review
 from .contract_deal_facts import ContractFactsError, contract_prep_document
 from .contract_workspace import (
     CONTRACT_BUCKET,
@@ -64,18 +65,6 @@ def _next_prep_version(documents: list[dict[str, Any]], contract_type: str) -> i
         except (TypeError, ValueError):
             continue
     return max(versions, default=0) + 1
-
-
-def _review_task_exists(tasks: list[dict[str, Any]], document_id: str) -> bool:
-    for task in tasks:
-        status = _text(task.get("status")).lower()
-        if status in {"done", "completed", "closed", "cancelled", "canceled"}:
-            continue
-        if _text(task.get("work_type")) != "review_contract":
-            continue
-        if _text(_links(task).get("document_id")) == document_id:
-            return True
-    return False
 
 
 def _crm_call(get_supabase: GetSupabase, payload: dict[str, Any]) -> dict[str, Any]:
@@ -372,9 +361,10 @@ def render_contract_workspace(
                 st.error("CommandCore could not prepare this contract package. Nothing was signed or sent.")
 
     with review_tab:
+        st.write("Review a contract against the verified facts already saved on this Deal.")
         reviewable = _reviewable_documents(documents)
         if not reviewable:
-            st.info("Upload a contract first. Once it is attached to this Deal, it can be sent into contract review.")
+            st.info("Upload a contract first. Once it is attached to this Deal, you can review it here.")
         else:
             options = {
                 f"{_text(document.get('name')) or 'Contract'} · v{_text(document.get('version')) or '—'}": document
@@ -385,29 +375,14 @@ def render_contract_workspace(
                 list(options),
                 key=f"contract_review_select_{deal_id}",
             )
-            selected = options[selected_label]
-            document_id = _text(selected.get("id"))
-            if _review_task_exists(tasks, document_id):
-                st.info("A review request is already open for this contract version.")
-            elif st.button("Review Contract", type="primary", key=f"review_contract_{deal_id}"):
-                saved = save_related(
-                    "tasks",
-                    deal_id,
-                    {
-                        "title": "Review contract against Deal facts",
-                        "work_type": "review_contract",
-                        "task_type": "deal_lifecycle_request",
-                        "status": "open",
-                        "priority": "high",
-                        "source": "commandcore-contract-workspace",
-                        "external_action_started": False,
-                        "links": {"document_id": document_id},
-                    },
-                )
-                if saved:
-                    st.success("Contract review request added to this Deal.")
-                    st.rerun()
-                st.error("CommandCore could not create the contract review request.")
+            render_live_contract_review(
+                deal=deal,
+                deal_id=deal_id,
+                selected=options[selected_label],
+                documents=documents,
+                save_related=save_related,
+                get_supabase=get_supabase,
+            )
 
     with versions_tab:
         contract_rows = _reviewable_documents(documents)
