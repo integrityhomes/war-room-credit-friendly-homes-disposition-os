@@ -40,6 +40,11 @@ def render_commandcore_sidebar() -> None:
 
         st.markdown("#### Marketing & Dispo")
         sidebar_link("pages/90_CFH_Marketing_Dispo.py", "Marketing Home", "📣")
+        with st.expander("Marketing tools", expanded=False):
+            sidebar_link("pages/7_Facebook_Group_Posting_Center.py", "Facebook Groups", "👥")
+            sidebar_link("pages/25_Property_Channel_Tracking_Links.py", "Tracking Links", "🔗")
+            sidebar_link("pages/19_Dwelyx_Results_Attribution.py", "Buyer Results", "📊")
+            sidebar_link("pages/23_Daily_Executive_Disposition_Command.py", "Disposition Performance", "🎯")
 
         st.markdown("#### Management")
         sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "✅")

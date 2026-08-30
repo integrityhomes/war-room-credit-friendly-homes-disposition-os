@@ -48,3 +48,20 @@ def test_contract_templates_are_admin_setup_not_daily_management_navigation() ->
 
     assert templates_link not in source[management_start:admin_start]
     assert templates_link in source[admin_start:]
+
+
+def test_specialty_marketing_tools_are_collapsed_under_marketing_home() -> None:
+    source = read_app()
+    marketing_start = source.index('st.markdown("#### Marketing & Dispo")')
+    management_start = source.index('st.markdown("#### Management")', marketing_start)
+    marketing_sidebar = source[marketing_start:management_start]
+
+    assert 'sidebar_link("pages/90_CFH_Marketing_Dispo.py", "Marketing Home", "📣")' in marketing_sidebar
+    assert 'with st.expander("Marketing tools", expanded=False):' in marketing_sidebar
+    for marker in (
+        'sidebar_link("pages/7_Facebook_Group_Posting_Center.py", "Facebook Groups", "👥")',
+        'sidebar_link("pages/25_Property_Channel_Tracking_Links.py", "Tracking Links", "🔗")',
+        'sidebar_link("pages/19_Dwelyx_Results_Attribution.py", "Buyer Results", "📊")',
+        'sidebar_link("pages/23_Daily_Executive_Disposition_Command.py", "Disposition Performance", "🎯")',
+    ):
+        assert marker in marketing_sidebar
