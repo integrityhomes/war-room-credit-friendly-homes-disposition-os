@@ -109,7 +109,10 @@ def _approved_contract_types(get_supabase: GetSupabase) -> list[str]:
             continue
         if document.get("approved_for_use") is not True:
             continue
-        legal_ok = document.get("legal_approved") is True or _text(document.get("legal_review_status")).lower() == "approved"
+        legal_ok = (
+            document.get("legal_approved") is True
+            or _text(document.get("legal_review_status")).lower() == "approved"
+        )
         if not legal_ok:
             continue
         contract_type = _text(document.get("contract_type"))
@@ -202,7 +205,10 @@ def _selected_contract_type(deal: dict[str, Any], get_supabase: GetSupabase, dea
             options,
             index=options.index(current) if current in options else 0,
             key=f"contract_package_{deal_id}",
-            help="Choose the legal document package explicitly. CommandCore will not infer this from the property state.",
+            help=(
+                "Choose the legal document package explicitly. "
+                "CommandCore will not infer this from the property state."
+            ),
         )
         if selected != "Other / not listed":
             return selected
@@ -211,7 +217,9 @@ def _selected_contract_type(deal: dict[str, Any], get_supabase: GetSupabase, dea
         "Exact contract package name",
         value="" if options else current,
         key=f"contract_package_other_{deal_id}",
-        help="Enter the package name exactly. An unapproved package will be blocked until an approved template exists.",
+        help=(
+            "Enter the package name exactly. An unapproved package will be blocked until an approved template exists."
+        ),
     ).strip()
 
 
@@ -255,6 +263,26 @@ def _prepare_contract_from_deal(
         st.warning(f"Contract preparation is saved but blocked. Complete these Deal facts first: {readable}.")
         return
 
+    coordinator_ok = True
+    try:
+        response = get_supabase().functions.invoke(
+            "commandcore-contract-document-coordinator",
+            {"body": {"apply": True}},
+        )
+        if isinstance(response, dict):
+            coordinator_ok = bool(response.get("ok", True))
+        else:
+            data = getattr(response, "data", None)
+            coordinator_ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
+    except Exception:
+        coordinator_ok = False
+
+    if not coordinator_ok:
+        st.info(
+            "The verified Deal facts are saved. The document coordinator did not confirm this run, "
+            "so the normal contract workflow can retry without losing the prepared facts."
+        )
+
     create_work_request(
         deal,
         deal_id,
@@ -262,12 +290,6 @@ def _prepare_contract_from_deal(
         "prepare_contract",
         "Prepare contract package for approval",
     )
-    try:
-        get_supabase().functions.invoke("commandcore-contract-document-coordinator", {"body": {"apply": True}})
-    except Exception:
-        st.info(
-            "The Deal facts are ready and the contract work is queued. The document coordinator will retry through the normal workflow."
-        )
 
 
 def render_contract_workspace(
