@@ -128,19 +128,20 @@ if st.sidebar.button("Log out", key="commandcore_shell_logout"):
 st.title("CommandCore")
 st.caption("One operating system for leads, deals, follow-up, marketing, disposition, and management.")
 
-area = st.segmented_control(
-    "Workspace",
-    [
-        "Home / Command Center",
-        "Leads & CRM",
-        "Deals",
-        "Tasks & Follow-Up",
-        "Marketing & Dispo",
-        "Management",
-    ],
-    default="Home / Command Center",
-)
-area = area or "Home / Command Center"
+with st.expander("Browse all CommandCore tools", expanded=False):
+    area = st.selectbox(
+        "Area",
+        [
+            "Home / Command Center",
+            "Leads & CRM",
+            "Deals",
+            "Tasks & Follow-Up",
+            "Marketing & Dispo",
+            "Management",
+        ],
+        index=0,
+        key="commandcore_tool_area",
+    )
 
 if area == "Home / Command Center":
     with st.container(border=True):
