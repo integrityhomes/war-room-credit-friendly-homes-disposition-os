@@ -56,7 +56,7 @@ class OfferDealInput:
 
 def money(value: Any) -> str:
     try:
-        return "${:,.0f}".format(float(value))
+        return f"${float(value):,.0f}"
     except Exception:
         return "$0"
 
