@@ -10,6 +10,7 @@ from docx import Document
 from cfh_disposition.commandcore_offer_engine import OfferDealInput, analyze_deal
 from cfh_disposition.contract_generation_pipeline import generate_and_store_contract
 
+from .crm_staging import preview_fixture_commit, stage_fixture_rows
 from .fixtures import FIXTURE_FAMILY, FIXTURE_SOURCE, load_fixture_family
 from .mode import HarnessMode, parse_mode
 from .report import HarnessReport, write_report
@@ -253,17 +254,63 @@ def run_contract_no_sign(mode: str | HarnessMode | None = None) -> HarnessReport
     )
 
 
+def run_crm_stage_no_commit(mode: str | HarnessMode | None = None) -> HarnessReport:
+    fixture = load_fixture_family()
+    deal = fixture["deal"]
+    bus = SideEffectBus(mode)
+    staged_rows = stage_fixture_rows(fixture)
+    preview = preview_fixture_commit(staged_rows)
+    commit = bus.request(
+        ActionType.CRM_COMMIT,
+        {
+            "apply": False,
+            "confirm_apply": False,
+            "rows": [row.to_dict() for row in staged_rows],
+            "would_create": preview["would_create"],
+            "would_update": preview["would_update"],
+            "records_written": preview["records_written"],
+        },
+        deal=deal,
+        owner_approval=fixture["approval"],
+    )
+    passed = (
+        preview["apply_requested"] is False
+        and preview["records_written"] == 0
+        and preview["source_records_modified"] is False
+        and preview["destructive_delete_used"] is False
+        and preview["external_action_started"] is False
+        and commit.decision == "blocked"
+        and bus.provider_calls == 0
+    )
+    return HarnessReport(
+        scenario="crm_stage_no_commit",
+        mode=bus.mode.value,
+        fixture_family=FIXTURE_FAMILY,
+        verdict="PASS" if passed else "FAIL",
+        provider_calls=bus.provider_calls,
+        actions=list(bus.records),
+        artifacts={
+            "staged_rows": [row.to_dict() for row in staged_rows],
+            "commit_preview": preview,
+            "production_commit_attempted": True,
+            "production_commit_performed": False,
+        },
+    )
+
+
 def run_scenario(scenario: str, mode: str | HarnessMode | None = None) -> HarnessReport:
     if scenario == "offer_no_send":
         return run_offer_no_send(mode)
     if scenario == "contract_no_sign":
         return run_contract_no_sign(mode)
+    if scenario == "crm_stage_no_commit":
+        return run_crm_stage_no_commit(mode)
     raise ValueError(f"Unknown harness scenario: {scenario!r}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a CommandCore Test & Simulation Harness scenario.")
-    parser.add_argument("--scenario", choices=("offer_no_send", "contract_no_sign"), required=True)
+    parser.add_argument("--scenario", choices=("offer_no_send", "contract_no_sign", "crm_stage_no_commit"), required=True)
     parser.add_argument("--mode", choices=tuple(mode.value for mode in HarnessMode), default=HarnessMode.SIMULATION.value)
     parser.add_argument("--output-dir", default="artifacts")
     args = parser.parse_args()

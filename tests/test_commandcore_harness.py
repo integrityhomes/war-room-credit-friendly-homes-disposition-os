@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from cfh_disposition.harness.crm_staging import preview_fixture_commit, stage_fixture_rows
 from cfh_disposition.harness.fixtures import load_fixture_family
 from cfh_disposition.harness.mode import HarnessMode, parse_mode
-from cfh_disposition.harness.runner import run_contract_no_sign, run_offer_no_send
+from cfh_disposition.harness.runner import run_contract_no_sign, run_crm_stage_no_commit, run_offer_no_send
 from cfh_disposition.harness.side_effects import ActionType, SideEffectBus
 
 
@@ -91,6 +92,40 @@ def test_crm_commit_in_simulation_never_calls_live_upsert_executor() -> None:
     assert record.decision == "blocked"
     assert calls == []
     assert bus.provider_calls == 0
+
+
+def test_crm_staging_adapter_preserves_fixture_and_produces_no_write_preview() -> None:
+    rows = stage_fixture_rows(load_fixture_family())
+    preview = preview_fixture_commit(rows)
+
+    assert [row.entity for row in rows] == ["contacts", "properties", "deals"]
+    assert all(row.internal_only for row in rows)
+    assert all(row.source_payload_preserved for row in rows)
+    assert preview["approved_rows"] == 3
+    assert preview["would_create"] == 3
+    assert preview["would_update"] == 0
+    assert preview["records_written"] == 0
+    assert preview["source_records_modified"] is False
+    assert preview["destructive_delete_used"] is False
+    assert preview["external_action_started"] is False
+
+
+def test_crm_stage_no_commit_scenario_reports_would_write_and_blocks_production_commit() -> None:
+    report = run_crm_stage_no_commit()
+    data = report.to_dict()
+
+    assert report.verdict == "PASS"
+    assert report.mode == "simulation"
+    assert report.provider_calls == 0
+    preview = data["artifacts"]["commit_preview"]
+    assert preview["apply_requested"] is False
+    assert preview["would_create"] == 3
+    assert preview["records_written"] == 0
+    assert data["artifacts"]["production_commit_attempted"] is True
+    assert data["artifacts"]["production_commit_performed"] is False
+    crm_commit = next(action for action in data["blocked_actions"] if action["action_type"] == "crm.commit")
+    assert crm_commit["payload_summary"]["apply"] is False
+    assert crm_commit["payload_summary"]["confirm_apply"] is False
 
 
 def test_verdict_report_separates_intended_blocked_and_approval_required_actions() -> None:
