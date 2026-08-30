@@ -33,3 +33,12 @@ def test_operator_dashboard_is_a_completed_my_work_compatibility_route() -> None
     assert row.state == AppCompletionState.COMPLETE
     assert "My Work" in row.disposition
     assert "compatibility" in row.disposition.lower()
+
+
+def test_record_manager_is_a_completed_marketing_home_compatibility_surface() -> None:
+    row = APP_COMPLETION_BY_PATH["pages/01_Record_Manager.py"]
+
+    assert row.state == AppCompletionState.COMPLETE
+    assert "Marketing Home" in row.disposition
+    assert "Record Manager" in row.disposition
+    assert "compatibility" in row.disposition.lower()

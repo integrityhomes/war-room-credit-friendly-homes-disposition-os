@@ -23,7 +23,12 @@ class AppCompletion:
 
 APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion("pages/00_CommandCore.py", "Shell", AppCompletionState.COMPLETE, "Canonical six-area CommandCore shell."),
-    AppCompletion("pages/01_Record_Manager.py", "Marketing & Dispo", AppCompletionState.SUPPORT_TOOL, "Legacy property-record support tool; fold under inventory/property setup."),
+    AppCompletion(
+        "pages/01_Record_Manager.py",
+        "Marketing & Dispo",
+        AppCompletionState.COMPLETE,
+        "Compatibility/deep-link surface; canonical property and buyer record management is already folded into Marketing Home → Advanced Marketing Tools → Record Manager.",
+    ),
     AppCompletion("pages/7_Facebook_Group_Posting_Center.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Canonical manual Facebook Group posting workspace."),
     AppCompletion("pages/8_Facebook_Group_Bulk_Import.py", "Marketing & Dispo", AppCompletionState.SUPPORT_TOOL, "Facebook Group directory/import support tool."),
     AppCompletion("pages/9_Facebook_Group_Variation_Pack.py", "Marketing & Dispo", AppCompletionState.SUPPORT_TOOL, "Facebook Group fact-safe variation support tool."),
