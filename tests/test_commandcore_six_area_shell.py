@@ -16,7 +16,7 @@ def shell_source() -> str:
 
 def test_commandcore_shell_has_only_the_six_approved_top_level_areas() -> None:
     source = shell_source()
-    selector = source.split('with st.expander("Browse all CommandCore tools"', 1)[1].split('if area == "Home / Command Center":', 1)[0]
+    selector = source.split('with st.expander("Advanced tool directory"', 1)[1].split('if area == "Home / Command Center":', 1)[0]
 
     assert 'area = st.selectbox(' in selector
     for area in APPROVED_AREAS:
