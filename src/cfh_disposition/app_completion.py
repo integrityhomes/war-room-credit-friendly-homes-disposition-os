@@ -45,8 +45,8 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion(
         "pages/15_AI_Buyer_Acquisition_Growth.py",
         "Marketing & Dispo",
-        AppCompletionState.NEEDS_WORK,
-        "Keep distinct buyer-acquisition app; add shared property-marketability guard.",
+        AppCompletionState.COMPLETE,
+        "Buyer-acquisition property campaigns only offer Ready-to-Launch or Marketing-Live inventory; market-wide campaigns remain available.",
     ),
     AppCompletion(
         "pages/16_AI_Buyer_Conversion_Command_Center.py",
