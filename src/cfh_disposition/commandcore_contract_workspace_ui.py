@@ -6,7 +6,9 @@ from typing import Any
 import streamlit as st
 
 from .commandcore_contract_review_ui import render_live_contract_review
-from .contract_deal_facts import ContractFactsError, contract_prep_document
+from .contract_build_service import ContractBuildState, build_contract_for_deal
+from .contract_deal_facts import ContractFactsError
+from .contract_generation_pipeline import ContractGenerationError
 from .contract_workspace import (
     CONTRACT_BUCKET,
     ContractFile,
@@ -212,6 +214,43 @@ def _selected_contract_type(deal: dict[str, Any], get_supabase: GetSupabase, dea
     ).strip()
 
 
+def _run_existing_coordinator(
+    *,
+    deal: dict[str, Any],
+    deal_id: str,
+    tasks: list[dict[str, Any]],
+    create_work_request: CreateWorkRequest,
+    get_supabase: GetSupabase,
+) -> None:
+    coordinator_ok = True
+    try:
+        response = get_supabase().functions.invoke(
+            "commandcore-contract-document-coordinator",
+            {"body": {"apply": True}},
+        )
+        if isinstance(response, dict):
+            coordinator_ok = bool(response.get("ok", True))
+        else:
+            data = getattr(response, "data", None)
+            coordinator_ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
+    except Exception:
+        coordinator_ok = False
+
+    if not coordinator_ok:
+        st.info(
+            "The verified Deal facts are saved. This package's document coordinator did not confirm this run, "
+            "so the contract workflow can retry without losing the prepared facts."
+        )
+
+    create_work_request(
+        deal,
+        deal_id,
+        tasks,
+        "prepare_contract",
+        "Prepare contract package for approval",
+    )
+
+
 def _prepare_contract_from_deal(
     *,
     deal: dict[str, Any],
@@ -229,56 +268,37 @@ def _prepare_contract_from_deal(
     deal_links = _links(deal)
     seller = _linked_record(get_supabase, "contacts", _text(deal_links.get("contact_id")))
     property_record = _linked_record(get_supabase, "properties", _text(deal_links.get("property_id")))
-    prepared = contract_prep_document(
+    outcome = build_contract_for_deal(
+        client=get_supabase(),
+        deal=deal,
         deal_id=deal_id,
-        deal={**deal, "contract_type": contract_type},
         seller=seller,
         property_record=property_record,
+        contract_type=contract_type,
+        documents=documents,
+        save_related=save_related,
+        list_documents=lambda: _all_documents(get_supabase),
     )
 
-    existing = _active_prep_document(documents, contract_type)
-    if existing:
-        prepared["id"] = existing.get("id")
-        prepared["version"] = existing.get("version") or 1
-    else:
-        prepared["version"] = _next_prep_version(documents, contract_type)
-
-    if not save_related("documents", deal_id, prepared):
-        raise ContractWorkspaceError("CommandCore could not save the verified Deal facts for contract preparation.")
-
-    missing = prepared.get("missing_facts", [])
-    if isinstance(missing, list) and missing:
-        readable = ", ".join(str(item) for item in missing)
-        st.warning(f"Contract preparation is saved but blocked. Complete these Deal facts first: {readable}.")
+    if outcome.state == ContractBuildState.MISSING_FACTS:
+        st.warning(f"Contract preparation is saved but blocked. {outcome.message}")
+        return
+    if outcome.state == ContractBuildState.ALREADY_CURRENT:
+        st.info(outcome.message)
+        return
+    if outcome.state == ContractBuildState.COORDINATOR_REQUIRED:
+        st.info(outcome.message)
+        _run_existing_coordinator(
+            deal=deal,
+            deal_id=deal_id,
+            tasks=tasks,
+            create_work_request=create_work_request,
+            get_supabase=get_supabase,
+        )
         return
 
-    coordinator_ok = True
-    try:
-        response = get_supabase().functions.invoke(
-            "commandcore-contract-document-coordinator",
-            {"body": {"apply": True}},
-        )
-        if isinstance(response, dict):
-            coordinator_ok = bool(response.get("ok", True))
-        else:
-            data = getattr(response, "data", None)
-            coordinator_ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
-    except Exception:
-        coordinator_ok = False
-
-    if not coordinator_ok:
-        st.info(
-            "The verified Deal facts are saved. The document coordinator did not confirm this run, "
-            "so the normal contract workflow can retry without losing the prepared facts."
-        )
-
-    create_work_request(
-        deal,
-        deal_id,
-        tasks,
-        "prepare_contract",
-        "Prepare contract package for approval",
-    )
+    st.session_state[f"contract_build_notice_{deal_id}"] = outcome.message
+    st.rerun()
 
 
 def render_contract_workspace(
@@ -333,10 +353,13 @@ def render_contract_workspace(
                 st.rerun()
 
     with build_tab:
-        st.write("Prepare a contract package using verified Deal facts and the approved legal-template workflow.")
+        build_notice = _text(st.session_state.pop(f"contract_build_notice_{deal_id}", ""))
+        if build_notice:
+            st.success(build_notice)
+        st.write("Build a contract package from the verified facts already stored on this Deal.")
         st.caption(
-            "You choose the contract package. CommandCore gathers known Deal facts, identifies anything missing, "
-            "and only releases complete facts to an approved template."
+            "You choose the contract package. CommandCore checks required facts, uses only an approved matching template, "
+            "and keeps the generated file private for review. Nothing is signed or sent."
         )
         try:
             contract_type = _selected_contract_type(deal, get_supabase, deal_id)
@@ -355,16 +378,16 @@ def render_contract_workspace(
                     create_work_request=create_work_request,
                     get_supabase=get_supabase,
                 )
-            except (ContractFactsError, ContractWorkspaceError) as exc:
+            except (ContractFactsError, ContractGenerationError, ContractWorkspaceError) as exc:
                 st.error(str(exc))
             except Exception:
-                st.error("CommandCore could not prepare this contract package. Nothing was signed or sent.")
+                st.error("CommandCore could not build this contract package. Nothing was signed or sent.")
 
     with review_tab:
         st.write("Review a contract against the verified facts already saved on this Deal.")
         reviewable = _reviewable_documents(documents)
         if not reviewable:
-            st.info("Upload a contract first. Once it is attached to this Deal, you can review it here.")
+            st.info("Upload or build a contract first. Once it is attached to this Deal, you can review it here.")
         else:
             options = {
                 f"{_text(document.get('name')) or 'Contract'} · v{_text(document.get('version')) or '—'}": document
