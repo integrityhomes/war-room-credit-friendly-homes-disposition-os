@@ -9,7 +9,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from supabase import create_client
 
-st.set_page_config(page_title="CommandCore Rebalance Audit", page_icon="🧾", layout="wide")
+st.set_page_config(page_title="CommandCore Workload Audit", page_icon="🧾", layout="wide")
 
 AUDIT_BUCKET = "commandcore-auto-rebalance-audit"
 
@@ -21,7 +21,7 @@ def require_password() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.title("CommandCore Rebalance Audit")
+    st.title("CommandCore Workload Audit")
     with st.form("commandcore_rebalance_audit_login"):
         password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -89,17 +89,22 @@ if st.sidebar.button("Log out", key="commandcore_rebalance_audit_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Automatic Rebalance Audit")
+st.title("CommandCore Workload Audit")
 st.caption(
-    "Shows what CommandCore considered, what it moved automatically, and what it skipped during strict low-risk workload balancing."
+    "Review what CommandCore moved automatically, what it refused to move, and why. Technical audit identifiers remain available under details."
 )
 
 runs = load_runs()
 
 if not runs:
-    st.info(
-        "No automatic rebalance audit runs are stored yet. The hourly schedule will populate this page after its next production run."
-    )
+    with st.container(border=True):
+        st.markdown("### No automatic workload audit runs yet")
+        st.write("This history will populate after the automatic rebalance service completes a production run.")
+        left, right = st.columns(2)
+        if left.button("Review Workload", type="primary", use_container_width=True):
+            st.switch_page("pages/41_CommandCore_Workload_Balance.py")
+        if right.button("Review Team Health", use_container_width=True):
+            st.switch_page("pages/40_CommandCore_Team_Health.py")
     st.stop()
 
 applied_total = sum(int(run.get("applied_count", 0) or 0) for run in runs)
@@ -113,45 +118,68 @@ c1.metric("Audit Runs", len(runs))
 c2.metric("Eligible Safe Moves", eligible_total)
 c3.metric("Automatically Applied", applied_total)
 c4.metric("Skipped / Rejected", skipped_total)
-st.caption(f"Latest automatic rebalance run: {latest_label}")
+st.caption(f"Latest automatic workload review: {latest_label}")
 
-st.subheader("Recent Automatic Rebalance Runs")
+st.subheader("Recent Automatic Workload Reviews")
 for index, run in enumerate(runs[:50]):
     generated_at = parse_time(run.get("generated_at"))
     generated_label = generated_at.astimezone().strftime("%b %d, %Y %I:%M %p") if generated_at else text(run.get("generated_at"))
     eligible = int(run.get("eligible_low_risk_high_confidence", 0) or 0)
     applied = int(run.get("applied_count", 0) or 0)
     skipped = run.get("skipped") if isinstance(run.get("skipped"), list) else []
-    label = f"{generated_label} • Eligible {eligible} • Applied {applied} • Skipped {len(skipped)}"
+    label = f"{generated_label} • {applied} moved • {len(skipped)} skipped"
 
     with st.expander(label, expanded=index == 0):
-        st.write(f"**Open work scanned:** {int(run.get('open_items', 0) or 0)}")
-        st.write(f"**Advisor recommendations:** {int(run.get('advisor_recommendations', 0) or 0)}")
+        summary = st.columns(3)
+        summary[0].metric("Open Work Scanned", int(run.get("open_items", 0) or 0))
+        summary[1].metric("Safe Moves Found", eligible)
+        summary[2].metric("Moves Applied", applied)
 
         applied_rows = run.get("applied") if isinstance(run.get("applied"), list) else []
         if applied_rows:
-            st.markdown("**Automatically moved**")
-            for item in applied_rows:
-                if not isinstance(item, dict):
-                    continue
-                st.write(
-                    f"• {text(item.get('from_owner_id')) or 'Unknown'} → {text(item.get('to_owner_id')) or 'Unknown'} "
-                    f"| Dispatch {text(item.get('dispatch_id')) or 'Unknown'} "
-                    f"| Action {text(item.get('action_id')) or 'Unknown'}"
-                )
+            st.markdown("**What moved**")
+            st.write(f"CommandCore safely reassigned {len(applied_rows)} internal work item(s) in this run.")
         else:
-            st.caption("No internal assignments were automatically moved in this run.")
+            st.success("No internal assignment needed an automatic move in this run.")
 
         if skipped:
-            st.markdown("**Skipped or rejected during live revalidation**")
+            st.markdown("**Why some moves were skipped**")
+            reason_counts: dict[str, int] = {}
             for item in skipped:
                 if not isinstance(item, dict):
                     continue
                 reason = text(item.get("reason")).replace("_", " ") or "Unknown reason"
-                st.write(
-                    f"• Dispatch {text(item.get('dispatch_id')) or 'Unknown'} "
-                    f"| Action {text(item.get('action_id')) or 'Unknown'} | {reason}"
-                )
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            for reason, count in sorted(reason_counts.items(), key=lambda pair: (-pair[1], pair[0])):
+                st.write(f"• {count} — {reason.title()}")
+        else:
+            st.caption("No proposed move was rejected during live safety revalidation.")
+
+        with st.expander("Technical audit details", expanded=False):
+            st.write(f"**Advisor recommendations:** {int(run.get('advisor_recommendations', 0) or 0)}")
+            audit_file = text(run.get("audit_file"))
+            if audit_file:
+                st.write(f"**Audit file:** {audit_file}")
+            if applied_rows:
+                st.markdown("**Applied records**")
+                for item in applied_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    st.write(
+                        f"• From {text(item.get('from_owner_id')) or 'Unknown'} → {text(item.get('to_owner_id')) or 'Unknown'} "
+                        f"| Dispatch {text(item.get('dispatch_id')) or 'Unknown'} "
+                        f"| Action {text(item.get('action_id')) or 'Unknown'}"
+                    )
+            if skipped:
+                st.markdown("**Skipped records**")
+                for item in skipped:
+                    if not isinstance(item, dict):
+                        continue
+                    reason = text(item.get("reason")).replace("_", " ") or "Unknown reason"
+                    st.write(
+                        f"• Dispatch {text(item.get('dispatch_id')) or 'Unknown'} "
+                        f"| Action {text(item.get('action_id')) or 'Unknown'} | {reason}"
+                    )
 
 st.divider()
 st.caption(
