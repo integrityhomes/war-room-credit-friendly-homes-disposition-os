@@ -274,11 +274,6 @@ if st.sidebar.button("Log out", key="owner_approval_logout"):
 
 st.title("Owner Approval Queue")
 st.caption("Review decisions that specifically require Shawn or Sabrina before the workflow can continue.")
-nav_left, nav_right = st.columns(2)
-with nav_left:
-    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
-with nav_right:
-    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 if not str(st.secrets.get("OWNER_APPROVAL_PIN", "")).strip():
     st.warning(
@@ -308,7 +303,15 @@ decision_tab, blocked_tab = st.tabs(["Needs My Decision", "Blocked / Needs Setup
 
 with decision_tab:
     if not offers and not documents:
-        st.success("No owner decisions are waiting right now.")
+        with st.container(border=True):
+            st.markdown("### You're clear — no owner decisions are waiting")
+            st.write("Nothing needs an owner approval right now.")
+            next_left, next_right = st.columns(2)
+            if next_left.button("Open Deal Workspace", type="primary", use_container_width=True):
+                st.switch_page("pages/45_CommandCore_Deal_Record.py")
+            if next_right.button("Review My Work", use_container_width=True):
+                st.switch_page("pages/35_CommandCore_My_Work.py")
+            st.caption("CommandCore will surface new owner-gated decisions here automatically when they are ready for review.")
     else:
         if offers:
             st.subheader("Offers")
