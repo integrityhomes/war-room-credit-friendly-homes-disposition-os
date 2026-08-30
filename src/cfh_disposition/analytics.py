@@ -17,10 +17,19 @@ CLICK_BUCKET = "cfh-click-events"
 CLICK_PREFIX = "clicks"
 CLICK_MAX_BYTES = 4096
 DEFAULT_REPORT_DAYS = 30
+LIVE_TRAFFIC = "live"
+TEST_TRAFFIC = "test"
+UNCLASSIFIED_TRAFFIC = "unclassified"
+TRAFFIC_TYPES = {LIVE_TRAFFIC, TEST_TRAFFIC, UNCLASSIFIED_TRAFFIC}
 
 
 class AnalyticsError(RuntimeError):
     """Raised when click analytics cannot be written or read."""
+
+
+def normalize_traffic_type(value: Any) -> str:
+    traffic_type = str(value or "").strip().lower()
+    return traffic_type if traffic_type in TRAFFIC_TYPES else UNCLASSIFIED_TRAFFIC
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +39,15 @@ class ClickEvent:
     medium: str
     campaign: str
     property_id: str | None = None
+    traffic_type: str = UNCLASSIFIED_TRAFFIC
+
+    @property
+    def is_live(self) -> bool:
+        return normalize_traffic_type(self.traffic_type) == LIVE_TRAFFIC
+
+    @property
+    def is_test(self) -> bool:
+        return normalize_traffic_type(self.traffic_type) == TEST_TRAFFIC
 
     def to_payload(self) -> dict[str, str | None]:
         return {
@@ -38,6 +56,7 @@ class ClickEvent:
             "medium": self.medium,
             "campaign": self.campaign,
             "property_id": self.property_id,
+            "traffic_type": normalize_traffic_type(self.traffic_type),
         }
 
     @classmethod
@@ -51,7 +70,22 @@ class ClickEvent:
             medium=str(payload.get("medium", "unknown")),
             campaign=str(payload.get("campaign", "owner_finance_homes")),
             property_id=str(payload["property_id"]) if payload.get("property_id") else None,
+            traffic_type=normalize_traffic_type(payload.get("traffic_type")),
         )
+
+
+def live_click_events(events: list[ClickEvent]) -> list[ClickEvent]:
+    """Return only clicks explicitly recorded as live buyer traffic."""
+    return [event for event in events if event.is_live]
+
+
+def traffic_type_counts(events: list[ClickEvent]) -> dict[str, int]:
+    counts = Counter(normalize_traffic_type(event.traffic_type) for event in events)
+    return {
+        LIVE_TRAFFIC: counts[LIVE_TRAFFIC],
+        TEST_TRAFFIC: counts[TEST_TRAFFIC],
+        UNCLASSIFIED_TRAFFIC: counts[UNCLASSIFIED_TRAFFIC],
+    }
 
 
 def encode_event_token(event: ClickEvent) -> str:
@@ -161,7 +195,19 @@ class ClickAnalyticsStore:
             )
             raise AnalyticsError("Could not record the Dwelyx click.") from exc
 
-    def list_recent(self, days: int = DEFAULT_REPORT_DAYS) -> list[ClickEvent]:
+    def list_recent(
+        self,
+        days: int = DEFAULT_REPORT_DAYS,
+        *,
+        include_test: bool = False,
+        include_unclassified: bool = False,
+    ) -> list[ClickEvent]:
+        """List recent clicks, defaulting to verified live buyer traffic only.
+
+        Legacy records created before traffic classification are intentionally excluded
+        from production metrics unless ``include_unclassified`` is requested. Test clicks
+        are also excluded unless ``include_test`` is requested.
+        """
         self._ensure_bucket()
         days = max(1, min(days, 365))
         today = datetime.now(UTC).date()
@@ -178,7 +224,13 @@ class ClickAnalyticsStore:
             for item in items:
                 name = item.get("name") if isinstance(item, Mapping) else None
                 event = event_from_object_name(str(name)) if name else None
-                if event:
-                    events.append(event)
+                if not event:
+                    continue
+                traffic_type = normalize_traffic_type(event.traffic_type)
+                if traffic_type == TEST_TRAFFIC and not include_test:
+                    continue
+                if traffic_type == UNCLASSIFIED_TRAFFIC and not include_unclassified:
+                    continue
+                events.append(event)
 
         return sorted(events, key=lambda item: item.occurred_at, reverse=True)
