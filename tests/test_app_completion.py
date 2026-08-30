@@ -17,10 +17,8 @@ def test_completion_ledger_has_no_duplicate_paths() -> None:
     assert len(APP_COMPLETION_BY_PATH) == len(set(APP_COMPLETION_BY_PATH))
 
 
-def test_current_internal_finish_backlog_is_explicit() -> None:
-    backlog = {row.path for row in needs_work()}
-
-    assert backlog == {"pages/14_AI_Creative_Winner_Rotation.py"}
+def test_current_internal_finish_backlog_is_empty() -> None:
+    assert needs_work() == ()
 
 
 def test_external_blockers_are_not_mislabeled_as_internal_work() -> None:
