@@ -1,12 +1,14 @@
-from pathlib import Path
+HELPER = "supabase/functions/_shared/commandcore_journey_readiness.ts"
+ENDPOINT = "supabase/functions/commandcore-launch-readiness/index.ts"
 
 
-HELPER = Path("supabase/functions/_shared/commandcore_journey_readiness.ts")
-ENDPOINT = Path("supabase/functions/commandcore-launch-readiness/index.ts")
+def read_text(path: str) -> str:
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
 
 
 def test_launch_readiness_covers_core_business_journeys() -> None:
-    source = HELPER.read_text(encoding="utf-8")
+    source = read_text(HELPER)
     for journey in (
         "Lead Intake & CRM",
         "Follow-Up & Pipeline",
@@ -20,7 +22,7 @@ def test_launch_readiness_covers_core_business_journeys() -> None:
 
 
 def test_journey_readiness_is_derived_from_existing_service_health() -> None:
-    source = HELPER.read_text(encoding="utf-8")
+    source = read_text(HELPER)
 
     assert "row.healthy === true" in source
     assert "failed.length === 0" in source
@@ -30,7 +32,7 @@ def test_journey_readiness_is_derived_from_existing_service_health() -> None:
 
 
 def test_launch_endpoint_reports_journey_summary_without_changing_cutover_gate() -> None:
-    source = ENDPOINT.read_text(encoding="utf-8")
+    source = read_text(ENDPOINT)
 
     assert 'core_journey_assessment_included: true' in source
     assert "const journeys = buildJourneyReadiness(checks);" in source
