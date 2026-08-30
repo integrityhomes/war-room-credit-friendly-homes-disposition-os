@@ -34,15 +34,15 @@ def test_commercial_sidebar_keeps_six_approved_areas_and_primary_destinations() 
         assert primary in source
 
 
-def test_specialty_engines_remain_registered_but_off_primary_sidebar() -> None:
+def test_specialty_engines_remain_registered_but_diagnostics_stay_out() -> None:
     source = Path("app.py").read_text(encoding="utf-8")
 
     for specialty in (
         'st.Page("pages/24_15_Channel_Campaign_Cadence_Refresh.py"',
         'st.Page("pages/28_Meta_Google_Paid_Traffic.py"',
-        'st.Page("pages/34_Safe_Full_Payload_Test.py"',
         'st.Page("pages/43_CommandCore_CRM_Migration.py"',
     ):
         assert specialty in source
 
+    assert "pages/34_Safe_Full_Payload_Test.py" not in source
     assert 'with st.expander("Admin & setup", expanded=False):' in source
