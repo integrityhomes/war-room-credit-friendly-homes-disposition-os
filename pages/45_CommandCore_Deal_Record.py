@@ -156,6 +156,7 @@ st.caption(
     "Open one deal and see the seller, property, tasks, communications, offers, documents, transactions, "
     "and activity history together."
 )
+st.page_link("pages/44_CommandCore_CRM.py", label="← Back to Leads & CRM")
 
 deals = list_records("deals")
 if not deals:
@@ -163,9 +164,20 @@ if not deals:
     st.stop()
 
 deal_options = {deal_label(deal): deal for deal in deals}
-selected_label = st.selectbox("Open deal", list(deal_options))
+deal_labels = list(deal_options)
+requested_deal_id = text(st.session_state.get("commandcore_selected_deal_id"))
+default_index = next(
+    (
+        index
+        for index, label in enumerate(deal_labels)
+        if text(deal_options[label].get("id")) == requested_deal_id
+    ),
+    0,
+)
+selected_label = st.selectbox("Open deal", deal_labels, index=default_index)
 deal = deal_options[selected_label]
 deal_id = text(deal.get("id"))
+st.session_state["commandcore_selected_deal_id"] = deal_id
 deal_links = links(deal)
 
 seller = linked_record("contacts", text(deal_links.get("contact_id")))
