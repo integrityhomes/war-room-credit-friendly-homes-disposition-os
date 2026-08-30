@@ -52,6 +52,11 @@ def text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def links(record: dict[str, Any]) -> dict[str, Any]:
+    value = record.get("links")
+    return value if isinstance(value, dict) else {}
+
+
 def load_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
@@ -126,9 +131,41 @@ def property_form(existing: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def deal_form(existing: dict[str, Any]) -> dict[str, Any] | None:
+def deal_form(
+    existing: dict[str, Any],
+    contacts: list[dict[str, Any]],
+    properties: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    existing_links = links(existing)
+    contact_options = {text(row.get("id")): record_label("contacts", row) for row in contacts if text(row.get("id"))}
+    property_options = {
+        text(row.get("id")): record_label("properties", row)
+        for row in properties
+        if text(row.get("id"))
+    }
+    current_contact_id = text(existing_links.get("contact_id"))
+    current_property_id = text(existing_links.get("property_id"))
+
     with st.form("crm_deal_form"):
         title = st.text_input("Deal / lead name", value=text(existing.get("title")))
+        st.caption("Link the seller and property here so the Unified Deal Record opens with the complete deal context.")
+        link_left, link_right = st.columns(2)
+        contact_ids = ["", *contact_options]
+        property_ids = ["", *property_options]
+        contact_index = contact_ids.index(current_contact_id) if current_contact_id in contact_ids else 0
+        property_index = property_ids.index(current_property_id) if current_property_id in property_ids else 0
+        contact_id = link_left.selectbox(
+            "Seller / contact",
+            contact_ids,
+            index=contact_index,
+            format_func=lambda value: "Not linked" if not value else contact_options.get(value, value),
+        )
+        property_id = link_right.selectbox(
+            "Property",
+            property_ids,
+            index=property_index,
+            format_func=lambda value: "Not linked" if not value else property_options.get(value, value),
+        )
         c1, c2, c3 = st.columns(3)
         status = c1.text_input("Status", value=text(existing.get("status")))
         stage = c2.text_input("Pipeline stage", value=text(existing.get("stage")))
@@ -140,6 +177,15 @@ def deal_form(existing: dict[str, Any]) -> dict[str, Any] | None:
         repairs = st.text_input("Estimated repairs", value=text(existing.get("estimated_repairs")))
         notes = st.text_area("Deal notes", value=text(existing.get("notes")), height=140)
         if st.form_submit_button("Save deal", type="primary"):
+            updated_links = {**existing_links}
+            if contact_id:
+                updated_links["contact_id"] = contact_id
+            else:
+                updated_links.pop("contact_id", None)
+            if property_id:
+                updated_links["property_id"] = property_id
+            else:
+                updated_links.pop("property_id", None)
             return {
                 **existing,
                 "title": title,
@@ -151,6 +197,7 @@ def deal_form(existing: dict[str, Any]) -> dict[str, Any] | None:
                 "arv": arv,
                 "estimated_repairs": repairs,
                 "notes": notes,
+                "links": updated_links,
             }
     return None
 
@@ -164,6 +211,13 @@ st.title("CommandCore CRM")
 st.caption(
     "The daily workspace for sellers, properties, and deals. Records save directly into the CommandCore CRM backbone."
 )
+nav_left, nav_middle, nav_right = st.columns(3)
+with nav_left:
+    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
+with nav_middle:
+    st.page_link("pages/46_CommandCore_Pipeline_Followup.py", label="Pipeline & Follow-Up", use_container_width=True)
+with nav_right:
+    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 entity = st.segmented_control(
     "Workspace",
@@ -208,7 +262,7 @@ with right:
     elif entity == "properties":
         saved = property_form(selected)
     else:
-        saved = deal_form(selected)
+        saved = deal_form(selected, load_records("contacts"), load_records("properties"))
     if saved is not None:
         result = save_record(entity, saved)
         if result.get("ok"):
