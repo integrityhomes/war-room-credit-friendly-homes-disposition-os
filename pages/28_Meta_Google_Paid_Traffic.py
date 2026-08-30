@@ -18,7 +18,7 @@ from cfh_disposition.paid_traffic_channels import (
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
-st.set_page_config(page_title="Meta & Google Paid Traffic", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Paid Ads Planning", page_icon="📈", layout="wide")
 
 
 def require_password() -> None:
@@ -45,13 +45,10 @@ def get_storage():
 
 
 require_password()
-st.title("Meta Housing Ads + Google Search Ads")
-st.caption(
-    "Create fact-locked paid-traffic planning packages that remain separately attributable by channel, campaign, and property."
-)
-st.info(
-    "This is a planning and approval-preparation page only. It cannot create an ad, activate a campaign, or spend money. "
-    "Actual platform connection, targeting, launch, and spend remain owner-approved external steps."
+st.title("Paid Ads Planning")
+st.caption("Plan Meta and Google ads for a marketable property without launching a campaign or spending money.")
+st.warning(
+    "Planning only. This page cannot create or activate ads and cannot spend money. Any real campaign still requires separate owner approval for the exact budget and launch."
 )
 
 try:
@@ -65,26 +62,33 @@ except StorageError as exc:
     st.stop()
 
 if not properties:
-    st.warning(
-        "No Ready to Launch or Marketing Live property is available for paid-traffic planning."
-    )
+    st.warning("No property is currently Ready to Launch or Marketing Live for paid-ad planning.")
+    left, right = st.columns(2)
+    if left.button("Open Marketing Home", type="primary", use_container_width=True):
+        st.switch_page("pages/90_CFH_Marketing_Dispo.py")
+    if right.button("Review Properties", use_container_width=True):
+        st.switch_page("pages/01_Record_Manager.py")
     st.stop()
 
 options = {(item.display_address or str(item.property_id)): item for item in properties}
 selected = options[st.selectbox("Property", list(options))]
-campaign = st.text_input(
-    "Campaign name",
-    value=f"paid_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower(),
-).strip()
+default_campaign = f"paid_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower()
+with st.expander("Campaign tracking details", expanded=False):
+    campaign = st.text_input(
+        "Campaign name",
+        value=default_campaign,
+        help="This internal tracking name keeps Meta and Google results attributable to the same property campaign.",
+    ).strip()
 if not campaign:
-    st.warning("Enter a campaign name before creating a paid-traffic package.")
+    st.warning("A campaign tracking name is required before creating a paid-ad plan.")
     st.stop()
 
+st.write("### Proposed budget")
 budget_cols = st.columns(2)
 daily_budget = Decimal(
     str(
         budget_cols[0].number_input(
-            "Proposed daily budget",
+            "Daily budget",
             min_value=1.0,
             value=20.0,
             step=5.0,
@@ -95,7 +99,7 @@ daily_budget = Decimal(
 monthly_cap = Decimal(
     str(
         budget_cols[1].number_input(
-            "Proposed monthly budget cap",
+            "Monthly budget cap",
             min_value=1.0,
             value=600.0,
             step=50.0,
@@ -105,17 +109,18 @@ monthly_cap = Decimal(
 )
 
 connections = {row.key: row for row in build_connection_status(st.secrets)}
-connection_cols = st.columns(2)
-for column, key, label in (
-    (connection_cols[0], "meta_ads", "Meta Ads"),
-    (connection_cols[1], "google_ads", "Google Ads"),
-):
-    row = connections[key]
-    column.metric(f"{label} connection", "Present" if row.configured else "Not connected")
-    if row.configured:
-        column.caption("Connection details are present. This page still cannot launch or spend.")
-    else:
-        column.caption("No live platform connection is configured yet.")
+with st.expander("Ad account connection status", expanded=False):
+    connection_cols = st.columns(2)
+    for column, key, label in (
+        (connection_cols[0], "meta_ads", "Meta Ads"),
+        (connection_cols[1], "google_ads", "Google Ads"),
+    ):
+        row = connections[key]
+        column.metric(f"{label} connection", "Present" if row.configured else "Not connected")
+        if row.configured:
+            column.caption("Connection details are present. This page still cannot launch or spend.")
+        else:
+            column.caption("No live platform connection is configured yet.")
 
 links = build_channel_links(
     dwelyx_base_url(st.secrets),
@@ -148,18 +153,18 @@ for tab, key in zip(tabs, channel_keys, strict=True):
 
         cols = st.columns(4)
         cols[0].metric("Channel", channel.name)
-        cols[1].metric("Proposed daily budget", f"${package.daily_budget:,.0f}")
-        cols[2].metric("Proposed monthly cap", f"${package.monthly_budget_cap:,.0f}")
-        cols[3].metric("External launch", "Owner approval required")
+        cols[1].metric("Daily budget", f"${package.daily_budget:,.0f}")
+        cols[2].metric("Monthly cap", f"${package.monthly_budget_cap:,.0f}")
+        cols[3].metric("Launch status", "Owner approval required")
 
-        st.write("### Fact-locked headline options")
+        st.write("### Headline options")
         st.dataframe(
             pd.DataFrame({"Headline": package.headline_options}),
             use_container_width=True,
             hide_index=True,
         )
 
-        st.write("### Fact-locked ad copy options")
+        st.write("### Ad copy options")
         for index, copy in enumerate(package.primary_text_options, start=1):
             st.text_area(
                 f"Variation {index}",
@@ -187,23 +192,23 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                 }
             )
 
-        st.write("### Tracked Dwelyx link")
-        st.code(package.tracked_link, language=None)
-        st.caption(
-            "Use this exact destination if a future owner-approved campaign is created so traffic and downstream buyer results stay attributed to this paid channel and campaign."
-        )
-
-        st.write("### Required owner review before any external launch")
-        for note in package.approval_notes:
-            st.write(f"- {note}")
-        st.warning(
-            "No approval is recorded by viewing or downloading this package. No campaign may be activated and no budget may be spent until the owner approval workflow records a separate approval."
-        )
+        with st.expander("Tracking link & launch requirements", expanded=False):
+            st.write("**Tracked buyer link**")
+            st.code(package.tracked_link, language=None)
+            st.caption(
+                "Use this exact destination if a future owner-approved campaign is created so traffic and downstream buyer results stay attributed to this channel and campaign."
+            )
+            st.write("**Required owner review before any external launch**")
+            for note in package.approval_notes:
+                st.write(f"- {note}")
+            st.warning(
+                "Viewing or downloading this plan does not record approval. No campaign may be activated and no budget may be spent until the owner approval workflow records a separate approval."
+            )
 
 if export_rows:
     csv_bytes = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Download Meta + Google planning package CSV",
+        "Download Meta + Google Ad Plan",
         data=csv_bytes,
         file_name=f"{campaign}_paid_traffic_planning.csv",
         mime="text/csv",
