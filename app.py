@@ -66,8 +66,8 @@ if render_market_seo_request(storage):
 if render_public_request(storage):
     st.stop()
 
-# All working pages remain registered so deep links and specialty workflows continue
-# to function. The normal user sees only the compact commercial sidebar above.
+# All working user-facing pages remain registered so deep links and specialty
+# workflows continue to function. Diagnostics intentionally stay outside app navigation.
 pages = {
     "Home / Command Center": [
         st.Page(
@@ -130,8 +130,7 @@ pages = {
         st.Page("pages/31_16_Channel_Completion_Audit.py", title="Marketing Setup Status"),
         st.Page("pages/32_Go_Live_Connection_Center.py", title="Connections"),
         st.Page("pages/21_Property_Terms_Test_Relaunch.py", title="Property Terms Diagnostic"),
-        st.Page("pages/23_Daily_Executive_Disposition_Command.py", title="Disposition Performance"),
-        st.Page("pages/34_Safe_Full_Payload_Test.py", title="Payload Diagnostic"),
+        st.Page("pages/23_Daily_Executive_Disposition_Command.py", title="Disposition"),
     ],
 }
 
