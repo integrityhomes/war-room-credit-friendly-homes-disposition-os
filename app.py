@@ -23,7 +23,7 @@ if render_public_request(storage):
     st.stop()
 
 pages = {
-    "Home": [
+    "Home / Command Center": [
         st.Page(
             "pages/00_CommandCore.py",
             title="Command Center",
@@ -37,12 +37,12 @@ pages = {
     ],
     "Deals": [
         st.Page("pages/45_CommandCore_Deal_Record.py", title="Unified Deal Record", icon="📂"),
-        st.Page("pages/46_CommandCore_Pipeline_Followup.py", title="Pipeline & Follow-Up", icon="📈"),
         st.Page("pages/47_CommandCore_Deal_Workflow_Queue.py", title="Deal Workflow", icon="🔄"),
         st.Page("pages/48_CommandCore_Owner_Approvals.py", title="Owner Approvals", icon="✅"),
     ],
     "Tasks & Follow-Up": [
         st.Page("pages/35_CommandCore_My_Work.py", title="My Work", icon="👤"),
+        st.Page("pages/46_CommandCore_Pipeline_Followup.py", title="Follow-Up & Pipeline", icon="📈"),
         st.Page("pages/36_CommandCore_Coverage.py", title="Coverage", icon="🛡️"),
     ],
     "Marketing & Dispo": [
@@ -56,8 +56,6 @@ pages = {
         ),
         st.Page("pages/19_Dwelyx_Results_Attribution.py", title="Buyer & Dwelyx Results", icon="📊"),
         st.Page("pages/23_Daily_Executive_Disposition_Command.py", title="Disposition Command", icon="🎯"),
-    ],
-    "Marketing Planning": [
         st.Page("pages/28_Meta_Google_Paid_Traffic.py", title="Meta & Google Ads Plan", icon="📈"),
         st.Page("pages/33_ChatGPT_Ads_Channel_16.py", title="ChatGPT Ads Plan", icon="💬"),
     ],
@@ -68,8 +66,6 @@ pages = {
         st.Page("pages/40_CommandCore_Team_Health.py", title="Team Health", icon="🩺"),
         st.Page("pages/41_CommandCore_Workload_Balance.py", title="Workload Balance", icon="⚖️"),
         st.Page("pages/42_CommandCore_Rebalance_Audit.py", title="Rebalance Audit", icon="🧾"),
-    ],
-    "System & Setup": [
         st.Page("pages/43_CommandCore_CRM_Migration.py", title="CRM Migration", icon="📥"),
         st.Page("pages/31_16_Channel_Completion_Audit.py", title="Marketing Completion Audit", icon="✅"),
         st.Page("pages/32_Go_Live_Connection_Center.py", title="Go-Live Connections", icon="🔌"),
