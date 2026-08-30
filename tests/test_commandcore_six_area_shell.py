@@ -16,13 +16,14 @@ def shell_source() -> str:
 
 def test_commandcore_shell_has_only_the_six_approved_top_level_areas() -> None:
     source = shell_source()
-    selector = source.split('area = st.segmented_control(', 1)[1].split('area = area or', 1)[0]
+    selector = source.split('with st.expander("Browse all CommandCore tools"', 1)[1].split('if area == "Home / Command Center":', 1)[0]
 
+    assert 'area = st.selectbox(' in selector
     for area in APPROVED_AREAS:
         assert f'"{area}"' in selector
     assert "Marketing Planning" not in selector
     assert "System & Setup" not in selector
-    assert selector.count('"') >= len(APPROVED_AREAS) * 2
+    assert 'st.segmented_control(' not in selector
 
 
 def test_planning_and_setup_tools_remain_reachable_inside_main_areas() -> None:
