@@ -92,7 +92,11 @@ def run_live_contract_review(
     get_supabase: Any,
 ) -> dict[str, Any]:
     source_document_id = _text(source_document.get("id"))
-    object_path = _text(source_document.get("object_path") or source_document.get("storage_path"))
+    object_path = _text(
+        source_document.get("storage_object_path")
+        or source_document.get("object_path")
+        or source_document.get("storage_path")
+    )
     if not source_document_id:
         raise ContractWorkspaceError("This contract record is missing its document ID.")
     if not object_path:
