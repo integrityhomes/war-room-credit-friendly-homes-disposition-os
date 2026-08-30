@@ -39,8 +39,8 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion(
         "pages/14_AI_Creative_Winner_Rotation.py",
         "Marketing & Dispo",
-        AppCompletionState.NEEDS_WORK,
-        "Keep distinct creative-testing app; add shared property-marketability guard.",
+        AppCompletionState.COMPLETE,
+        "Creative testing only offers Ready-to-Launch or Marketing-Live inventory for new tests; existing history remains intact.",
     ),
     AppCompletion(
         "pages/15_AI_Buyer_Acquisition_Growth.py",
