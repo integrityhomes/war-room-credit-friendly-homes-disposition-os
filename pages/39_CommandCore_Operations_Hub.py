@@ -10,7 +10,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from supabase import create_client
 
-st.set_page_config(page_title="CommandCore Operations Hub", page_icon="🧭", layout="wide")
+st.set_page_config(page_title="CommandCore Operations", page_icon="🧭", layout="wide")
 
 ACTION_BUCKET = "commandcore-action-queue"
 OPERATOR_STATE_BUCKET = "commandcore-operator-state"
@@ -23,7 +23,7 @@ def require_password() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.title("CommandCore Operations Hub")
+    st.title("CommandCore Operations")
     st.caption("Private internal access")
     with st.form("commandcore_operations_hub_login"):
         password = st.text_input("App password", type="password")
@@ -221,29 +221,15 @@ def coverage_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-require_password()
+def render_system_readiness(readiness: dict[str, Any] | None, readiness_error: str | None) -> None:
+    st.subheader("CommandCore System Readiness")
+    if readiness_error:
+        st.error(f"System readiness could not be verified: {readiness_error}")
+        return
+    if readiness is None:
+        st.warning("System readiness has not been verified yet.")
+        return
 
-if st.sidebar.button("Log out", key="commandcore_operations_hub_logout"):
-    st.session_state.authenticated = False
-    st.rerun()
-
-st.title("CommandCore Operations Hub")
-st.caption(
-    "One management screen for system readiness, human-work escalations, and aged coverage failures. "
-    "READY internal work stays out of the way and continues automatically."
-)
-
-readiness: dict[str, Any] | None = None
-readiness_error: str | None = None
-try:
-    readiness = load_launch_readiness()
-except Exception as exc:
-    readiness_error = str(exc)
-
-st.subheader("CommandCore System Readiness")
-if readiness_error:
-    st.error(f"System readiness could not be verified: {readiness_error}")
-elif readiness is not None:
     launch_ready = readiness.get("launch_ready") is True
     required_count = int(readiness.get("required_service_count") or 0)
     healthy_count = int(readiness.get("healthy_service_count") or 0)
@@ -276,21 +262,34 @@ elif readiness is not None:
     st.markdown("#### CRM Replacement / Cutover")
     if crm_cutover_ready:
         st.success("CRM cutover safeguards report ready. Verify the approved cutover plan before discontinuing the old CRM.")
-    else:
-        st.warning(
-            "CommandCore can be operationally healthy while CRM cutover is still blocked. "
-            "Do not discontinue the outside CRM yet."
-        )
-        if unsupported_names:
-            st.write("**Migration coverage still missing for:** " + ", ".join(unsupported_names))
-        if not source_reconciled:
-            st.write("**Source CRM reconciliation:** Not yet verified")
-        blockers = cutover.get("blockers")
-        blocker_names = [str(item) for item in blockers] if isinstance(blockers, list) else []
-        if blocker_names:
-            with st.expander("CRM cutover blockers", expanded=False):
-                for blocker in blocker_names:
-                    st.write(f"- {blocker}")
+        return
+
+    st.warning(
+        "CommandCore can be operationally healthy while CRM cutover is still blocked. "
+        "Do not discontinue the outside CRM yet."
+    )
+    if unsupported_names:
+        st.write("**Migration coverage still missing for:** " + ", ".join(unsupported_names))
+    if not source_reconciled:
+        st.write("**Source CRM reconciliation:** Not yet verified")
+    blockers = cutover.get("blockers")
+    blocker_names = [str(item) for item in blockers] if isinstance(blockers, list) else []
+    if blocker_names:
+        with st.expander("CRM cutover blockers", expanded=False):
+            for blocker in blocker_names:
+                st.write(f"- {blocker}")
+
+
+require_password()
+
+if st.sidebar.button("Log out", key="commandcore_operations_hub_logout"):
+    st.session_state.authenticated = False
+    st.rerun()
+
+st.title("CommandCore Operations")
+st.caption(
+    "Start with what needs management attention now. System readiness and CRM cutover details remain available below."
+)
 
 try:
     queue_items = load_queue_items()
@@ -308,7 +307,7 @@ human_critical = sum(row["Urgency"] == "CRITICAL" for row in human)
 coverage_executive = sum(row["Urgency"] == "EXECUTIVE" for row in coverage)
 coverage_escalated = sum(row["Urgency"] == "ESCALATED" for row in coverage)
 
-st.subheader("Management Workload Alerts")
+st.subheader("Needs Management Attention")
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Human Critical", human_critical)
 m2.metric("Human Needs Attention", len(human))
@@ -323,21 +322,6 @@ elif human_critical or coverage_escalated:
 else:
     st.success("No executive-level operations alert is currently present.")
 
-left, right = st.columns(2)
-with left:
-    st.subheader("Human Work Escalations")
-    if human:
-        st.dataframe(human, use_container_width=True, hide_index=True)
-    else:
-        st.success("No human-work items currently need escalated management attention.")
-
-with right:
-    st.subheader("Coverage Management Alerts")
-    if coverage:
-        st.dataframe(coverage, use_container_width=True, hide_index=True)
-    else:
-        st.success("No aged coverage failures currently need management attention.")
-
 st.subheader("Handle These First")
 combined: list[dict[str, Any]] = []
 for row in coverage:
@@ -348,20 +332,57 @@ for row in human:
     combined.append({"rank": urgency_rank, "kind": "Human Work", **row})
 combined.sort(key=lambda item: int(item.get("rank", 9)))
 
-for item in combined[:10]:
-    title = f"{item.get('Urgency', '')} — {item.get('kind', '')} — {item.get('Property') or item.get('Owner') or 'Operational item'}"
-    with st.expander(title, expanded=int(item.get("rank", 9)) <= 2):
-        if item.get("Dispatch"):
-            st.write(f"**Dispatch:** {item['Dispatch']}")
-        if item.get("Age Hours") is not None:
-            st.write(f"**Age:** {item['Age Hours']} hours")
-        if item.get("Failure"):
-            st.write(f"**What failed:** {item['Failure']}")
-        st.write(f"**Do this next:** {item.get('Action') or 'Review the item.'}")
+if not combined:
+    with st.container(border=True):
+        st.markdown("### Management queue is clear")
+        st.write("No escalated human-work or aged coverage issue needs management attention right now.")
+        left_action, right_action = st.columns(2)
+        if left_action.button("Review Owner Approvals", type="primary", use_container_width=True):
+            st.switch_page("pages/48_CommandCore_Owner_Approvals.py")
+        if right_action.button("Review My Work", use_container_width=True):
+            st.switch_page("pages/35_CommandCore_My_Work.py")
+else:
+    for item in combined[:10]:
+        title = f"{item.get('Urgency', '')} — {item.get('kind', '')} — {item.get('Property') or item.get('Owner') or 'Operational item'}"
+        with st.expander(title, expanded=int(item.get("rank", 9)) <= 2):
+            if item.get("Dispatch"):
+                st.write(f"**Dispatch:** {item['Dispatch']}")
+            if item.get("Age Hours") is not None:
+                st.write(f"**Age:** {item['Age Hours']} hours")
+            if item.get("Failure"):
+                st.write(f"**What failed:** {item['Failure']}")
+            st.write(f"**Do this next:** {item.get('Action') or 'Review the item.'}")
+
+with st.expander("More alert detail", expanded=False):
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Human Work Escalations")
+        if human:
+            st.dataframe(human, use_container_width=True, hide_index=True)
+        else:
+            st.success("No human-work items currently need escalated management attention.")
+
+    with right:
+        st.subheader("Coverage Management Alerts")
+        if coverage:
+            st.dataframe(coverage, use_container_width=True, hide_index=True)
+        else:
+            st.success("No aged coverage failures currently need management attention.")
+
+readiness: dict[str, Any] | None = None
+readiness_error: str | None = None
+try:
+    readiness = load_launch_readiness()
+except Exception as exc:
+    readiness_error = str(exc)
+
+with st.expander("System readiness & CRM cutover", expanded=False):
+    st.caption("Technical readiness stays available for management without taking over the daily operations view.")
+    render_system_readiness(readiness, readiness_error)
 
 st.divider()
 st.caption(
-    "Read-only management visibility. This hub cannot change assignments, approvals, consent, readiness, budgets, "
+    "Read-only management visibility. This screen cannot change assignments, approvals, consent, readiness, budgets, "
     "legal terms, payments, communications, or external execution. Use the dedicated CommandCore work and coverage "
     "screens for permitted internal follow-up actions."
 )
