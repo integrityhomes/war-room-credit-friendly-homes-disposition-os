@@ -1,11 +1,9 @@
-from pathlib import Path
-
-
-PAGE = Path("pages/11_AI_Marketing_Optimizer.py")
+PAGE = "pages/11_AI_Marketing_Optimizer.py"
 
 
 def page_source() -> str:
-    return PAGE.read_text(encoding="utf-8")
+    with open(PAGE, encoding="utf-8") as handle:
+        return handle.read()
 
 
 def test_optimizer_surfaces_market_intelligence_after_measured_decisions() -> None:
@@ -22,7 +20,7 @@ def test_market_intelligence_is_fail_open_for_existing_optimizer() -> None:
     source = page_source()
 
     assert "except MarketingIntelligenceStoreError:" in source
-    assert 'return []' in source
+    assert "return []" in source
     assert "The measured optimizer continues normally." in source
 
 
