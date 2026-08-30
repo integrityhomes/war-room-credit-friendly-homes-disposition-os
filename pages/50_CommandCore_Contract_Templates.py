@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 import streamlit as st
-from supabase import create_client
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_contract_template_ui import render_contract_template_library
+from supabase import create_client
 
 
 st.set_page_config(page_title="CommandCore Contract Templates", page_icon="📄", layout="wide")
