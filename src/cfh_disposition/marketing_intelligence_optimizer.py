@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-
-from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import dataclass
 
 from .marketing_intelligence import IntelligenceBrief, IntelligenceSurface
 
@@ -19,14 +18,13 @@ SURFACE_CHANNEL_KEYS: dict[IntelligenceSurface, str] = {
 }
 
 
-class IntelligenceTestCandidate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-
+@dataclass(frozen=True, slots=True)
+class IntelligenceTestCandidate:
     surface: IntelligenceSurface
-    channel_key: str | None = None
+    channel_key: str | None
     market: str
     observed_pattern: str
-    occurrences: int = Field(ge=2)
+    occurrences: int
     measured_channel_decision: str
     recommendation: str
     commandcore_test: str
