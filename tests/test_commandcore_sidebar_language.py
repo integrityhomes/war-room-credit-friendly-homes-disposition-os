@@ -38,3 +38,13 @@ def test_sidebar_keeps_the_six_approved_areas() -> None:
 
     assert '"Marketing Planning": [' not in source
     assert '"System & Setup": [' not in source
+
+
+def test_contract_templates_are_admin_setup_not_daily_management_navigation() -> None:
+    source = read_app()
+    management_start = source.index('st.markdown("#### Management")')
+    admin_start = source.index('with st.expander("Admin & setup", expanded=False):', management_start)
+    templates_link = 'sidebar_link("pages/50_CommandCore_Contract_Templates.py", "Contract Templates", "📄")'
+
+    assert templates_link not in source[management_start:admin_start]
+    assert templates_link in source[admin_start:]
