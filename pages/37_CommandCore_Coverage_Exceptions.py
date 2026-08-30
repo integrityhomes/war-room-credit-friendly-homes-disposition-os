@@ -101,7 +101,7 @@ if st.sidebar.button("Log out", key="commandcore_coverage_exceptions_logout"):
 
 st.title("CommandCore Coverage Exceptions")
 st.caption(
-    "Shows missed-shift coverage failures, management status, and automatic aging so unresolved problems become harder to miss."
+    "Resolve missed-shift and coverage problems in one place. Start with what failed, what management should do, then record the outcome."
 )
 
 c1, c2, c3 = st.columns([1, 1, 2])
@@ -141,7 +141,14 @@ elif escalated_count:
     st.warning(f"{escalated_count} unresolved coverage exception(s) have aged into ESCALATED status.")
 
 if not exceptions:
-    st.success(f"No {status_label.lower()} coverage exceptions were found in this period.")
+    with st.container(border=True):
+        st.markdown(f"### No {status_label.lower()} coverage exceptions")
+        st.write("Nothing in this view needs coverage-resolution work right now.")
+        left, right = st.columns(2)
+        if left.button("Open Operations", type="primary", use_container_width=True):
+            st.switch_page("pages/39_CommandCore_Operations_Hub.py")
+        if right.button("Review Management Alerts", use_container_width=True):
+            st.switch_page("pages/38_CommandCore_Management_Alerts.py")
     st.stop()
 
 owners = sorted(
@@ -188,13 +195,13 @@ for item in filtered:
     severity = text(item.get("severity") or "warning").upper()
     status = text(item.get("status") or "open").upper()
     aging = aging_label(item)
-    owner = text(item.get("owner_name") or item.get("owner_id") or "Unknown owner")
+    owner = text(item.get("owner_name") or item.get("owner_id") or "Unassigned")
     exception_type = text(item.get("type") or item.get("exception_type") or "coverage_exception").replace("_", " ").title()
     created_at = text(item.get("created_at"))
     dispatch_id = text(item.get("dispatch_id"))
     shift_started_at = text(item.get("shift_started_at"))
     age_hours = item.get("age_hours")
-    title = f"{aging} — {severity} — {status} — {owner} — {exception_type}"
+    title = f"{aging} — {owner} — {exception_type}"
     with st.expander(title, expanded=aging in {"EXECUTIVE ATTENTION", "ESCALATED"}):
         if status == "RESOLVED":
             st.success("This exception is marked resolved.")
@@ -211,16 +218,13 @@ for item in filtered:
         else:
             st.warning("Management review needed.")
 
-        d1, d2, d3 = st.columns(3)
-        d1.write(f"**Created:** {created_at or 'Not recorded'}")
-        d2.write(f"**Shift started:** {shift_started_at or 'Not recorded'}")
-        d3.write(f"**Age:** {age_hours if age_hours is not None else 'Unknown'} hours")
-        if dispatch_id:
-            st.write(f"**Dispatch:** {dispatch_id}")
         reason = text(item.get("reason") or item.get("message") or item.get("context") or item.get("error"))
         if reason:
             st.write(f"**What failed:** {reason}")
         st.write(f"**What management should do:** {management_action(item)}")
+        st.caption(
+            f"Owner: {owner}  •  Severity: {severity}  •  Status: {status}  •  Age: {age_hours if age_hours is not None else 'Unknown'} hours"
+        )
 
         previous_note = text(item.get("resolution_note"))
         previous_actor = text(item.get("status_updated_by") or item.get("resolved_by") or item.get("acknowledged_by"))
@@ -231,7 +235,6 @@ for item in filtered:
 
         exception_id = text(item.get("exception_id"))
         if exception_id:
-            st.caption(f"Exception ID: {exception_id}")
             with st.form(f"coverage_exception_status_{exception_id}"):
                 actor = st.text_input("Handled by", value=previous_actor, key=f"actor_{exception_id}")
                 note = st.text_area(
@@ -259,6 +262,16 @@ for item in filtered:
                         st.rerun()
                     else:
                         st.error("The exception status could not be updated. Nothing else was changed.")
+
+        technical_details = any((created_at, shift_started_at, dispatch_id, exception_id))
+        if technical_details:
+            with st.expander("Technical details", expanded=False):
+                st.write(f"**Created:** {created_at or 'Not recorded'}")
+                st.write(f"**Shift started:** {shift_started_at or 'Not recorded'}")
+                if dispatch_id:
+                    st.write(f"**Dispatch:** {dispatch_id}")
+                if exception_id:
+                    st.write(f"**Exception ID:** {exception_id}")
 
 st.divider()
 st.caption(
