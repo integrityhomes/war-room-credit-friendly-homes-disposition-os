@@ -4,6 +4,7 @@ import pytest
 from cfh_disposition.contract_workspace import (
     CONTRACT_BUCKET,
     ContractFile,
+    ContractFileStore,
     ContractWorkspaceError,
     DocumentPurpose,
     StoredContractFile,
@@ -14,6 +15,34 @@ from cfh_disposition.contract_workspace import (
 
 
 DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+class _FakeBucket:
+    def __init__(self, content: bytes) -> None:
+        self.content = content
+        self.downloaded_path = ""
+
+    def download(self, path: str) -> bytes:
+        self.downloaded_path = path
+        return self.content
+
+
+class _FakeStorage:
+    def __init__(self, content: bytes) -> None:
+        self.bucket = _FakeBucket(content)
+
+    def get_bucket(self, name: str) -> dict[str, bool]:
+        assert name == CONTRACT_BUCKET
+        return {"public": False}
+
+    def from_(self, name: str) -> _FakeBucket:
+        assert name == CONTRACT_BUCKET
+        return self.bucket
+
+
+class _FakeClient:
+    def __init__(self, content: bytes) -> None:
+        self.storage = _FakeStorage(content)
 
 
 def test_contract_upload_accepts_pdf_and_docx() -> None:
@@ -108,3 +137,20 @@ def test_template_family_is_required() -> None:
             ),
             version=1,
         )
+
+
+def test_private_contract_download_returns_bytes_without_public_url() -> None:
+    client = _FakeClient(b"private-contract-bytes")
+    store = ContractFileStore(client)
+
+    content = store.download("deals/deal-1/uploaded_contract/v1/contract.pdf")
+
+    assert content == b"private-contract-bytes"
+    assert client.storage.bucket.downloaded_path.endswith("contract.pdf")
+
+
+def test_private_contract_download_rejects_empty_content() -> None:
+    store = ContractFileStore(_FakeClient(b""))
+
+    with pytest.raises(ContractWorkspaceError, match="empty or unreadable"):
+        store.download("deals/deal-1/uploaded_contract/v1/contract.pdf")
