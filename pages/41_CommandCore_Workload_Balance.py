@@ -91,10 +91,10 @@ def load_open_items() -> list[dict[str, Any]]:
 
 
 def recommendation_label(item: dict[str, Any]) -> str:
+    channel = str(item.get("channel_key", "")).replace("_", " ").title()
     return (
-        f"{item.get('from_owner_name', 'Unknown')} → {item.get('to_owner_name', 'Unknown')} • "
-        f"{item.get('property_id', '') or item.get('dispatch_id', '')} • "
-        f"{str(item.get('channel_key', '')).replace('_', ' ').title()}"
+        f"{item.get('from_owner_name', 'Unknown')} → {item.get('to_owner_name', 'Unknown')}"
+        + (f" • {channel}" if channel else "")
     )
 
 
@@ -125,7 +125,14 @@ c2.metric("Overloaded Team Members", int(result.get("overloaded_team_members", 0
 c3.metric("Safe Moves Recommended", len(recommendations))
 
 if not recommendations:
-    st.success("No safe workload moves are currently recommended.")
+    with st.container(border=True):
+        st.markdown("### No workload move is recommended right now")
+        st.write("CommandCore does not currently see a safe internal reassignment that would improve workload balance.")
+        left, right = st.columns(2)
+        if left.button("Review Team Health", type="primary", use_container_width=True):
+            st.switch_page("pages/40_CommandCore_Team_Health.py")
+        if right.button("Review My Work", use_container_width=True):
+            st.switch_page("pages/35_CommandCore_My_Work.py")
     st.stop()
 
 st.subheader("Recommended Internal Moves")
@@ -143,10 +150,9 @@ for index, recommendation in enumerate(recommendations):
             f"({int(recommendation.get('to_load_percent_before', 0) or 0)}% → "
             f"{int(recommendation.get('to_load_percent_after', 0) or 0)}%)"
         )
-        st.write(f"**Property:** {recommendation.get('property_id', '') or 'Not linked'}")
-        st.write(
-            f"**Channel:** {str(recommendation.get('channel_key', '')).replace('_', ' ').title()}"
-        )
+        channel = str(recommendation.get("channel_key", "")).replace("_", " ").title()
+        if channel:
+            st.write(f"**Work type:** {channel}")
         st.write(f"**Why CommandCore chose this move:** {recommendation.get('reason', '')}")
         st.caption(
             "Before applying, CommandCore re-checks the current owner, open-work status, target availability, activity, and capacity."
@@ -182,6 +188,17 @@ for index, recommendation in enumerate(recommendations):
                     "CommandCore did not move the work because the recommendation was no longer safe or current. "
                     f"Reason: {error.replace('_', ' ')}."
                 )
+
+        technical = {
+            "Property ID": recommendation.get("property_id"),
+            "Dispatch ID": recommendation.get("dispatch_id"),
+            "Action ID": recommendation.get("action_id"),
+        }
+        if any(value for value in technical.values()):
+            with st.expander("Technical details", expanded=False):
+                for name, value in technical.items():
+                    if value:
+                        st.write(f"**{name}:** {value}")
 
 st.divider()
 st.caption(
