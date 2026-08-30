@@ -17,6 +17,18 @@ def test_deal_record_uses_work_order_tabs_and_clear_navigation() -> None:
         assert marker in source
 
 
+def test_empty_deal_workspace_guides_user_to_add_first_lead() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+
+    for marker in (
+        'st.markdown("### No deals yet")',
+        'st.button("Add Your First Lead"',
+        'st.switch_page("pages/44_CommandCore_CRM.py")',
+        'You do not need to create separate seller, property, and deal records manually.',
+    ):
+        assert marker in source
+
+
 def test_closing_and_transactions_are_grouped_with_documents() -> None:
     source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
 

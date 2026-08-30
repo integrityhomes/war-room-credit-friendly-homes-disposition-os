@@ -170,7 +170,14 @@ with nav_right:
 
 deals = list_records("deals")
 if not deals:
-    st.info("No active deals are in CommandCore CRM yet.")
+    with st.container(border=True):
+        st.markdown("### No deals yet")
+        st.write(
+            "Start with one lead. CommandCore will create and link the seller, property, and deal, then bring you back here automatically."
+        )
+        if st.button("Add Your First Lead", type="primary", use_container_width=True):
+            st.switch_page("pages/44_CommandCore_CRM.py")
+        st.caption("You do not need to create separate seller, property, and deal records manually.")
     st.stop()
 
 deal_options = {deal_label(deal): deal for deal in deals}
