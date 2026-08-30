@@ -1,12 +1,10 @@
 from pathlib import Path
 
 
-def test_deal_record_uses_work_order_tabs_and_clear_navigation() -> None:
+def test_deal_record_uses_clear_work_order_tabs_without_duplicate_top_navigation() -> None:
     source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
 
     for marker in (
-        'label="← Command Center"',
-        'label="Pipeline & Follow-Up"',
         '"Next Step"',
         '"Messages"',
         '"Offers & Approval"',
@@ -15,6 +13,10 @@ def test_deal_record_uses_work_order_tabs_and_clear_navigation() -> None:
         'st.markdown("### What should happen next?")',
     ):
         assert marker in source
+
+    assert 'label="← Command Center"' not in source
+    assert 'label="Leads & CRM"' not in source
+    assert 'label="Pipeline & Follow-Up"' not in source
 
 
 def test_empty_deal_workspace_guides_user_to_add_first_lead() -> None:
