@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -5,7 +6,10 @@ from typing import Any
 
 import streamlit as st
 
-from .contract_deal_facts import ContractFactsError, contract_prep_document
+from .contract_deal_facts import ContractFactsError, assemble_contract_facts, contract_prep_document
+from .contract_reader import ContractReaderError, review_contract
+from .contract_review_facts import review_facts_from_verified_contract_facts
+from .contract_review_records import contract_review_activity, contract_review_document
 from .contract_workspace import (
     CONTRACT_BUCKET,
     ContractFile,
@@ -292,6 +296,107 @@ def _prepare_contract_from_deal(
     )
 
 
+def _run_contract_review(
+    *,
+    deal: dict[str, Any],
+    deal_id: str,
+    document: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    save_related: SaveRelated,
+    get_supabase: GetSupabase,
+) -> dict[str, Any]:
+    document_id = _text(document.get("id"))
+    file_name = _text(document.get("name"))
+    object_path = _text(document.get("storage_object_path"))
+    if not document_id:
+        raise ContractWorkspaceError("This contract is missing its document ID. Upload it again before review.")
+    if not object_path:
+        raise ContractWorkspaceError("This contract version does not have a private stored file to review.")
+
+    deal_links = _links(deal)
+    seller = _linked_record(get_supabase, "contacts", _text(deal_links.get("contact_id")))
+    property_record = _linked_record(get_supabase, "properties", _text(deal_links.get("property_id")))
+    verified_facts, _missing = assemble_contract_facts(
+        deal=deal,
+        seller=seller,
+        property_record=property_record,
+    )
+    reader_facts = review_facts_from_verified_contract_facts(verified_facts)
+    file_bytes = ContractFileStore(get_supabase()).download(object_path)
+    review = review_contract(file_name, file_bytes, reader_facts)
+    review_record = contract_review_document(
+        deal_id=deal_id,
+        source_document_id=document_id,
+        source_document_version=document.get("version") or "",
+        source_file_name=file_name,
+        review=review,
+    )
+    if not save_related("documents", deal_id, review_record):
+        raise ContractWorkspaceError("CommandCore completed the review but could not save the findings to this Deal.")
+    activity = contract_review_activity(source_file_name=file_name, review_document=review_record)
+    save_related("activities", deal_id, activity)
+
+    counts = review_record.get("finding_counts")
+    counts = counts if isinstance(counts, dict) else {}
+    needs_attention = int(counts.get("needs_review") or 0) + int(counts.get("missing_deal_fact") or 0)
+    if needs_attention and not _review_task_exists(tasks, document_id):
+        save_related(
+            "tasks",
+            deal_id,
+            {
+                "title": "Review contract findings",
+                "work_type": "review_contract",
+                "task_type": "deal_lifecycle_request",
+                "status": "open",
+                "priority": "high",
+                "source": "commandcore-contract-reader",
+                "external_action_started": False,
+                "links": {"document_id": document_id},
+            },
+        )
+    return review_record
+
+
+def _show_review_result(review_record: dict[str, Any]) -> None:
+    counts = review_record.get("finding_counts")
+    counts = counts if isinstance(counts, dict) else {}
+    found = int(counts.get("found") or 0)
+    needs_review = int(counts.get("needs_review") or 0)
+    missing = int(counts.get("missing_deal_fact") or 0)
+
+    if not needs_review and not missing:
+        st.success(f"Looks good so far — {found} verified Deal fact(s) were found in this contract.")
+    else:
+        st.warning(f"Needs attention — {needs_review + missing} item(s) should be checked before approval.")
+        if missing:
+            st.info(f"{missing} Deal fact(s) are missing in CommandCore and need to be completed first.")
+
+    st.caption(
+        "This is a business-fact comparison, not legal advice or legal approval. "
+        "CommandCore did not sign, send, or change the contract."
+    )
+    findings = review_record.get("findings")
+    findings = findings if isinstance(findings, list) else []
+    if findings:
+        labels = {
+            "found": "Found",
+            "needs_review": "Check this",
+            "missing_deal_fact": "Missing Deal fact",
+        }
+        rows = [
+            {
+                "Item": _text(finding.get("label")),
+                "Status": labels.get(_text(finding.get("status")), _text(finding.get("status"))),
+                "Expected from Deal": _text(finding.get("expected_value")) or "—",
+                "What CommandCore found": _text(finding.get("detail")),
+            }
+            for finding in findings
+            if isinstance(finding, dict)
+        ]
+        with st.expander("Review details", expanded=bool(needs_review or missing)):
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def render_contract_workspace(
     *,
     deal: dict[str, Any],
@@ -304,8 +409,7 @@ def render_contract_workspace(
 ) -> None:
     st.markdown("### Contract Workspace")
     st.caption(
-        "Upload, prepare, and review contracts from this Deal. Files stay private and versioned. "
-        "These controls do not sign agreements or change legal terms."
+        "Upload, build, and review contracts from this Deal. Files stay private and versioned, and CommandCore keeps the work tied to this Deal."
     )
 
     upload_tab, build_tab, review_tab, versions_tab = st.tabs(
@@ -313,16 +417,17 @@ def render_contract_workspace(
     )
 
     with upload_tab:
+        st.write("Add a new or revised contract to this Deal.")
         uploaded = st.file_uploader(
             "Contract file",
             type=["pdf", "docx"],
             key=f"contract_upload_{deal_id}",
-            help="Upload a new or revised contract. CommandCore keeps each upload as a separate immutable version.",
+            help="CommandCore keeps every upload as a separate version so earlier contracts are never overwritten.",
         )
         next_version = _next_version(documents, DocumentPurpose.UPLOADED_CONTRACT)
-        st.caption(f"This upload will be saved as contract upload version {next_version}.")
+        st.caption(f"Next version: {next_version}")
         if st.button(
-            "Upload to this Deal",
+            "Upload Contract",
             type="primary",
             disabled=uploaded is None,
             key=f"save_contract_upload_{deal_id}",
@@ -340,20 +445,19 @@ def render_contract_workspace(
             except Exception:
                 st.error("CommandCore could not upload this contract. Nothing was signed or sent.")
             else:
-                st.success("Contract uploaded privately and attached to this Deal.")
+                st.success("Contract uploaded and saved to this Deal.")
                 st.rerun()
 
     with build_tab:
-        st.write("Prepare a contract package using verified Deal facts and the approved legal-template workflow.")
+        st.write("Build a contract using the verified information already saved on this Deal.")
         st.caption(
-            "You choose the contract package. CommandCore gathers known Deal facts, identifies anything missing, "
-            "and only releases complete facts to an approved template."
+            "You choose the contract package. CommandCore fills known Deal facts, shows anything missing, and only uses an approved legal template."
         )
         try:
             contract_type = _selected_contract_type(deal, get_supabase, deal_id)
         except Exception:
             contract_type = _text(deal.get("contract_type"))
-            st.info("Approved template choices could not be loaded. You can still use the Deal's saved contract type.")
+            st.info("Template choices could not be loaded. You can still use the contract type already saved on this Deal.")
         if st.button("Build Contract", type="primary", key=f"build_contract_{deal_id}"):
             try:
                 _prepare_contract_from_deal(
@@ -372,42 +476,52 @@ def render_contract_workspace(
                 st.error("CommandCore could not prepare this contract package. Nothing was signed or sent.")
 
     with review_tab:
+        st.write("Compare a contract to the verified facts already saved on this Deal.")
         reviewable = _reviewable_documents(documents)
         if not reviewable:
-            st.info("Upload a contract first. Once it is attached to this Deal, it can be sent into contract review.")
+            st.info("Upload a contract first. Then you can review it here without leaving CommandCore.")
         else:
             options = {
-                f"{_text(document.get('name')) or 'Contract'} · v{_text(document.get('version')) or '—'}": document
+                f"{_text(document.get('name')) or 'Contract'} · Version {_text(document.get('version')) or '—'}": document
                 for document in reviewable
             }
             selected_label = st.selectbox(
-                "Contract to review",
+                "Choose contract",
                 list(options),
                 key=f"contract_review_select_{deal_id}",
             )
             selected = options[selected_label]
-            document_id = _text(selected.get("id"))
-            if _review_task_exists(tasks, document_id):
-                st.info("A review request is already open for this contract version.")
-            elif st.button("Review Contract", type="primary", key=f"review_contract_{deal_id}"):
-                saved = save_related(
-                    "tasks",
-                    deal_id,
-                    {
-                        "title": "Review contract against Deal facts",
-                        "work_type": "review_contract",
-                        "task_type": "deal_lifecycle_request",
-                        "status": "open",
-                        "priority": "high",
-                        "source": "commandcore-contract-workspace",
-                        "external_action_started": False,
-                        "links": {"document_id": document_id},
-                    },
-                )
-                if saved:
-                    st.success("Contract review request added to this Deal.")
-                    st.rerun()
-                st.error("CommandCore could not create the contract review request.")
+            if st.button("Review Now", type="primary", key=f"review_contract_{deal_id}"):
+                try:
+                    review_record = _run_contract_review(
+                        deal=deal,
+                        deal_id=deal_id,
+                        document=selected,
+                        tasks=tasks,
+                        save_related=save_related,
+                        get_supabase=get_supabase,
+                    )
+                except (ContractFactsError, ContractReaderError, ContractWorkspaceError) as exc:
+                    st.error(str(exc))
+                except Exception:
+                    st.error("CommandCore could not review this contract. Nothing was signed, sent, or changed.")
+                else:
+                    st.session_state[f"contract_review_result_{deal_id}"] = review_record
+
+            current_result = st.session_state.get(f"contract_review_result_{deal_id}")
+            if isinstance(current_result, dict):
+                _show_review_result(current_result)
+
+            prior_reviews = [
+                document
+                for document in documents
+                if _text(document.get("document_type")) == DocumentPurpose.CONTRACT_REVIEW.value
+                and _text(document.get("source_document_id")) == _text(selected.get("id"))
+            ]
+            if prior_reviews:
+                latest = prior_reviews[-1]
+                st.markdown("#### Latest saved review")
+                _show_review_result(latest)
 
     with versions_tab:
         contract_rows = _reviewable_documents(documents)
@@ -427,4 +541,4 @@ def render_contract_workspace(
                 for document in contract_rows
             ]
             st.dataframe(table, use_container_width=True, hide_index=True)
-            st.caption("Stored file paths remain private; CommandCore does not expose public contract URLs.")
+            st.caption("Earlier contract versions stay preserved; stored file paths remain private.")
