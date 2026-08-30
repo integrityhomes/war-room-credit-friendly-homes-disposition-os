@@ -16,6 +16,20 @@ def test_my_work_prioritizes_daily_actions_over_routing_details() -> None:
     assert 'my_work_only = st.checkbox("My Work view"' not in source
 
 
+def test_empty_my_work_view_gives_useful_next_actions() -> None:
+    source = Path("pages/35_CommandCore_My_Work.py").read_text(encoding="utf-8")
+
+    for marker in (
+        'st.markdown("### You\'re caught up for this view")',
+        '"Review Follow-Up & Pipeline"',
+        'st.switch_page("pages/46_CommandCore_Pipeline_Followup.py")',
+        '"Add New Lead"',
+        'st.switch_page("pages/44_CommandCore_CRM.py")',
+        'CommandCore will place new assigned work here automatically',
+    ):
+        assert marker in source
+
+
 def test_my_work_has_clear_daily_navigation() -> None:
     source = Path("pages/35_CommandCore_My_Work.py").read_text(encoding="utf-8")
 
