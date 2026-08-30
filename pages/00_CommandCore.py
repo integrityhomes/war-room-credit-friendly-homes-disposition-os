@@ -14,13 +14,13 @@ st.set_page_config(page_title="CommandCore", page_icon="🧭", layout="wide")
 def require_password() -> None:
     expected = configured_password(st.secrets)
     if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
+        st.error("CommandCore sign-in is not configured yet.")
         st.stop()
     if st.session_state.get("authenticated"):
         return
     st.title("CommandCore")
     with st.form("commandcore_shell_login"):
-        password = st.text_input("App password", type="password")
+        password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
     if submitted and password_matches(password, expected):
         st.session_state.authenticated = True
@@ -35,7 +35,7 @@ def get_supabase():
     url = str(st.secrets.get("SUPABASE_URL", "")).strip()
     key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
+        raise RuntimeError("CommandCore data connection is not configured.")
     return create_client(url, key)
 
 
@@ -128,9 +128,10 @@ if st.sidebar.button("Log out", key="commandcore_shell_logout"):
 st.title("CommandCore")
 st.caption("One operating system for leads, deals, follow-up, marketing, disposition, and management.")
 
-with st.expander("Browse all CommandCore tools", expanded=False):
+with st.expander("Advanced tool directory", expanded=False):
+    st.caption("Use this directory when you need a specialty workspace. Daily navigation is in the CommandCore sidebar.")
     area = st.selectbox(
-        "Area",
+        "Show tools for",
         [
             "Home / Command Center",
             "Leads & CRM",
@@ -144,24 +145,8 @@ with st.expander("Browse all CommandCore tools", expanded=False):
     )
 
 if area == "Home / Command Center":
-    with st.container(border=True):
-        st.markdown("### Command Bot")
-        st.caption(
-            "Tell CommandCore what you need in plain English. The safe version can create internal deal work "
-            "for analysis, offer prep, contract/CFD prep, title/closing, and marketing/dispo."
-        )
-        st.page_link(
-            "pages/49_CommandCore_Command_Bot.py",
-            label="Open Command Bot",
-            icon="🤖",
-            use_container_width=True,
-        )
-        st.caption(
-            "Command Bot cannot send, sign, approve, change legal terms, move money, or start an outside transaction."
-        )
-
     st.subheader("Today")
-    st.caption("Start here. CommandCore surfaces the work and exceptions that matter now.")
+    st.caption("See what needs attention, then go straight to the work.")
     try:
         deals = [deal for deal in list_records("deals") if active_deal(deal)]
         tasks = [task for task in list_records("tasks") if open_task(task)]
@@ -200,48 +185,70 @@ if area == "Home / Command Center":
             )
         else:
             st.success("No owner approvals, overdue, due-today, or high-priority CRM tasks are currently waiting.")
-    except RuntimeError as exc:
-        st.error(f"CommandCore home data could not be loaded: {exc}")
+    except RuntimeError:
+        st.error("CommandCore could not load today's dashboard. Your records were not changed.")
 
     st.markdown("### Start work")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
+        link(
+            "pages/44_CommandCore_CRM.py",
+            "Add / Find Lead",
+            "Start a new seller or property lead, or find an existing one.",
+        )
+    with c2:
         link(
             "pages/35_CommandCore_My_Work.py",
             "My Work",
             "Start with the work assigned to you, handoffs, and high-priority items.",
         )
-    with c2:
+    with c3:
         link(
             "pages/48_CommandCore_Owner_Approvals.py",
             "Owner Approvals",
             "Review consequential decisions before anything external can move forward.",
         )
-    with c3:
+    with c4:
         link(
             "pages/45_CommandCore_Deal_Record.py",
             "Open a Deal",
             "Work the seller, property, tasks, offers, documents, and history from one record.",
         )
-    with c4:
+    with c5:
         link(
             "pages/46_CommandCore_Pipeline_Followup.py",
             "Pipeline & Follow-Up",
             "Review open deals, overdue work, and today's follow-ups.",
         )
 
+    with st.container(border=True):
+        st.markdown("### Command Bot")
+        st.caption(
+            "Tell CommandCore what you need in plain English. It can create safe internal deal work for analysis, "
+            "offer prep, contract/CFD prep, title/closing, and marketing/dispo."
+        )
+        st.page_link(
+            "pages/49_CommandCore_Command_Bot.py",
+            label="Open Command Bot",
+            icon="🤖",
+            use_container_width=True,
+        )
+        st.caption(
+            "Command Bot cannot send, sign, approve, change legal terms, move money, or start an outside transaction."
+        )
+
 elif area == "Leads & CRM":
     st.subheader("Leads & CRM")
-    st.caption("Seller and agent leads, contacts, properties, and intake records.")
+    st.caption("Add a lead once, then keep the seller, property, and Deal connected as the work moves forward.")
     link(
         "pages/44_CommandCore_CRM.py",
-        "CRM Workspace",
-        "Search, create, and update contacts, properties, and deals.",
+        "Leads",
+        "Create a seller/property lead, search existing records, and open the linked Deal.",
     )
 
 elif area == "Deals":
     st.subheader("Deals")
-    st.caption("The deal is the center of CommandCore. Open the Unified Deal Record first for day-to-day deal work.")
+    st.caption("The Deal is the center of CommandCore. Open the Unified Deal Record first for day-to-day deal work.")
 
     st.markdown("### Start here")
     link(
@@ -521,6 +528,6 @@ elif area == "Management":
 
 st.divider()
 st.caption(
-    "This shell reorganizes existing CommandCore and CFH functionality. It does not expand approval authority, "
-    "send communications, sign contracts, change legal terms, or move money."
+    "CommandCore organizes the existing CFH operating system without expanding approval authority. "
+    "It does not send communications, sign contracts, change legal terms, or move money without the required controls."
 )
