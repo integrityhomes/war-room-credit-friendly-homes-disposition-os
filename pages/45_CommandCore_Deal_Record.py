@@ -156,17 +156,6 @@ st.caption(
     "Open one deal and see the seller, property, tasks, communications, offers, documents, transactions, "
     "and activity history together."
 )
-nav_left, nav_middle, nav_right = st.columns(3)
-with nav_left:
-    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
-with nav_middle:
-    st.page_link("pages/44_CommandCore_CRM.py", label="Leads & CRM", use_container_width=True)
-with nav_right:
-    st.page_link(
-        "pages/46_CommandCore_Pipeline_Followup.py",
-        label="Pipeline & Follow-Up",
-        use_container_width=True,
-    )
 
 deals = list_records("deals")
 if not deals:
