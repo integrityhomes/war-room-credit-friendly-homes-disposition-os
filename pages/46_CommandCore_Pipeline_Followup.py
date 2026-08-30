@@ -97,15 +97,48 @@ def open_deal_button(deal: dict[str, Any], *, key: str, label: str = "Open Deal"
         st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
 
+def linked_deal_for_task(task: dict[str, Any], deals: list[dict[str, Any]]) -> dict[str, Any] | None:
+    task_links = task.get("links") if isinstance(task.get("links"), dict) else {}
+    deal_id = text(task_links.get("deal_id") if isinstance(task_links, dict) else "")
+    return next((deal for deal in deals if text(deal.get("id")) == deal_id), None)
+
+
+def show_followup_task(task: dict[str, Any], deals: list[dict[str, Any]], *, key_prefix: str) -> None:
+    task_due = due_date(task)
+    task_links = task.get("links") if isinstance(task.get("links"), dict) else {}
+    deal_id = text(task_links.get("deal_id") if isinstance(task_links, dict) else "")
+    linked_deal = linked_deal_for_task(task, deals)
+    task_key = text(task.get("id")) or f"{deal_id}_{text(task.get('title'))}"
+    with st.container(border=True):
+        st.markdown(f"**{text(task.get('title')) or 'Follow up'}**")
+        st.caption(
+            f"Deal: {deal_title(linked_deal) if linked_deal else deal_id or 'Unlinked'}  |  "
+            f"Due: {task_due.isoformat() if task_due else 'No date'}  |  "
+            f"Owner: {text(task.get('assigned_to')) or 'Unassigned'}"
+        )
+        priority = text(task.get("priority"))
+        if priority:
+            st.caption(f"Priority: {priority.title()}")
+        if linked_deal:
+            open_deal_button(linked_deal, key=f"{key_prefix}_{task_key}")
+
+
 require_password()
 if st.sidebar.button("Log out", key="commandcore_pipeline_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Pipeline + Follow-up")
+st.title("CommandCore Pipeline + Follow-Up")
 st.caption(
-    "See where every deal sits, what needs follow-up now, and open the exact deal without searching for it again."
+    "See what needs attention now, what is coming next, and where every deal sits without searching twice."
 )
+nav_left, nav_middle, nav_right = st.columns(3)
+with nav_left:
+    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
+with nav_middle:
+    st.page_link("pages/35_CommandCore_My_Work.py", label="My Work", use_container_width=True)
+with nav_right:
+    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 deals = list_records("deals")
 tasks = list_records("tasks")
@@ -113,15 +146,68 @@ open_tasks = [task for task in tasks if is_open_task(task)]
 today = date.today()
 overdue = [task for task in open_tasks if due_date(task) and due_date(task) < today]
 due_today = [task for task in open_tasks if due_date(task) == today]
-upcoming = [task for task in open_tasks if due_date(task) and due_date(task) > today]
+upcoming = sorted(
+    [task for task in open_tasks if due_date(task) and due_date(task) > today],
+    key=lambda task: due_date(task) or today,
+)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Open deals", len(deals))
-m2.metric("Overdue follow-ups", len(overdue))
+m2.metric("Overdue", len(overdue))
 m3.metric("Due today", len(due_today))
 m4.metric("Upcoming", len(upcoming))
 
-pipeline_tab, followup_tab = st.tabs(["Pipeline", "Follow-up Queue"])
+followup_tab, pipeline_tab = st.tabs(["Follow-Up Today", "Pipeline"])
+
+with followup_tab:
+    st.subheader("Needs attention now")
+    attention = sorted(overdue + due_today, key=lambda task: due_date(task) or today)
+    if not attention:
+        st.success("No overdue or due-today follow-ups.")
+    for task in attention:
+        show_followup_task(task, deals, key_prefix="followup_attention")
+
+    st.divider()
+    st.subheader("Coming up next")
+    if not upcoming:
+        st.caption("No dated upcoming follow-ups are scheduled yet.")
+    for task in upcoming[:20]:
+        show_followup_task(task, deals, key_prefix="followup_upcoming")
+    if len(upcoming) > 20:
+        st.caption(f"Showing the next 20 of {len(upcoming)} upcoming follow-ups.")
+
+    st.divider()
+    st.subheader("Schedule next follow-up")
+    if deals:
+        chosen = st.selectbox("Deal for follow-up", deals, format_func=deal_title, key="followup_deal")
+        open_deal_button(
+            chosen,
+            key=f"followup_selected_open_{text(chosen.get('id'))}",
+            label="Open Selected Deal",
+        )
+        c1, c2 = st.columns(2)
+        title = c1.text_input("Follow-up action", value="Follow up with seller")
+        followup_date = c2.date_input("Due date", value=today)
+        owner = st.text_input("Assigned to", value=text(chosen.get("assigned_to")))
+        priority = st.selectbox("Priority", ["medium", "high", "low"], index=0)
+        if st.button("Create follow-up", type="primary"):
+            record = {
+                "title": title,
+                "status": "open",
+                "priority": priority,
+                "due_date": followup_date.isoformat(),
+                "assigned_to": owner,
+                "task_type": "crm_follow_up",
+                "links": {"deal_id": text(chosen.get("id"))},
+                "source": "commandcore-pipeline",
+            }
+            result = upsert("tasks", record)
+            if result.get("ok"):
+                st.success(
+                    "Follow-up created. Due follow-ups are synced into the CommandCore Action Queue by the background service."
+                )
+                st.rerun()
+            st.error(text(result.get("error")) or "Could not create the follow-up.")
 
 with pipeline_tab:
     stages = sorted({text(deal.get("stage")) or "Unassigned Stage" for deal in deals})
@@ -166,55 +252,6 @@ with pipeline_tab:
                 st.success("Deal pipeline updated.")
                 st.rerun()
             st.error(text(result.get("error")) or "Could not update the deal.")
-
-with followup_tab:
-    st.subheader("Needs attention now")
-    attention = sorted(overdue + due_today, key=lambda task: due_date(task) or today)
-    if not attention:
-        st.success("No overdue or due-today follow-ups.")
-    for task in attention:
-        task_due = due_date(task)
-        task_links = task.get("links") if isinstance(task.get("links"), dict) else {}
-        deal_id = text(task_links.get("deal_id") if isinstance(task_links, dict) else "")
-        linked_deal = next((deal for deal in deals if text(deal.get("id")) == deal_id), None)
-        task_key = text(task.get("id")) or f"{deal_id}_{text(task.get('title'))}"
-        with st.container(border=True):
-            st.markdown(f"**{text(task.get('title')) or 'Follow up'}**")
-            st.caption(
-                f"Deal: {deal_title(linked_deal) if linked_deal else deal_id or 'Unlinked'}  |  "
-                f"Due: {task_due.isoformat() if task_due else 'No date'}  |  "
-                f"Owner: {text(task.get('assigned_to')) or 'Unassigned'}"
-            )
-            if linked_deal:
-                open_deal_button(linked_deal, key=f"followup_open_{task_key}")
-
-    st.divider()
-    st.subheader("Schedule next follow-up")
-    if deals:
-        chosen = st.selectbox("Deal for follow-up", deals, format_func=deal_title, key="followup_deal")
-        c1, c2 = st.columns(2)
-        title = c1.text_input("Follow-up action", value="Follow up with seller")
-        followup_date = c2.date_input("Due date", value=today)
-        owner = st.text_input("Assigned to", value=text(chosen.get("assigned_to")))
-        priority = st.selectbox("Priority", ["medium", "high", "low"], index=0)
-        if st.button("Create follow-up", type="primary"):
-            record = {
-                "title": title,
-                "status": "open",
-                "priority": priority,
-                "due_date": followup_date.isoformat(),
-                "assigned_to": owner,
-                "task_type": "crm_follow_up",
-                "links": {"deal_id": text(chosen.get("id"))},
-                "source": "commandcore-pipeline",
-            }
-            result = upsert("tasks", record)
-            if result.get("ok"):
-                st.success(
-                    "Follow-up created. Due follow-ups are synced into the CommandCore Action Queue by the background service."
-                )
-                st.rerun()
-            st.error(text(result.get("error")) or "Could not create the follow-up.")
 
 st.divider()
 st.caption(
