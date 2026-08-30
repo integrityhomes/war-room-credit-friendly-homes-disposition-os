@@ -13,7 +13,7 @@ def test_marketing_home_is_the_primary_commandcore_experience() -> None:
         'st.title("CommandCore Marketing & Dispo")',
         'st.subheader("Marketing Home")',
         '"Property → Prepare Campaign → Launch Marketing.',
-        '"Marketing Home":',
+        '"Simple Marketing Flow": "Marketing Home"',
     ):
         assert marker in source
 
