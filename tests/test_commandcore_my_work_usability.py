@@ -30,12 +30,9 @@ def test_empty_my_work_view_gives_useful_next_actions() -> None:
         assert marker in source
 
 
-def test_my_work_has_clear_daily_navigation() -> None:
+def test_my_work_uses_sidebar_instead_of_duplicate_top_navigation() -> None:
     source = Path("pages/35_CommandCore_My_Work.py").read_text(encoding="utf-8")
 
-    for marker in (
-        'label="← Command Center"',
-        'label="Pipeline & Follow-Up"',
-        'label="Unified Deal Record"',
-    ):
-        assert marker in source
+    assert 'label="← Command Center"' not in source
+    assert 'label="Pipeline & Follow-Up"' not in source
+    assert 'label="Unified Deal Record"' not in source
