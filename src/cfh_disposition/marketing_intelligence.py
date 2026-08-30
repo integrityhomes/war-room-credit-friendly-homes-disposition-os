@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from enum import StrEnum
-from typing import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
