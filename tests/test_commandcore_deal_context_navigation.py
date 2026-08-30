@@ -14,4 +14,6 @@ def test_deal_record_honors_and_remembers_selected_deal_context() -> None:
 
     assert 'st.session_state.get("commandcore_selected_deal_id")' in source
     assert 'st.session_state["commandcore_selected_deal_id"] = deal_id' in source
-    assert 'st.page_link("pages/44_CommandCore_CRM.py", label="← Back to Leads & CRM")' in source
+    assert 'label="← Command Center"' in source
+    assert '"pages/44_CommandCore_CRM.py"' in source
+    assert 'label="Pipeline & Follow-Up"' in source

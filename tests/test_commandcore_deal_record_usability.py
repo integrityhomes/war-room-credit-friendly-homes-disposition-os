@@ -1,0 +1,30 @@
+from pathlib import Path
+
+
+def test_deal_record_uses_work_order_tabs_and_clear_navigation() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+
+    for marker in (
+        'label="← Command Center"',
+        'label="Pipeline & Follow-Up"',
+        '"Next Step"',
+        '"Messages"',
+        '"Offers & Approval"',
+        '"Documents & Closing"',
+        'label="Open Owner Approvals"',
+        'st.markdown("### What should happen next?")',
+    ):
+        assert marker in source
+
+
+def test_closing_and_transactions_are_grouped_with_documents() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+
+    closing_start = source.index("with closing_tab:")
+    history_start = source.index("with history_tab:")
+    closing_block = source[closing_start:history_start]
+    history_block = source[history_start:]
+
+    assert 'show_related_table("documents", related["documents"])' in closing_block
+    assert 'show_related_table("transactions", related["transactions"])' in closing_block
+    assert 'show_related_table("transactions", related["transactions"])' not in history_block
