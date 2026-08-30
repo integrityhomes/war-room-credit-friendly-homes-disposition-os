@@ -51,6 +51,7 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
     sms = SmsHandoffSettings.from_mapping(values)
     reactivation = ReactivationDispatchSettings.from_mapping(values)
     social = SocialPublishSettings.from_mapping(values)
+    searchapi_present = _has(values, "SEARCHAPI_API_KEY")
     meta_present = _has(values, "META_AD_ACCOUNT_ID", "META_ACCESS_TOKEN")
     google_present = _has(values, "GOOGLE_ADS_CUSTOMER_ID", "GOOGLE_ADS_DEVELOPER_TOKEN")
 
@@ -113,6 +114,18 @@ def build_connection_status(values: Mapping[str, Any]) -> tuple[ConnectionStatus
                 "Add SOCIAL_PUBLISH_WEBHOOK_URL only when an approved publication adapter is available; manual final posting remains supported."
                 if not social.configured
                 else "Configured. Adapter acceptance is a handoff only, not proof that a platform published the post."
+            ),
+        ),
+        ConnectionStatus(
+            "agent_finder",
+            "Agent Contact Finder",
+            searchapi_present,
+            "Connected" if searchapi_present else "Needs connection",
+            "Find Contact Info inside Leads & CRM",
+            (
+                "Add the SearchApi connection in Streamlit Secrets when you are ready to use public agent-contact research."
+                if not searchapi_present
+                else "Connected. Search results still require verification before outreach or replacing existing CRM contact details."
             ),
         ),
         ConnectionStatus(
