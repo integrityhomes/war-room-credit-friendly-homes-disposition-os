@@ -8,7 +8,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from supabase import create_client
 
-st.set_page_config(page_title="CommandCore Pipeline", page_icon="📈", layout="wide")
+st.set_page_config(page_title="CommandCore Follow-Up & Pipeline", page_icon="📈", layout="wide")
 
 PIPELINE_STAGES = [
     "New Lead",
@@ -33,7 +33,7 @@ def require_password() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.title("CommandCore Pipeline")
+    st.title("CommandCore Follow-Up & Pipeline")
     with st.form("commandcore_pipeline_login"):
         password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -149,7 +149,7 @@ if st.sidebar.button("Log out", key="commandcore_pipeline_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Pipeline + Follow-Up")
+st.title("CommandCore Follow-Up & Pipeline")
 st.caption(
     "See what needs attention now, what is coming next, and where every deal sits without searching twice."
 )
@@ -170,6 +170,14 @@ m1.metric("Open deals", len(deals))
 m2.metric("Overdue", len(overdue))
 m3.metric("Due today", len(due_today))
 m4.metric("Upcoming", len(upcoming))
+
+if not deals:
+    with st.container(border=True):
+        st.markdown("### No deals to follow up on yet")
+        st.write("Add a lead first. CommandCore will create the linked seller, property, and deal, then follow-up can be scheduled here.")
+        if st.button("Add New Lead", type="primary", use_container_width=True):
+            st.switch_page("pages/44_CommandCore_CRM.py")
+        st.caption("Any existing unlinked tasks remain visible below for review.")
 
 followup_tab, pipeline_tab = st.tabs(["Follow-Up Today", "Pipeline"])
 
@@ -222,11 +230,13 @@ with followup_tab:
                 )
                 st.rerun()
             st.error(text(result.get("error")) or "Could not create the follow-up.")
+    else:
+        st.caption("Add a lead before scheduling a deal follow-up.")
 
 with pipeline_tab:
     stages = sorted({text(deal.get("stage")) or "Unassigned Stage" for deal in deals})
     if not stages:
-        st.info("No deals are in CommandCore yet.")
+        st.caption("The pipeline will appear here after the first lead is added.")
     else:
         columns = st.columns(min(len(stages), 5))
         for index, stage in enumerate(stages):
@@ -279,6 +289,8 @@ with pipeline_tab:
                 st.success("Deal pipeline updated.")
                 st.rerun()
             st.error(text(result.get("error")) or "Could not update the deal.")
+    else:
+        st.caption("There is no deal stage to update yet.")
 
 st.divider()
 st.caption(
