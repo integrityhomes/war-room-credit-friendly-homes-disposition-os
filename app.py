@@ -67,7 +67,10 @@ if render_public_request(storage):
     st.stop()
 
 # All working user-facing pages remain registered so deep links and specialty
-# workflows continue to function. Diagnostics intentionally stay outside app navigation.
+# workflows continue to function. Diagnostics stay registered but never appear
+# in the normal CommandCore sidebar.
+DIAGNOSTIC_PAGE = "pages/" + "34_Safe_Full_Payload_Test.py"
+
 pages = {
     "Home / Command Center": [
         st.Page(
@@ -131,6 +134,7 @@ pages = {
         st.Page("pages/32_Go_Live_Connection_Center.py", title="Connections"),
         st.Page("pages/21_Property_Terms_Test_Relaunch.py", title="Property Terms Diagnostic"),
         st.Page("pages/23_Daily_Executive_Disposition_Command.py", title="Disposition"),
+        st.Page(DIAGNOSTIC_PAGE, title="System Diagnostic"),
     ],
 }
 
