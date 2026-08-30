@@ -228,14 +228,28 @@ if near_capacity:
 if attention:
     for message in attention:
         st.error(message)
+    action_left, action_right = st.columns(2)
+    if action_left.button("Review Workload", type="primary", use_container_width=True):
+        st.switch_page("pages/41_CommandCore_Workload_Balance.py")
+    if action_right.button("Resolve Coverage Problems", use_container_width=True):
+        st.switch_page("pages/37_CommandCore_Coverage_Exceptions.py")
 else:
     st.success("No team-level workload or coverage condition currently needs executive attention.")
+    action_left, action_right = st.columns(2)
+    if action_left.button("Open Operations", type="primary", use_container_width=True):
+        st.switch_page("pages/39_CommandCore_Operations_Hub.py")
+    if action_right.button("Review My Work", use_container_width=True):
+        st.switch_page("pages/35_CommandCore_My_Work.py")
 
 st.subheader("Team Health")
 if rows:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 else:
-    st.info("No team members are currently registered in CommandCore.")
+    with st.container(border=True):
+        st.markdown("### No team members are registered yet")
+        st.write("Team workload health will populate after the CommandCore team registry has active members.")
+        if st.button("Open Operations", key="team-health-empty-operations", type="primary"):
+            st.switch_page("pages/39_CommandCore_Operations_Hub.py")
 
 st.subheader("Highest-Risk Team Members")
 for row in rows[:10]:
