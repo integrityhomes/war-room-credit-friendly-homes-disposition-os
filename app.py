@@ -69,7 +69,6 @@ pages = {
         st.Page("pages/43_CommandCore_CRM_Migration.py", title="CRM Import", icon="📥"),
         st.Page("pages/31_16_Channel_Completion_Audit.py", title="Marketing Setup Status", icon="✅"),
         st.Page("pages/32_Go_Live_Connection_Center.py", title="Connections", icon="🔌"),
-        st.Page("pages/34_Safe_Full_Payload_Test.py", title="System Diagnostic", icon="🧪"),
     ],
 }
 
