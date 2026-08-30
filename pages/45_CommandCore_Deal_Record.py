@@ -299,12 +299,11 @@ with next_step_tab:
     )
     stage = text(deal.get("stage")) or "New Lead"
     st.info(f"Current pipeline stage: **{stage}**")
-    first_row = st.columns(3)
-    if first_row[0].button("Request Deal Analysis", use_container_width=True):
-        create_work_request(deal, deal_id, related["tasks"], "deal_analysis", "Analyze deal")
-    if first_row[1].button("Request Offer Prep", use_container_width=True):
+    st.info("Need to analyze the deal? Open **Offers & Approval** and choose **Analyze Deal**. That is the single Deal Analysis workflow.")
+    first_row = st.columns(2)
+    if first_row[0].button("Request Offer Prep", use_container_width=True):
         create_work_request(deal, deal_id, related["tasks"], "prepare_offer", "Prepare offer for approval")
-    if first_row[2].button("Request Contract Prep", use_container_width=True):
+    if first_row[1].button("Request Contract Prep", use_container_width=True):
         create_work_request(
             deal,
             deal_id,
