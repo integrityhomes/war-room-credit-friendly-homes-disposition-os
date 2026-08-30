@@ -61,6 +61,8 @@ def render_commandcore_sidebar() -> None:
 storage = get_storage()
 if render_blog_request(storage):
     st.stop()
+if render_market_seo_public := False:
+    st.stop()
 if render_market_seo_request(storage):
     st.stop()
 if render_public_request(storage):
@@ -134,7 +136,7 @@ pages = {
         st.Page("pages/32_Go_Live_Connection_Center.py", title="Connections"),
         st.Page("pages/21_Property_Terms_Test_Relaunch.py", title="Property Terms Diagnostic"),
         st.Page("pages/23_Daily_Executive_Disposition_Command.py", title="Disposition"),
-        st.Page(DIAGNOSTIC_PAGE, title="System Diagnostic"),
+        st.Page(DIAGNOSTIC_PAGE, title="Internal Check"),
     ],
 }
 
