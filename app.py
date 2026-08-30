@@ -60,6 +60,7 @@ pages = {
     ],
     "Management": [
         st.Page("pages/48_CommandCore_Owner_Approvals.py", title="Owner Approvals", icon="✅"),
+        st.Page("pages/50_CommandCore_Contract_Templates.py", title="Contract Templates", icon="📄"),
         st.Page("pages/39_CommandCore_Operations_Hub.py", title="Operations", icon="🧭"),
         st.Page("pages/38_CommandCore_Management_Alerts.py", title="Alerts", icon="⚠️"),
         st.Page("pages/37_CommandCore_Coverage_Exceptions.py", title="Coverage Exceptions", icon="🚨"),
