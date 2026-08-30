@@ -6,6 +6,7 @@ import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
+from cfh_disposition.commandcore_offer_workspace_ui import render_offer_workspace
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Deal Record", page_icon="📂", layout="wide")
@@ -81,6 +82,12 @@ def save_related(entity: str, deal_id: str, record: dict[str, Any]) -> bool:
     payload = {**record, "links": {**record_links, "deal_id": deal_id}}
     result = call_crm({"action": "upsert", "entity": entity, "record": payload})
     return bool(result.get("ok"))
+
+
+def upsert_record(entity: str, record: dict[str, Any]) -> dict[str, Any]:
+    result = call_crm({"action": "upsert", "entity": entity, "record": record})
+    saved = result.get("record")
+    return saved if isinstance(saved, dict) else {}
 
 
 def deal_label(deal: dict[str, Any]) -> str:
@@ -361,11 +368,21 @@ with messages_tab:
     show_related_table("communications", related["communications"])
 
 with offers_tab:
+    render_offer_workspace(
+        st,
+        deal=deal,
+        deal_id=deal_id,
+        property_record=property_record,
+        upsert_record=upsert_record,
+        save_related=save_related,
+    )
+    st.divider()
     st.page_link(
         "pages/48_CommandCore_Owner_Approvals.py",
         label="Open Owner Approvals",
         use_container_width=True,
     )
+    st.markdown("### Saved offers & analyses")
     show_related_table("offers", related["offers"])
 
 with closing_tab:
