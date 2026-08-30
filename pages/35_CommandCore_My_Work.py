@@ -306,13 +306,6 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
 
 st.title("CommandCore My Work")
 st.caption("Start here for assigned work, urgent items, handoffs, and shift takeover.")
-nav_left, nav_middle, nav_right = st.columns(3)
-with nav_left:
-    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
-with nav_middle:
-    st.page_link("pages/46_CommandCore_Pipeline_Followup.py", label="Pipeline & Follow-Up", use_container_width=True)
-with nav_right:
-    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 try:
     items = load_items()
