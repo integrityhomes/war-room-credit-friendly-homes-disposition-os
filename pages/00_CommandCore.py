@@ -205,48 +205,101 @@ if area == "Home / Command Center":
     st.markdown("### Quick actions")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "Review consequential decisions before anything external can move forward.")
+        link(
+            "pages/48_CommandCore_Owner_Approvals.py",
+            "Owner Approvals",
+            "Review consequential decisions before anything external can move forward.",
+        )
     with c2:
-        link("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Workflow", "See analysis, offer, contract, title, closing, and dispo work moving through the system.")
+        link(
+            "pages/47_CommandCore_Deal_Workflow_Queue.py",
+            "Deal Workflow",
+            "See analysis, offer, contract, title, closing, and dispo work moving through the system.",
+        )
     with c3:
-        link("pages/46_CommandCore_Pipeline_Followup.py", "Pipeline & Follow-Up", "Open deals, overdue work, and today's follow-ups.")
+        link(
+            "pages/46_CommandCore_Pipeline_Followup.py",
+            "Pipeline & Follow-Up",
+            "Open deals, overdue work, and today's follow-ups.",
+        )
     with c4:
-        link("pages/45_CommandCore_Deal_Record.py", "Open a Deal", "Work the seller, property, tasks, offers, documents, and history from one record.")
+        link(
+            "pages/45_CommandCore_Deal_Record.py",
+            "Open a Deal",
+            "Work the seller, property, tasks, offers, documents, and history from one record.",
+        )
 
 elif area == "Leads & CRM":
     st.subheader("Leads & CRM")
     st.caption("Seller and agent leads, contacts, properties, and intake records.")
-    link("pages/44_CommandCore_CRM.py", "CRM Workspace", "Search, create, and update contacts, properties, and deals.")
+    link(
+        "pages/44_CommandCore_CRM.py",
+        "CRM Workspace",
+        "Search, create, and update contacts, properties, and deals.",
+    )
 
 elif area == "Deals":
     st.subheader("Deals")
     st.caption("The deal is the center of CommandCore. Open the Unified Deal Record first for day-to-day deal work.")
     st.markdown("### Start here")
-    link("pages/45_CommandCore_Deal_Record.py", "Unified Deal Record", "Work the seller, property, notes, tasks, communications, offers, documents, transactions, and complete history in one place.")
+    link(
+        "pages/45_CommandCore_Deal_Record.py",
+        "Unified Deal Record",
+        "Work the seller, property, notes, tasks, communications, offers, documents, transactions, and complete history in one place.",
+    )
     st.markdown("### Supporting deal views")
     c1, c2, c3 = st.columns(3)
     with c1:
-        link("pages/46_CommandCore_Pipeline_Followup.py", "Deal Pipeline", "See deal stages, follow-up timing, and open the exact deal from the pipeline.")
+        link(
+            "pages/46_CommandCore_Pipeline_Followup.py",
+            "Deal Pipeline",
+            "See deal stages, follow-up timing, and open the exact deal from the pipeline.",
+        )
     with c2:
-        link("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Workflow", "See what each deal needs next and what information is missing.")
+        link(
+            "pages/47_CommandCore_Deal_Workflow_Queue.py",
+            "Deal Workflow",
+            "See what each deal needs next and what information is missing.",
+        )
     with c3:
-        link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "Approve or reject owner-gated deal actions without starting external execution.")
+        link(
+            "pages/48_CommandCore_Owner_Approvals.py",
+            "Owner Approvals",
+            "Approve or reject owner-gated deal actions without starting external execution.",
+        )
 
 elif area == "Tasks & Follow-Up":
     st.subheader("Tasks & Follow-Up")
-    st.caption("Start with My Work for assigned work. Use Follow-Up and Coverage when you need the broader queue or exceptions.")
+    st.caption(
+        "Start with My Work for assigned work. Use Follow-Up and Coverage when you need the broader queue or exceptions."
+    )
     st.markdown("### Start here")
-    link("pages/35_CommandCore_My_Work.py", "My Work", "See assigned work, high-priority items, handoffs, shift briefs, and takeover tracking in one daily queue.")
+    link(
+        "pages/35_CommandCore_My_Work.py",
+        "My Work",
+        "See assigned work, high-priority items, handoffs, shift briefs, and takeover tracking in one daily queue.",
+    )
     st.markdown("### Supporting work views")
     c1, c2 = st.columns(2)
     with c1:
-        link("pages/46_CommandCore_Pipeline_Followup.py", "Follow-Up Queue", "Review overdue, due-today, and upcoming CRM follow-ups and open the linked deal.")
+        link(
+            "pages/46_CommandCore_Pipeline_Followup.py",
+            "Follow-Up Queue",
+            "Review overdue, due-today, and upcoming CRM follow-ups and open the linked deal.",
+        )
     with c2:
-        link("pages/36_CommandCore_Coverage.py", "Coverage", "Find missed handoffs and safely route uncovered internal work.")
+        link(
+            "pages/36_CommandCore_Coverage.py",
+            "Coverage",
+            "Find missed handoffs and safely route uncovered internal work.",
+        )
 
 elif area == "Marketing & Dispo":
     st.subheader("Marketing & Dispo")
-    st.caption("Start with Marketing Command for daily property marketing and disposition. Use the tools below for outreach, records, social, results, and planning.")
+    st.caption(
+        "Start with Marketing Command for daily property marketing and disposition. Use the tools below for outreach, "
+        "records, social, results, and planning."
+    )
 
     st.markdown("### Start here")
     link(
@@ -258,54 +311,131 @@ elif area == "Marketing & Dispo":
     st.markdown("### Daily marketing & disposition tools")
     c1, c2 = st.columns(2)
     with c1:
-        link("pages/29_Email_SMS_Reactivation.py", "Buyer Outreach — connection required for live sending", "Prepare consent-checked email, SMS, and reactivation work. Live handoff stays disabled until a sender is connected.")
-        link("pages/01_Record_Manager.py", "Property Records", "Manage the owner-finance property facts used by every marketing channel.")
-        link("pages/23_Daily_Executive_Disposition_Command.py", "Disposition Command", "Review disposition performance and the next property actions.")
+        link(
+            "pages/29_Email_SMS_Reactivation.py",
+            "Buyer Outreach — connection required for live sending",
+            "Prepare consent-checked email, SMS, and reactivation work. Live handoff stays disabled until a sender is connected.",
+        )
+        link(
+            "pages/01_Record_Manager.py",
+            "Property Records",
+            "Manage the owner-finance property facts used by every marketing channel.",
+        )
+        link(
+            "pages/23_Daily_Executive_Disposition_Command.py",
+            "Disposition Command",
+            "Review disposition performance and the next property actions.",
+        )
     with c2:
-        link("pages/26_Instagram_TikTok_YouTube_Shorts.py", "Social Video — connection required for live publishing", "Build fact-locked Instagram, TikTok, and YouTube packages. Live publishing requires an approved adapter.")
-        link("pages/19_Dwelyx_Results_Attribution.py", "Buyer Results — Dwelyx connection postponed", "Review saved buyer traffic and attribution. The live Dwelyx sender connection can be completed separately later.")
-        link("pages/11_AI_Marketing_Optimizer.py", "Marketing Optimizer", "Use saved performance data to prioritize the next marketing improvements.")
+        link(
+            "pages/26_Instagram_TikTok_YouTube_Shorts.py",
+            "Social Video — connection required for live publishing",
+            "Build fact-locked Instagram, TikTok, and YouTube packages. Live publishing requires an approved adapter.",
+        )
+        link(
+            "pages/19_Dwelyx_Results_Attribution.py",
+            "Buyer Results — Dwelyx connection postponed",
+            "Review saved buyer traffic and attribution. The live Dwelyx sender connection can be completed separately later.",
+        )
+        link(
+            "pages/11_AI_Marketing_Optimizer.py",
+            "Marketing Optimizer",
+            "Use saved performance data to prioritize the next marketing improvements.",
+        )
 
     st.markdown("### Plan & optimize paid acquisition")
     st.caption("These tools prepare plans only. They do not create ad accounts, launch campaigns, or spend money.")
     p1, p2 = st.columns(2)
     with p1:
-        link("pages/28_Meta_Google_Paid_Traffic.py", "Meta & Google Ads Plan — account and spend approval required", "Prepare fact-locked paid-traffic plans. Live campaigns require account authorization and explicit spending approval.")
+        link(
+            "pages/28_Meta_Google_Paid_Traffic.py",
+            "Meta & Google Ads Plan — account and spend approval required",
+            "Prepare fact-locked paid-traffic plans. Live campaigns require account authorization and explicit spending approval.",
+        )
     with p2:
-        link("pages/33_ChatGPT_Ads_Channel_16.py", "ChatGPT Ads Plan — connection/spend approval may be required", "Prepare buyer-acquisition concepts without starting spend or external execution.")
+        link(
+            "pages/33_ChatGPT_Ads_Channel_16.py",
+            "ChatGPT Ads Plan — connection/spend approval may be required",
+            "Prepare buyer-acquisition concepts without starting spend or external execution.",
+        )
 
 elif area == "Management":
     st.subheader("Management")
-    st.caption("Start with Operations Hub for the current business/system picture. Use people, exceptions, audits, and setup views when you need deeper detail.")
+    st.caption(
+        "Start with Operations Hub for the current business/system picture. Use people, exceptions, audits, and setup views "
+        "when you need deeper detail."
+    )
 
     st.markdown("### Start here")
-    link("pages/39_CommandCore_Operations_Hub.py", "Operations Hub", "See human-work escalations, operating readiness, CRM cutover status, and aged coverage failures first.")
+    link(
+        "pages/39_CommandCore_Operations_Hub.py",
+        "Operations Hub",
+        "See human-work escalations, operating readiness, CRM cutover status, and aged coverage failures first.",
+    )
 
     st.markdown("### People & workload")
     p1, p2 = st.columns(2)
     with p1:
-        link("pages/40_CommandCore_Team_Health.py", "Team Health", "See team capacity and workload health.")
+        link(
+            "pages/40_CommandCore_Team_Health.py",
+            "Team Health",
+            "See team capacity and workload health.",
+        )
     with p2:
-        link("pages/41_CommandCore_Workload_Balance.py", "Workload Balance", "Review safe internal balancing recommendations.")
+        link(
+            "pages/41_CommandCore_Workload_Balance.py",
+            "Workload Balance",
+            "Review safe internal balancing recommendations.",
+        )
 
     st.markdown("### Exceptions & audit")
     e1, e2, e3 = st.columns(3)
     with e1:
-        link("pages/38_CommandCore_Management_Alerts.py", "Management Alerts", "Review management-level alerts and exceptions.")
+        link(
+            "pages/38_CommandCore_Management_Alerts.py",
+            "Management Alerts",
+            "Review management-level alerts and exceptions.",
+        )
     with e2:
-        link("pages/37_CommandCore_Coverage_Exceptions.py", "Coverage Exceptions", "Review unresolved coverage failures.")
+        link(
+            "pages/37_CommandCore_Coverage_Exceptions.py",
+            "Coverage Exceptions",
+            "Review unresolved coverage failures.",
+        )
     with e3:
-        link("pages/42_CommandCore_Rebalance_Audit.py", "Rebalance Audit", "See automatic internal workload moves and skipped actions.")
+        link(
+            "pages/42_CommandCore_Rebalance_Audit.py",
+            "Rebalance Audit",
+            "See automatic internal workload moves and skipped actions.",
+        )
 
     st.markdown("### System & setup")
-    st.caption("Migration, external connections, completion audits, and diagnostics stay separate from daily management work.")
+    st.caption(
+        "Migration, external connections, completion audits, and diagnostics stay separate from daily management work."
+    )
     s1, s2 = st.columns(2)
     with s1:
-        link("pages/43_CommandCore_CRM_Migration.py", "CRM Migration — reconciliation still required before cutover", "Stage, preview, reconcile, and safely import existing CRM records.")
-        link("pages/31_16_Channel_Completion_Audit.py", "Marketing Completion Audit", "See which marketing channels are usable now and which are externally blocked.")
+        link(
+            "pages/43_CommandCore_CRM_Migration.py",
+            "CRM Migration — reconciliation still required before cutover",
+            "Stage, preview, reconcile, and safely import existing CRM records.",
+        )
+        link(
+            "pages/31_16_Channel_Completion_Audit.py",
+            "Marketing Completion Audit",
+            "See which marketing channels are usable now and which are externally blocked.",
+        )
     with s2:
-        link("pages/32_Go_Live_Connection_Center.py", "Go-Live Connections", "See sender, outreach, social, and paid-platform setup status without false readiness.")
-        link("pages/34_Safe_Full_Payload_Test.py", "Safe Payload Diagnostic", "Run a controlled diagnostic without publishing, messaging, creating ads, or spending money.")
+        link(
+            "pages/32_Go_Live_Connection_Center.py",
+            "Go-Live Connections",
+            "See sender, outreach, social, and paid-platform setup status without false readiness.",
+        )
+        link(
+            "pages/34_Safe_Full_Payload_Test.py",
+            "Safe Payload Diagnostic",
+            "Run a controlled diagnostic without publishing, messaging, creating ads, or spending money.",
+        )
 
 st.divider()
 st.caption(
