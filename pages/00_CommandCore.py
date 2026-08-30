@@ -240,27 +240,30 @@ elif area == "Leads & CRM":
 
 elif area == "Deals":
     st.subheader("Deals")
-    st.caption("The deal is the center of CommandCore. Open one record and keep the entire transaction together.")
-    c1, c2, c3, c4 = st.columns(4)
+    st.caption("The deal is the center of CommandCore. Open the Unified Deal Record first for day-to-day deal work.")
+
+    st.markdown("### Start here")
+    link(
+        "pages/45_CommandCore_Deal_Record.py",
+        "Unified Deal Record",
+        "Work the seller, property, notes, tasks, communications, offers, documents, transactions, and complete history in one place.",
+    )
+
+    st.markdown("### Supporting deal views")
+    c1, c2, c3 = st.columns(3)
     with c1:
-        link(
-            "pages/45_CommandCore_Deal_Record.py",
-            "Unified Deal Record",
-            "Seller, property, notes, tasks, communications, offers, documents, transactions, and history.",
-        )
-    with c2:
         link(
             "pages/46_CommandCore_Pipeline_Followup.py",
             "Deal Pipeline",
-            "See deal stages and move internal pipeline status forward.",
+            "See deal stages, follow-up timing, and open the exact deal from the pipeline.",
         )
-    with c3:
+    with c2:
         link(
             "pages/47_CommandCore_Deal_Workflow_Queue.py",
             "Deal Workflow",
             "See what each deal needs next and what information is missing.",
         )
-    with c4:
+    with c3:
         link(
             "pages/48_CommandCore_Owner_Approvals.py",
             "Owner Approvals",
@@ -269,21 +272,24 @@ elif area == "Deals":
 
 elif area == "Tasks & Follow-Up":
     st.subheader("Tasks & Follow-Up")
-    st.caption("What the team needs to do now, who owns it, and what is overdue.")
-    c1, c2, c3 = st.columns(3)
+    st.caption("Start with My Work for assigned work. Use Follow-Up and Coverage when you need the broader queue or exceptions.")
+
+    st.markdown("### Start here")
+    link(
+        "pages/35_CommandCore_My_Work.py",
+        "My Work",
+        "See assigned work, high-priority items, handoffs, shift briefs, and takeover tracking in one daily queue.",
+    )
+
+    st.markdown("### Supporting work views")
+    c1, c2 = st.columns(2)
     with c1:
-        link(
-            "pages/35_CommandCore_My_Work.py",
-            "My Work",
-            "Assigned work, handoffs, shift briefs, and takeover tracking.",
-        )
-    with c2:
         link(
             "pages/46_CommandCore_Pipeline_Followup.py",
             "Follow-Up Queue",
-            "Overdue, due-today, and upcoming CRM follow-ups.",
+            "Review overdue, due-today, and upcoming CRM follow-ups and open the linked deal.",
         )
-    with c3:
+    with c2:
         link(
             "pages/36_CommandCore_Coverage.py",
             "Coverage",
