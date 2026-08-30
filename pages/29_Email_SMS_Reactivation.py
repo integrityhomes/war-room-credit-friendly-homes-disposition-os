@@ -26,7 +26,7 @@ from cfh_disposition.rei_blackbook_sms import (
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
 
-st.set_page_config(page_title="Email, SMS & Reactivation", page_icon="✉️", layout="wide")
+st.set_page_config(page_title="Buyer Outreach", page_icon="✉️", layout="wide")
 
 
 def require_password() -> None:
@@ -64,13 +64,18 @@ def email_buyer_label(buyer) -> str:
 
 
 require_password()
-st.title("Matched Buyer Email + SMS + Reactivation")
-st.caption("Prepare three separately tracked buyer-outreach channels from one saved property.")
-st.info(
-    "Fact-lock active: this page prepares read-only copy and attribution from the central property record. "
-    "Price, down payment, monthly payment, bedrooms, and availability cannot be edited here. "
-    "Email uses only the configured approved sender handoff. REI BlackBook / Profit Dial remains the actual SMS sender."
-)
+st.title("Buyer Outreach")
+st.caption("Choose a marketable property, review the prepared email/text/reactivation message, and use an approved sender only when the buyer has saved consent.")
+with st.expander("How outreach stays safe and trackable", expanded=False):
+    st.write(
+        "Property facts are read-only here. Price, down payment, monthly payment, bedrooms, and availability come from the saved property record."
+    )
+    st.write(
+        "Email can use only the configured approved email sender handoff. SMS can use only the configured REI BlackBook / Profit Dial handoff."
+    )
+    st.write(
+        "A successful handoff confirms only that the approved sender workflow accepted the request; it does not claim inbox or carrier delivery."
+    )
 
 try:
     storage = get_storage()
@@ -85,17 +90,25 @@ except StorageError as exc:
     st.stop()
 
 if not properties:
-    st.warning("No Ready to Launch or Marketing Live property is available for buyer outreach.")
+    st.warning("No property is currently Ready to Launch or Marketing Live for buyer outreach.")
+    left, right = st.columns(2)
+    if left.button("Open Marketing Home", type="primary", use_container_width=True):
+        st.switch_page("pages/90_CFH_Marketing_Dispo.py")
+    if right.button("Review Properties & Buyers", use_container_width=True):
+        st.switch_page("pages/01_Record_Manager.py")
     st.stop()
 
 options = {(item.display_address or str(item.property_id)): item for item in properties}
 selected = options[st.selectbox("Property", list(options))]
-campaign = st.text_input(
-    "Campaign name",
-    value=f"buyer_outreach_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower(),
-).strip()
+default_campaign = f"buyer_outreach_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower()
+with st.expander("Campaign tracking details", expanded=False):
+    campaign = st.text_input(
+        "Campaign name",
+        value=default_campaign,
+        help="This internal tracking name keeps buyer responses attributable to the property and outreach channel.",
+    ).strip()
 if not campaign:
-    st.warning("Enter a campaign name.")
+    st.warning("A campaign tracking name is required before preparing outreach.")
     st.stop()
 
 links = build_channel_links(
@@ -124,10 +137,11 @@ for tab, key in zip(tabs, channel_keys, strict=True):
             st.error(f"Outreach guard blocked this package: {exc}")
             continue
 
-        st.write("### Subject / Label")
+        st.write("### Prepared message")
+        st.write("**Subject / label**")
         st.code(package.subject, language=None)
 
-        st.write("### Locked message variations")
+        st.write("**Message options**")
         for index, message in enumerate(package.message_variants, start=1):
             st.text_area(
                 f"Variation {index}",
@@ -150,31 +164,30 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                 }
             )
 
-        st.write("### Tracked Dwelyx link")
-        st.text_input(
-            "Exact tracked link",
-            value=package.tracked_link,
-            key=f"{key}_tracked_link",
-            disabled=True,
-        )
-        st.caption(
-            "Use this exact link so downstream registrations, applications, showings, contracts, and filled homes stay attributed to this property, campaign, and outreach channel."
-        )
-
-        st.write("### Sending guardrails")
-        for note in package.compliance_notes:
-            st.write(f"- {note}")
+        with st.expander("Tracking & sending guardrails", expanded=False):
+            st.write("**Tracked buyer link**")
+            st.text_input(
+                "Exact tracked link",
+                value=package.tracked_link,
+                key=f"{key}_tracked_link",
+                disabled=True,
+            )
+            st.caption(
+                "Keep this exact link so downstream buyer activity stays attributable to this property, campaign, and outreach channel."
+            )
+            st.write("**Sending guardrails**")
+            for note in package.compliance_notes:
+                st.write(f"- {note}")
 
         if key == "email":
             st.divider()
-            st.write("### Send through approved email sender")
+            st.write("### Send Email")
             email_settings = EmailHandoffSettings.from_mapping(st.secrets)
             if email_settings.configured:
-                st.success("Email marketing handoff is connected to the configured approved HTTPS webhook.")
+                st.success("Approved email sender is connected.")
             else:
                 st.warning(
-                    "Email handoff is not connected yet. Add the approved HTTPS sender endpoint as "
-                    "EMAIL_SENDER_WEBHOOK_URL in Streamlit Secrets. Provider credentials stay downstream."
+                    "Email sending is not connected yet. The approved sender endpoint must be configured before this page can hand off an email."
                 )
 
             eligible_email_buyers = [
@@ -197,20 +210,20 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                 )
                 selected_email_buyer = email_buyer_options[selected_email_buyer_label]
                 email_variation_number = st.selectbox(
-                    "Locked email variation",
+                    "Message variation",
                     list(range(1, len(package.message_variants) + 1)),
                     format_func=lambda value: f"Variation {value}",
                     key="email_sender_variation",
                 )
                 chosen_email_message = package.message_variants[email_variation_number - 1]
                 st.text_input(
-                    "Exact subject that will be handed to the sender",
+                    "Exact subject to send",
                     value=package.subject,
                     disabled=True,
                     key="email_sender_locked_subject",
                 )
                 st.text_area(
-                    "Exact message that will be handed to the sender",
+                    "Exact message to send",
                     value=chosen_email_message,
                     height=160,
                     disabled=True,
@@ -266,14 +279,13 @@ for tab, key in zip(tabs, channel_keys, strict=True):
 
         if key == "sms":
             st.divider()
-            st.write("### Send through REI BlackBook / Profit Dial")
+            st.write("### Send Text Message")
             sms_settings = SmsHandoffSettings.from_mapping(st.secrets)
             if sms_settings.configured:
-                st.success("SMS marketing handoff is connected to the configured Zapier webhook.")
+                st.success("REI BlackBook / Profit Dial SMS handoff is connected.")
             else:
                 st.warning(
-                    "SMS handoff is not connected yet. Add the real Zapier Catch Hook URL as "
-                    "SMS_SENDER_WEBHOOK_URL in Streamlit Secrets. No alternate SMS provider will be used."
+                    "SMS sending is not connected yet. The approved REI BlackBook / Profit Dial handoff must be configured before this page can send."
                 )
 
             eligible_buyers = [
@@ -292,14 +304,14 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                 )
                 selected_buyer = buyer_options[selected_buyer_label]
                 variation_number = st.selectbox(
-                    "Locked SMS variation",
+                    "Message variation",
                     list(range(1, len(package.message_variants) + 1)),
                     format_func=lambda value: f"Variation {value}",
                     key="profit_dial_variation",
                 )
                 chosen_message = package.message_variants[variation_number - 1]
                 st.text_area(
-                    "Exact message that will be handed to Profit Dial",
+                    "Exact message to send",
                     value=chosen_message,
                     height=130,
                     disabled=True,
@@ -355,12 +367,12 @@ for tab, key in zip(tabs, channel_keys, strict=True):
 if export_rows:
     csv_bytes = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Download locked email + SMS + reactivation package CSV",
+        "Download Buyer Outreach Package",
         data=csv_bytes,
         file_name=f"{campaign}_buyer_outreach.csv",
         mime="text/csv",
     )
 
 st.warning(
-    "Before sending, verify the property remains Ready to Launch or Marketing Live and confirm the buyer's saved consent for the selected channel. Change property facts only in Record Manager."
+    "Before sending, verify the property remains Ready to Launch or Marketing Live and confirm the buyer's saved consent for the selected channel. Change property facts only in Properties & Buyers."
 )
