@@ -11,6 +11,7 @@ dependencies = [
   "pandas>=2.2,<3",
   "pydantic>=2.8,<3",
   "pypdf>=5.0,<7",
+  "requests>=2.32,<3",
   "streamlit>=1.42,<2",
   "supabase>=2.15,<3",
 ]
