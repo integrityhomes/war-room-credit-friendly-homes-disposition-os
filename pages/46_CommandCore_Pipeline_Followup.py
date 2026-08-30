@@ -10,6 +10,21 @@ from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Pipeline", page_icon="📈", layout="wide")
 
+PIPELINE_STAGES = [
+    "New Lead",
+    "Contacted",
+    "Follow-Up",
+    "Analyzing",
+    "Offer Pending",
+    "Offer Made",
+    "Under Contract",
+    "Title / Closing",
+    "Marketing / Dispo",
+    "Closed",
+    "Dead / Not Moving Forward",
+]
+DEAL_STATUSES = ["Active", "On Hold", "Closed", "Dead"]
+
 
 def require_password() -> None:
     expected = configured_password(st.secrets)
@@ -59,6 +74,12 @@ def list_records(entity: str) -> list[dict[str, Any]]:
 
 def upsert(entity: str, record: dict[str, Any]) -> dict[str, Any]:
     return call_crm({"action": "upsert", "entity": entity, "record": record})
+
+
+def choice_options(current: str, approved: list[str]) -> list[str]:
+    if current and current not in approved:
+        return [current, *approved]
+    return list(approved)
 
 
 def due_date(record: dict[str, Any]) -> date | None:
@@ -236,9 +257,22 @@ with pipeline_tab:
             key=f"pipeline_selected_open_{text(selected.get('id'))}",
             label="Open Selected Deal",
         )
+        current_stage = text(selected.get("stage")) or "New Lead"
+        current_status = text(selected.get("status")) or "Active"
+        stage_options = choice_options(current_stage, PIPELINE_STAGES)
+        status_options = choice_options(current_status, DEAL_STATUSES)
         c1, c2 = st.columns(2)
-        new_stage = c1.text_input("Stage", value=text(selected.get("stage")))
-        new_status = c2.text_input("Status", value=text(selected.get("status")))
+        new_stage = c1.selectbox(
+            "Stage",
+            stage_options,
+            index=stage_options.index(current_stage),
+        )
+        new_status = c2.selectbox(
+            "Status",
+            status_options,
+            index=status_options.index(current_status),
+        )
+        st.caption("Use the standard choices so pipeline reporting stays consistent. Existing legacy values remain available until you change them.")
         if st.button("Save stage/status", type="primary"):
             result = upsert("deals", {**selected, "stage": new_stage, "status": new_status})
             if result.get("ok"):
