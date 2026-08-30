@@ -1,23 +1,15 @@
-from pathlib import Path
-
-PAGE = Path("pages/49_CommandCore_Command_Bot.py")
+from cfh_disposition.task_agent import run_task_agent
 
 
-def test_command_bot_uses_stable_request_identity_and_reuses_existing_work() -> None:
-    source = PAGE.read_text(encoding="utf-8")
+def test_task_agent_uses_stable_request_identity_for_same_command() -> None:
+    deal = {"id": "FIXTURE-DEAL-001", "internal_only": True, "external_action_started": False}
 
-    assert "def normalized_command" in source
-    assert "hashlib.sha256" in source
-    assert '"external_id": request_external_id' in source
-    assert '"external_id": f"{request_external_id}-activity"' in source
-    assert 'if text(existing.get("external_id")) == request_external_id:' in source
-    assert "return existing, False" in source
-    assert '"external_action_started": False' in source
-    assert '"approval_bypassed": False' in source
+    first = run_task_agent(deal=deal, work_type="prepare_offer", command="Prepare offer for Harris St")
+    second = run_task_agent(deal=deal, work_type="prepare_offer", command="  prepare   OFFER for Harris St  ")
 
-
-def test_command_bot_ui_explains_duplicate_reuse() -> None:
-    source = PAGE.read_text(encoding="utf-8")
-
-    assert "CommandCore reused the existing internal work" in source
-    assert "instead of creating a duplicate" in source
+    assert first.run_id == second.run_id
+    assert first.task_preview["external_id"] == second.task_preview["external_id"]
+    assert first.internal_only is True
+    assert first.external_action_started is False
+    assert first.status == "simulated"
+    assert second.status == "simulated"
