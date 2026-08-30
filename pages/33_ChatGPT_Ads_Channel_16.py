@@ -9,7 +9,7 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.chatgpt_ads import INTENT_OPTIONS, SUPPORTED_MARKETS, build_chatgpt_ads_plan
 from cfh_disposition.dwelyx import dwelyx_base_url
 
-st.set_page_config(page_title="ChatGPT Ads Channel 16", page_icon="💬", layout="wide")
+st.set_page_config(page_title="ChatGPT Ads Planning", page_icon="💬", layout="wide")
 
 
 def require_password() -> None:
@@ -31,14 +31,14 @@ def require_password() -> None:
 
 
 require_password()
-st.title("Channel 16 — ChatGPT Ads")
-st.caption("Buyer-acquisition planning by market and intent, tracked into the CFH/Dwelyx funnel.")
-st.info(
-    "OpenAI Ads Manager Beta is a live advertiser product. Country availability and product capabilities can change, "
-    "so verify the current Ads Manager state before launch. This CommandCore page remains planning-only: it does not "
-    "create an account, campaign, ad, billing setup, or spend."
+st.title("ChatGPT Ads Planning")
+st.caption("Build a market-and-intent ad plan without creating a campaign, opening billing, or spending money.")
+st.warning(
+    "Planning only. This page cannot create an ad account or campaign and cannot spend money. "
+    "Any real ChatGPT Ads launch still requires current product/policy verification and separate owner approval for the exact budget and targeting."
 )
 
+st.write("### Plan the audience")
 cols = st.columns(3)
 market = cols[0].selectbox("Market", SUPPORTED_MARKETS)
 intent = cols[1].selectbox("Buyer intent", INTENT_OPTIONS)
@@ -55,7 +55,11 @@ daily_budget = Decimal(
 )
 
 landing_default = dwelyx_base_url(st.secrets)
-landing_url = st.text_input("Buyer landing page", value=landing_default)
+with st.expander("Tracking & destination details", expanded=False):
+    landing_url = st.text_input("Buyer landing page", value=landing_default)
+    st.caption(
+        "CommandCore uses this destination to preserve campaign, market, and buyer-intent attribution through the buyer funnel."
+    )
 
 try:
     plan = build_chatgpt_ads_plan(
@@ -68,30 +72,32 @@ except ValueError as exc:
     st.error(str(exc))
     st.stop()
 
-st.write("### Campaign planning package")
+st.write("### Ad plan")
 metrics = st.columns(5)
-metrics[0].metric("Channel", "ChatGPT Ads")
-metrics[1].metric("Market", plan.market)
-metrics[2].metric("Intent", plan.intent)
-metrics[3].metric("Proposed daily budget", f"${plan.daily_budget:,.0f}")
-metrics[4].metric("Launch authority", "NO")
-st.code(plan.campaign_name, language=None)
+metrics[0].metric("Market", plan.market)
+metrics[1].metric("Buyer intent", plan.intent)
+metrics[2].metric("Daily budget", f"${plan.daily_budget:,.0f}")
+metrics[3].metric("Launch", "Not authorized")
+metrics[4].metric("Spend", "Not authorized")
 
-st.write("### Relevance / use-case guidance")
+with st.expander("Campaign tracking name", expanded=False):
+    st.code(plan.campaign_name, language=None)
+
+st.write("### Planning guidance")
 st.dataframe(
-    pd.DataFrame({"Planning guidance": plan.context_hints}),
+    pd.DataFrame({"Guidance": plan.context_hints}),
     use_container_width=True,
     hide_index=True,
 )
 
-st.write("### Headline variations")
+st.write("### Headline options")
 st.dataframe(
     pd.DataFrame({"Headline": plan.headlines}),
     use_container_width=True,
     hide_index=True,
 )
 
-st.write("### Description variations")
+st.write("### Description options")
 for index, text in enumerate(plan.descriptions, start=1):
     st.text_area(
         f"Description {index}",
@@ -101,20 +107,20 @@ for index, text in enumerate(plan.descriptions, start=1):
         disabled=True,
     )
 
-st.write("### Tracked buyer destination")
-st.code(plan.landing_url, language=None)
-st.caption(
-    "This link identifies source=Credit Friendly Homes, medium=ChatGPT Ads, campaign, market, and buyer intent. "
-    "Preserve the same attribution through registrations, applications, showings, contracts, and filled homes."
-)
-
-st.write("### Launch guardrails")
-for note in plan.notes:
-    st.write(f"- {note}")
-st.warning(
-    "Nothing on this page records owner approval. Any real ChatGPT Ads campaign still requires separate account/billing setup, "
-    "current policy review, exact budget approval, and an explicit external launch step."
-)
+with st.expander("Tracking link & launch requirements", expanded=False):
+    st.write("**Tracked buyer destination**")
+    st.code(plan.landing_url, language=None)
+    st.caption(
+        "Preserve this attribution through registrations, applications, showings, contracts, and filled homes if a future campaign is approved and launched."
+    )
+    st.write("**Launch guardrails**")
+    for note in plan.notes:
+        st.write(f"- {note}")
+    st.warning(
+        "Viewing or downloading this plan does not record owner approval. "
+        "A real campaign still requires account/billing setup, current policy review, "
+        "exact budget approval, and an explicit external launch step."
+    )
 
 rows = []
 for headline in plan.headlines:
@@ -137,7 +143,7 @@ for headline in plan.headlines:
 
 csv_bytes = pd.DataFrame(rows).to_csv(index=False).encode("utf-8")
 st.download_button(
-    "Download ChatGPT Ads planning package CSV",
+    "Download ChatGPT Ads Plan",
     data=csv_bytes,
     file_name=f"{plan.campaign_name}_planning.csv",
     mime="text/csv",
