@@ -187,6 +187,19 @@ class ContractFileStore:
             size_bytes=len(file.content),
         )
 
+    def download(self, object_path: str) -> bytes:
+        self._ensure_bucket()
+        clean_path = str(object_path or "").strip()
+        if not clean_path:
+            raise ContractWorkspaceError("The contract file path is missing.")
+        try:
+            content = self._client.storage.from_(CONTRACT_BUCKET).download(clean_path)
+        except Exception as exc:
+            raise ContractWorkspaceError("Could not read the private contract file.") from exc
+        if not isinstance(content, (bytes, bytearray)) or not content:
+            raise ContractWorkspaceError("The private contract file was empty or unreadable.")
+        return bytes(content)
+
     def signed_download_url(self, object_path: str, expires_in: int = 300) -> str:
         self._ensure_bucket()
         if expires_in < 60 or expires_in > 3600:
