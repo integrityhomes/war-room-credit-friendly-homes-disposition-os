@@ -46,7 +46,7 @@ pages = {
     ],
     "Marketing & Dispo": [
         st.Page("pages/90_CFH_Marketing_Dispo.py", title="Marketing Home", icon="📣"),
-        st.Page("pages/01_Record_Manager.py", title="Property Records", icon="🏘️"),
+        st.Page("pages/01_Record_Manager.py", title="Properties & Buyers", icon="🏘️"),
         st.Page("pages/29_Email_SMS_Reactivation.py", title="Buyer Outreach", icon="✉️"),
         st.Page(
             "pages/26_Instagram_TikTok_YouTube_Shorts.py",
