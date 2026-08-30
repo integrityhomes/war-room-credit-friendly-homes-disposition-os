@@ -38,9 +38,13 @@ def assemble_contract_facts(
     state = _first(property_record, "state")
     property_address = _first(property_record, "address", "property_address")
     if not contract_type:
-        raise ContractFactsError("Select the contract type before preparing a contract. CommandCore will not guess a legal document type.")
+        raise ContractFactsError(
+            "Select the contract type before preparing a contract. CommandCore will not guess a legal document type."
+        )
     if not state:
-        raise ContractFactsError("Property state is required before preparing a contract. CommandCore will not infer legal jurisdiction.")
+        raise ContractFactsError(
+            "Property state is required before preparing a contract. CommandCore will not infer legal jurisdiction."
+        )
     if not property_address:
         raise ContractFactsError("Property address is required before preparing a contract.")
 
@@ -97,7 +101,7 @@ def contract_prep_document(
         "name": "Contract preparation facts",
         "document_type": "contract_prep_facts",
         "contract_type": facts["contract_type"],
-        "status": "needs_approved_legal_template",
+        "status": "needs_missing_facts" if missing else "needs_approved_legal_template",
         "facts": facts,
         "missing_facts": missing,
         "generation_ready": not missing,
