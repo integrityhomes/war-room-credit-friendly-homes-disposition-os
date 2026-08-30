@@ -10,7 +10,16 @@ from uuid import UUID
 import pandas as pd
 import streamlit as st
 
-from .analytics import AnalyticsError, ClickAnalyticsStore, ClickEvent, click_summary
+from .analytics import (
+    LIVE_TRAFFIC,
+    TEST_TRAFFIC,
+    UNCLASSIFIED_TRAFFIC,
+    AnalyticsError,
+    ClickAnalyticsStore,
+    ClickEvent,
+    click_summary,
+    traffic_type_counts,
+)
 from .channel_tracking import (
     build_channel_links,
     canonical_channel_key,
@@ -235,6 +244,15 @@ def _query_value(name: str, default: str = "") -> str:
     return str(st.query_params.get(name, default)).strip()
 
 
+def _query_flag(name: str) -> bool:
+    return _query_value(name).lower() in {"1", "true", "yes", "on"}
+
+
+def _test_tracking_url(url: str) -> str:
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}test_mode=1"
+
+
 def _render_dwelyx_redirect() -> None:
     configured_target = dwelyx_base_url(st.secrets)
     requested_target = _query_value("target", configured_target)
@@ -247,6 +265,7 @@ def _render_dwelyx_redirect() -> None:
     medium = _query_value("medium", "unknown")
     campaign = _query_value("campaign", "owner_finance_homes")
     property_id = _query_value("property_id") or None
+    traffic_type = TEST_TRAFFIC if _query_flag("test_mode") else LIVE_TRAFFIC
 
     destination = build_direct_dwelyx_url(
         target,
@@ -256,7 +275,7 @@ def _render_dwelyx_redirect() -> None:
         property_id=property_id,
     )
 
-    signature = f"{source}|{medium}|{campaign}|{property_id or ''}"
+    signature = f"{source}|{medium}|{campaign}|{property_id or ''}|{traffic_type}"
     session_key = f"dwelyx_click_logged::{signature}"
     if not st.session_state.get(session_key):
         try:
@@ -267,6 +286,7 @@ def _render_dwelyx_redirect() -> None:
                     medium=medium,
                     campaign=campaign,
                     property_id=property_id,
+                    traffic_type=traffic_type,
                 )
             )
             st.session_state[session_key] = True
@@ -275,7 +295,10 @@ def _render_dwelyx_redirect() -> None:
             pass
 
     st.title("Opening Dwelyx")
-    st.write("You are being sent to the full owner-finance marketplace.")
+    if traffic_type == TEST_TRAFFIC:
+        st.info("Test link opened. This click is marked as TEST and excluded from live buyer metrics.")
+    else:
+        st.write("You are being sent to the full owner-finance marketplace.")
     st.link_button(
         "Continue to Dwelyx",
         destination,
@@ -329,15 +352,17 @@ def _render_channel_center(storage: Storage) -> None:
     selected_row = next(
         row for row in links if row["Channel"] == selected_channel_name
     )
+    live_tracking_url = selected_row["Tracked Dwelyx link"]
     st.text_input(
-        "Copy this channel's tracked Dwelyx link",
-        value=selected_row["Tracked Dwelyx link"],
+        "Copy this channel's LIVE tracked Dwelyx link",
+        value=live_tracking_url,
     )
     st.link_button(
-        "Test This Channel Link — records one click",
-        selected_row["Tracked Dwelyx link"],
+        "Test This Channel Link — records TEST click",
+        _test_tracking_url(live_tracking_url),
         type="primary",
     )
+    st.caption("Test-link clicks are kept for diagnostics but excluded from live buyer metrics and optimization decisions.")
 
     st.subheader(f"Complete {channel_count}-channel link sheet")
     link_table = pd.DataFrame(links)
@@ -357,7 +382,7 @@ def _render_channel_center(storage: Storage) -> None:
         mime="text/csv",
     )
     st.info(
-        "Use the matching link in each channel. For a sign or QR-code campaign, use the Property Landing Page link and give the campaign a specific name such as saltville_signs_august_2026."
+        "Use the matching live link in each channel. For a sign or QR-code campaign, use the Property Landing Page link and give the campaign a specific name such as saltville_signs_august_2026."
     )
     st.markdown(
         f"[Open the {channel_count}-Channel Marketing Analytics dashboard](?analytics=1)"
@@ -368,7 +393,7 @@ def _render_click_analytics(storage: Storage) -> None:
     channel_count = len(CHANNELS)
     st.title(f"{channel_count}-Channel Marketing Analytics")
     st.caption(
-        f"See which of the {channel_count} channels, campaigns, and properties send buyers into Dwelyx."
+        f"See which of the {channel_count} channels, campaigns, and properties send real buyers into Dwelyx."
     )
     days = st.selectbox(
         "Reporting window",
@@ -378,10 +403,46 @@ def _render_click_analytics(storage: Storage) -> None:
     )
 
     try:
-        events = ClickAnalyticsStore(st.secrets).list_recent(days)
+        all_events = ClickAnalyticsStore(st.secrets).list_recent(
+            days,
+            include_test=True,
+            include_unclassified=True,
+        )
     except AnalyticsError as exc:
         st.error(str(exc))
         return
+
+    counts = traffic_type_counts(all_events)
+    traffic_view = st.selectbox(
+        "Traffic shown in the dashboard",
+        [
+            "Live buyer traffic",
+            "Live + unclassified legacy traffic",
+            "All traffic including tests",
+        ],
+        index=0,
+    )
+    if traffic_view == "Live buyer traffic":
+        events = [event for event in all_events if event.traffic_type == LIVE_TRAFFIC]
+    elif traffic_view == "Live + unclassified legacy traffic":
+        events = [event for event in all_events if event.traffic_type != TEST_TRAFFIC]
+    else:
+        events = list(all_events)
+
+    status_columns = st.columns(3)
+    status_columns[0].metric("Live buyer clicks", counts[LIVE_TRAFFIC])
+    status_columns[1].metric("Test clicks", counts[TEST_TRAFFIC])
+    status_columns[2].metric("Unclassified legacy clicks", counts[UNCLASSIFIED_TRAFFIC])
+
+    if counts[TEST_TRAFFIC]:
+        st.info(
+            f"{counts[TEST_TRAFFIC]} test click(s) are stored for diagnostics and excluded from live metrics by default."
+        )
+    if counts[UNCLASSIFIED_TRAFFIC]:
+        st.warning(
+            f"{counts[UNCLASSIFIED_TRAFFIC]} older click(s) were recorded before traffic classification existed. "
+            "They are labeled UNCLASSIFIED and excluded from live metrics unless you explicitly include them."
+        )
 
     scorecard = channel_scorecard(events)
     mapped_clicks = sum(row.clicks for row in scorecard)
@@ -391,7 +452,7 @@ def _render_click_analytics(storage: Storage) -> None:
     top_channel = top_row.channel.name if top_row.clicks else "No traffic yet"
 
     columns = st.columns(4)
-    columns[0].metric("Tracked clicks", mapped_clicks)
+    columns[0].metric("Displayed tracked clicks", mapped_clicks)
     columns[1].metric(
         "Active channels",
         f"{active_channels} of {channel_count}",
@@ -409,11 +470,14 @@ def _render_click_analytics(storage: Storage) -> None:
     )
 
     if not events:
-        st.info(
-            "No tracked Dwelyx clicks have been recorded in this reporting window yet."
-        )
+        if all_events:
+            st.info("No clicks match the selected traffic classification. Live buyer metrics remain at zero until a verified live click arrives.")
+        else:
+            st.info(
+                "No tracked Dwelyx clicks have been recorded in this reporting window yet."
+            )
         st.caption(
-            f"Use links from the {channel_count}-Channel Link Center. Each buyer click is recorded before Dwelyx opens."
+            f"Use live links from the {channel_count}-Channel Link Center. Each buyer click is classified before Dwelyx opens."
         )
         st.markdown(
             f"[Open the {channel_count}-Channel Link Center](?channel_center=1)"
@@ -426,7 +490,7 @@ def _render_click_analytics(storage: Storage) -> None:
         event.occurred_at >= now - timedelta(days=7)
         for event in events
     )
-    st.caption(f"Clicks recorded in the last 7 days: {seven_day_clicks}")
+    st.caption(f"Displayed clicks recorded in the last 7 days: {seven_day_clicks}")
 
     campaign_rows = [
         {
@@ -476,6 +540,7 @@ def _render_click_analytics(storage: Storage) -> None:
                 "Date and time (UTC)": event.occurred_at.strftime(
                     "%Y-%m-%d %H:%M:%S"
                 ),
+                "Traffic": event.traffic_type.title(),
                 "Channel": channel_name(event.medium),
                 "Campaign": event.campaign.replace("_", " ").title(),
                 "Property": properties.get(
