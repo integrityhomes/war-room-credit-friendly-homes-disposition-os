@@ -3,12 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from cfh_disposition.commandcore_offer_engine import (
-    OfferAssumptions,
-    OfferDealInput,
-    analyze_deal,
-    money,
-)
+from cfh_disposition.commandcore_offer_engine import OfferAssumptions, OfferDealInput, analyze_deal, money
 
 
 EXIT_MODES = ["Auto", "Slow Flip Only", "Wholesale Only"]
