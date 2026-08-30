@@ -84,6 +84,14 @@ def verify_owner_pin(supplied: str) -> bool:
     return bool(expected and supplied and supplied == expected)
 
 
+def open_deal(deal_id: str, *, key: str) -> None:
+    if not deal_id:
+        return
+    if st.button("Open Unified Deal Record", key=key, use_container_width=True):
+        st.session_state["commandcore_selected_deal_id"] = deal_id
+        st.switch_page("pages/45_CommandCore_Deal_Record.py")
+
+
 def save_decision(
     *,
     entity: str,
@@ -100,8 +108,6 @@ def save_decision(
     deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
     history_external_id = f"owner-decision-{entity}-{record_id}"
 
-    # Write deterministic permanent history first. If the record-state write fails,
-    # a retry updates this same activity instead of creating a duplicate or losing history.
     upsert(
         "activities",
         {
@@ -140,11 +146,30 @@ def save_decision(
     upsert(entity, updated)
 
 
+def render_supporting_details(entity: str, record: dict[str, Any]) -> None:
+    with st.expander("Review supporting details"):
+        if entity == "offers":
+            terms = record.get("terms")
+            if isinstance(terms, dict):
+                facts = terms.get("facts")
+                if isinstance(facts, dict):
+                    st.json(facts, expanded=False)
+        else:
+            facts = record.get("facts")
+            if isinstance(facts, dict):
+                st.json(facts, expanded=False)
+            template_reference = record.get("approved_template_reference")
+            if isinstance(template_reference, dict):
+                st.caption("Approved legal template reference")
+                st.json(template_reference, expanded=False)
+
+
 def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
     record_id = text(record.get("id"))
     deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
     deal = deals_by_id.get(deal_id, {})
-    title = text(deal.get("title")) or text(record.get("name")) or f"{entity.title()} approval"
+    deal_title = text(deal.get("title")) or "Unlinked deal"
+    title = deal_title if deal_id else text(record.get("name")) or f"{entity.title()} approval"
     amount = record.get("amount")
     status = text(record.get("status"))
 
@@ -153,26 +178,17 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
         c1, c2, c3 = st.columns(3)
         c1.caption(f"Type: {entity[:-1] if entity.endswith('s') else entity}")
         c2.caption(f"Status: {status}")
-        c3.caption(f"Deal ID: {deal_id or 'Not linked'}")
+        c3.caption(f"Deal: {deal_title}")
+        if deal_id:
+            open_deal(deal_id, key=f"open-deal-{entity}-{record_id}")
         if amount not in (None, ""):
             st.metric("Draft amount", f"${float(amount):,.0f}")
 
         if entity == "offers":
             st.warning("Approving this records owner approval only. It does not send the offer or bind the company.")
-            terms = record.get("terms")
-            if isinstance(terms, dict):
-                facts = terms.get("facts")
-                if isinstance(facts, dict):
-                    st.json(facts, expanded=False)
         else:
             st.info("This approval records your decision only. It does not sign, send, or externally execute anything.")
-            facts = record.get("facts")
-            if isinstance(facts, dict):
-                st.json(facts, expanded=False)
-            template_reference = record.get("approved_template_reference")
-            if isinstance(template_reference, dict):
-                st.caption("Approved legal template reference")
-                st.json(template_reference, expanded=False)
+        render_supporting_details(entity, record)
 
         owner_name = st.selectbox(
             "Decision maker",
@@ -182,7 +198,7 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
         reason = st.text_input(
             "Decision note (optional)",
             key=f"reason-{entity}-{record_id}",
-            placeholder="Example: Approved offer amount; proceed to the next internal step.",
+            placeholder="Example: Approved; proceed to the next internal step.",
         )
         pin = st.text_input(
             "Owner approval PIN",
@@ -234,17 +250,21 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
 
 
 def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
+    record_id = text(record.get("id"))
     deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
     deal = deals_by_id.get(deal_id, {})
-    title = text(deal.get("title")) or text(record.get("name")) or "Contract preparation"
+    deal_title = text(deal.get("title")) or "Unlinked deal"
+    title = deal_title if deal_id else text(record.get("name")) or "Contract preparation"
     with st.container(border=True):
         st.markdown(f"#### {title}")
-        st.error("Blocked: an approved legal contract template is required before this can become an owner-approval item.")
-        st.caption(f"Deal ID: {deal_id or 'Not linked'}")
+        st.error("An approved legal contract template is required before this can become an owner-approval item.")
+        if deal_id:
+            open_deal(deal_id, key=f"open-blocked-deal-{record_id}")
         facts = record.get("facts")
         if isinstance(facts, dict):
-            st.json(facts, expanded=False)
-        st.caption("This item cannot be approved here. No legal terms will be generated, changed, signed, or sent automatically.")
+            with st.expander("Review supporting details"):
+                st.json(facts, expanded=False)
+        st.caption("This item cannot be approved from this queue yet.")
 
 
 require_password()
@@ -253,7 +273,12 @@ if st.sidebar.button("Log out", key="owner_approval_logout"):
     st.rerun()
 
 st.title("Owner Approval Queue")
-st.caption("One place for Shawn and Sabrina to review consequential CommandCore decisions before anything external happens.")
+st.caption("Review decisions that specifically require Shawn or Sabrina before the workflow can continue.")
+nav_left, nav_right = st.columns(2)
+with nav_left:
+    st.page_link("pages/00_CommandCore.py", label="← Command Center", use_container_width=True)
+with nav_right:
+    st.page_link("pages/45_CommandCore_Deal_Record.py", label="Unified Deal Record", use_container_width=True)
 
 if not str(st.secrets.get("OWNER_APPROVAL_PIN", "")).strip():
     st.warning(
@@ -274,31 +299,35 @@ except RuntimeError as exc:
 deals_by_id = {text(record.get("id")): record for record in deals if text(record.get("id"))}
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Pending approvals", len(offers) + len(documents))
-m2.metric("Offer decisions", len(offers))
-m3.metric("Document / closing decisions", len(documents))
-m4.metric("Legal template blockers", len(legal_blockers))
+m1.metric("Needs my decision", len(offers) + len(documents))
+m2.metric("Offers", len(offers))
+m3.metric("Documents / closing", len(documents))
+m4.metric("Blocked", len(legal_blockers))
 
-if legal_blockers:
-    st.subheader("Blocked contract preparation")
-    for item in legal_blockers:
-        render_legal_template_blocker(item, deals_by_id)
+decision_tab, blocked_tab = st.tabs(["Needs My Decision", "Blocked / Needs Setup"])
 
-if not offers and not documents:
-    st.success("No owner-gated approvals are waiting right now.")
-else:
-    if offers:
-        st.subheader("Offers")
-        for item in offers:
-            render_item("offers", item, deals_by_id)
+with decision_tab:
+    if not offers and not documents:
+        st.success("No owner decisions are waiting right now.")
+    else:
+        if offers:
+            st.subheader("Offers")
+            for item in offers:
+                render_item("offers", item, deals_by_id)
+        if documents:
+            st.subheader("Contracts, title & closing")
+            for item in documents:
+                render_item("documents", item, deals_by_id)
 
-    if documents:
-        st.subheader("Contracts, title & closing")
-        for item in documents:
-            render_item("documents", item, deals_by_id)
+with blocked_tab:
+    if not legal_blockers:
+        st.success("No legal-template blockers are waiting right now.")
+    else:
+        st.subheader("Needs setup before owner approval")
+        for item in legal_blockers:
+            render_legal_template_blocker(item, deals_by_id)
 
 st.divider()
 st.caption(
-    "Approval in this queue never sends a message, signs a contract, changes legal terms, moves money, changes bank data, "
-    "or starts an external transaction. Those actions require their own controlled next step."
+    "Approval in this queue records the owner's decision only. Any later external step remains controlled separately."
 )
