@@ -5,6 +5,7 @@ from typing import Any
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Deal Record", page_icon="📂", layout="wide")
@@ -94,7 +95,7 @@ def show_related_table(entity: str, rows: list[dict[str, Any]]) -> None:
         "tasks": ["title", "status", "assigned_to", "due_at", "updated_at"],
         "communications": ["channel", "direction", "summary", "status", "created_at"],
         "offers": ["amount", "status", "terms", "created_at"],
-        "documents": ["name", "document_type", "status", "created_at"],
+        "documents": ["name", "document_type", "version", "status", "created_at"],
         "transactions": ["transaction_type", "amount", "status", "created_at"],
         "activities": ["activity_type", "summary", "created_at"],
     }
@@ -368,7 +369,16 @@ with offers_tab:
     show_related_table("offers", related["offers"])
 
 with closing_tab:
-    st.markdown("### Documents")
+    render_contract_workspace(
+        deal=deal,
+        deal_id=deal_id,
+        documents=related["documents"],
+        tasks=related["tasks"],
+        save_related=save_related,
+        create_work_request=create_work_request,
+        get_supabase=get_supabase,
+    )
+    st.markdown("### All Documents")
     show_related_table("documents", related["documents"])
     st.markdown("### Closing / Transactions")
     show_related_table("transactions", related["transactions"])
