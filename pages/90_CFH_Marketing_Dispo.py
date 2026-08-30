@@ -42,10 +42,19 @@ from cfh_disposition.simple_flow import (
 from cfh_disposition.storage import StorageError, SupabaseSettings, build_storage
 
 st.set_page_config(
-    page_title="Credit Friendly Homes Disposition OS",
+    page_title="CommandCore Marketing & Dispo",
     page_icon="🏠",
     layout="wide",
 )
+
+WORKFLOW_LABELS = {
+    "Simple Marketing Flow": "Marketing Home",
+    "Property Intake": "Add Property",
+    "Campaign Readiness": "Prepare Campaign",
+    "Campaign Launch Center": "Launch Marketing",
+    "More Tools": "Advanced Tools",
+    "System Setup": "System Setup",
+}
 
 
 def require_password() -> None:
@@ -58,8 +67,8 @@ def require_password() -> None:
     if st.session_state.get("authenticated"):
         return
 
-    st.title("Credit Friendly Homes Disposition OS")
-    st.caption("Private internal access")
+    st.title("CommandCore Marketing & Dispo")
+    st.caption("Credit Friendly Homes marketing workspace")
     with st.form("login_form"):
         submitted_password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -127,7 +136,7 @@ def navigate(page_name: str, *, property_label: str = "") -> None:
         st.session_state.launch_center_property = property_label
     # Streamlit does not allow changing a widget-backed session-state key
     # after that widget has been created in the current run. Queue the
-    # destination and apply it before the sidebar radio is instantiated.
+    # destination and apply it before the workflow selector is instantiated.
     st.session_state.pending_main_navigation = page_name
     st.rerun()
 
@@ -153,8 +162,8 @@ def render_flow_step(step, column) -> None:
 
 
 def render_simple_marketing_flow() -> None:
-    st.subheader(f"Simple {len(CHANNELS)}-Channel Marketing Flow")
-    st.caption("Choose the property, prepare the campaign, and launch the marketing. That is the full operating path.")
+    st.subheader("Marketing Home")
+    st.caption("Property → Prepare Campaign → Launch Marketing. CommandCore keeps the deeper channel tools underneath this path.")
 
     options = property_options()
     if not options:
@@ -193,7 +202,7 @@ def render_simple_marketing_flow() -> None:
         render_flow_step(step, column)
 
     if flow.complete:
-        st.success("The property, campaign, and all 15 property marketing channels are in place.")
+        st.success("The property, campaign, and all property marketing channels are in place.")
     else:
         st.info(f"Next action: {flow.next_step.detail}")
 
@@ -206,21 +215,22 @@ def render_simple_marketing_flow() -> None:
     with st.expander("Detailed marketing tools"):
         st.page_link(
             "pages/24_15_Channel_Campaign_Cadence_Refresh.py",
-            label="Open 15-Channel Refresh Center",
+            label="Campaign Refresh",
         )
         st.page_link(
             "pages/19_Dwelyx_Results_Attribution.py",
-            label="Open Dwelyx Results",
+            label="Buyer Results",
         )
         st.page_link(
             "pages/23_Daily_Executive_Disposition_Command.py",
-            label="Open Executive Command Center",
+            label="Disposition Performance",
         )
+        st.caption("Dwelyx live connection work remains separate and does not block CommandCore marketing setup.")
 
 
 def render_property_intake(settings: SupabaseSettings) -> None:
     st.subheader("Step 1 — Add an Owner-Finance Property")
-    st.info("This central property record is the only place price, down payment, monthly payment, bedrooms, and availability may be changed. Downstream marketing is read-only and must regenerate from this record.")
+    st.info("This property record is the source of truth for price, down payment, monthly payment, bedrooms, and availability. Marketing reads these facts instead of asking the team to re-enter them.")
     if not settings.configured:
         st.warning("Demo mode is active. Connect Supabase before entering real property information.")
 
@@ -317,10 +327,10 @@ def render_campaign_readiness(
     if plan.can_launch:
         st.success("Property facts passed the marketing readiness check.")
     else:
-        st.error("Marketing is blocked. Fix these items in More Tools → Record Manager:")
+        st.error("Marketing is blocked. Fix these items in Advanced Tools → Property Records:")
         for error in plan.validation.errors:
             st.write(f"- {error}")
-        if st.button("Open Record Manager", type="primary"):
+        if st.button("Open Property Records", type="primary"):
             navigate("More Tools")
         return
 
@@ -342,7 +352,7 @@ def render_campaign_readiness(
         st.info(f"AI campaign writer is connected using {campaign_settings.model}.")
         if st.button("Generate Fresh Campaign Package", type="primary"):
             try:
-                with st.spinner("Creating and checking the 15-channel property campaign..."):
+                with st.spinner("Creating and checking the property campaign..."):
                     package = generate_ai_campaign(selected, tracked_dwelyx_link, campaign_settings)
                 st.session_state[campaign_key] = package.model_dump(mode="json")
                 st.session_state[campaign_mode_key] = "AI generated — fact guard passed"
@@ -386,12 +396,13 @@ def render_campaign_readiness(
         ]
         st.dataframe(pd.DataFrame(launch_rows), use_container_width=True, hide_index=True)
 
-    if st.button(f"Continue to {len(CHANNELS)}-Channel Launch", type="primary"):
+    if st.button("Continue to Launch Marketing", type="primary"):
         navigate("Campaign Launch Center", property_label=selected_name)
 
 
 def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
     st.write("### Dwelyx Traffic Hub")
+    st.caption("Dwelyx integration is separate from the normal CommandCore marketing workflow and can be connected later.")
     st.link_button("Open Dwelyx", dwelyx_url, type="primary")
     left, right = st.columns(2)
     source = left.selectbox(
@@ -424,7 +435,8 @@ def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
 
 
 def render_more_tools(storage, dwelyx_url: str) -> None:
-    st.subheader("More Tools")
+    st.subheader("Advanced Marketing Tools")
+    st.caption("Normal daily marketing should start from Marketing Home. Use these tools only when you need deeper control or troubleshooting.")
     tool = st.selectbox("Choose a tool", MORE_TOOL_OPTIONS, key="advanced_tool")
     if tool == "Record Manager":
         render_record_manager(storage)
@@ -439,17 +451,17 @@ def render_more_tools(storage, dwelyx_url: str) -> None:
     with links[0]:
         st.page_link(
             "pages/24_15_Channel_Campaign_Cadence_Refresh.py",
-            label="15-Channel Refresh",
+            label="Campaign Refresh",
         )
     with links[1]:
         st.page_link(
             "pages/19_Dwelyx_Results_Attribution.py",
-            label="Dwelyx Results",
+            label="Buyer Results",
         )
     with links[2]:
         st.page_link(
             "pages/23_Daily_Executive_Disposition_Command.py",
-            label="Executive Command",
+            label="Disposition Performance",
         )
 
 
@@ -459,12 +471,17 @@ def render_system_setup(
     dwelyx_url: str,
 ) -> None:
     st.subheader("System Setup")
+    st.caption("Technical connection details live here instead of in the normal marketing workspace.")
+    if st.button("Refresh Saved Records"):
+        load_records(force=True)
+        st.rerun()
     st.success("App password is configured.")
     if settings.configured:
         st.success("Supabase storage is connected.")
     else:
         st.warning("Supabase is not connected. The app is using fictional demo data in memory.")
-    st.success(f"Supported buyer traffic points to {dwelyx_url}")
+    st.info("Dwelyx live connection is postponed. CommandCore marketing setup can continue without it.")
+    st.caption(f"Configured Dwelyx destination: {dwelyx_url}")
     if campaign_settings.configured:
         st.success(f"OpenAI is connected using {campaign_settings.model}.")
     else:
@@ -487,18 +504,14 @@ if render_public_request(storage):
 require_password()
 load_records()
 
-st.title("Credit Friendly Homes Disposition OS")
-st.caption("Simple property marketing across 15 property channels plus buyer-acquisition channels, with supported buyer paths leading to Dwelyx.")
+st.title("CommandCore Marketing & Dispo")
+st.caption("Run Credit Friendly Homes property marketing from one simple workflow. Advanced channel and system tools stay out of the daily path.")
 
 storage = get_storage()
 settings = SupabaseSettings.from_mapping(st.secrets)
 dwelyx_url = dwelyx_base_url(st.secrets)
 campaign_settings = CampaignFactorySettings.from_mapping(st.secrets)
 
-st.sidebar.success(f"Storage: {storage.mode}")
-if st.sidebar.button("Refresh saved records"):
-    load_records(force=True)
-    st.rerun()
 if st.sidebar.button("Log out"):
     st.session_state.authenticated = False
     st.rerun()
@@ -508,12 +521,15 @@ if pending_navigation in PRIMARY_NAVIGATION:
     st.session_state.main_navigation = pending_navigation
 if st.session_state.get("main_navigation") not in PRIMARY_NAVIGATION:
     st.session_state.main_navigation = PRIMARY_NAVIGATION[0]
-page = st.sidebar.radio(
-    "Marketing Workflow",
-    PRIMARY_NAVIGATION,
-    key="main_navigation",
-)
-st.sidebar.caption("Use the first four screens for normal daily work. More Tools is optional.")
+
+with st.expander("Jump to a marketing step or advanced tool", expanded=False):
+    page = st.selectbox(
+        "Go to",
+        PRIMARY_NAVIGATION,
+        key="main_navigation",
+        format_func=lambda value: WORKFLOW_LABELS.get(value, value),
+    )
+    st.caption("Most daily work starts and continues from Marketing Home automatically.")
 
 if st.session_state.get("storage_error"):
     st.error(st.session_state.storage_error)
