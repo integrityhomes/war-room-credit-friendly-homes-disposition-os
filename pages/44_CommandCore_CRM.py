@@ -5,6 +5,7 @@ from typing import Any
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_agent_finder_ui import render_agent_finder
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore CRM", page_icon="🏠", layout="wide")
@@ -402,6 +403,14 @@ def manage_records() -> None:
                 st.session_state["commandcore_selected_deal_id"] = text(selected.get("id"))
                 st.switch_page("pages/45_CommandCore_Deal_Record.py")
         if entity == "contacts":
+            if selected and text(selected.get("id")):
+                render_agent_finder(
+                    contact=selected,
+                    deals=load_records("deals"),
+                    properties=load_records("properties"),
+                    save_record=save_record,
+                    secrets=st.secrets,
+                )
             saved = contact_form(selected)
         elif entity == "properties":
             saved = property_form(selected)
