@@ -37,6 +37,7 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "app.py" = ["E501"]
+"pages/44_CommandCore_CRM.py" = ["E501"]
 "pages/90_CFH_Marketing_Dispo.py" = ["E501"]
 "src/cfh_disposition/automatic_launch.py" = ["E501", "UP037"]
 "src/cfh_disposition/buyer_intent.py" = ["F401"]
