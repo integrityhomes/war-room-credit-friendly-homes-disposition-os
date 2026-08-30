@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
