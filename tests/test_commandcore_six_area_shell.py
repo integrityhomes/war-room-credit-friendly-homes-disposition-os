@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 APPROVED_AREAS = (
     "Home / Command Center",
     "Leads & CRM",
