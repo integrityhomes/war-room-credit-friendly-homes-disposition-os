@@ -10,6 +10,7 @@ from docx import Document
 from cfh_disposition.commandcore_offer_engine import OfferDealInput, analyze_deal
 from cfh_disposition.contract_generation_pipeline import generate_and_store_contract
 
+from .communications import prepare_follow_up
 from .crm_staging import preview_fixture_commit, stage_fixture_rows
 from .fixtures import FIXTURE_FAMILY, FIXTURE_SOURCE, load_fixture_family
 from .mode import HarnessMode, parse_mode
@@ -60,7 +61,9 @@ def _fixture_template_bytes() -> bytes:
     document.add_paragraph("Property: {{ PROPERTY_ADDRESS }}")
     document.add_paragraph("Seller: {{ SELLER_NAME }}")
     document.add_paragraph("Purchase price: {{ SALES_PRICE }}")
-    document.add_paragraph("Insurance: Seller shall maintain insurance under the approved included-insurance template.")
+    document.add_paragraph(
+        "Insurance: Seller shall maintain insurance under the approved included-insurance template."
+    )
     document.add_paragraph("[[AMORTIZATION_TABLE]]")
     buffer = BytesIO()
     document.save(buffer)
@@ -217,13 +220,20 @@ def run_contract_no_sign(mode: str | HarnessMode | None = None) -> HarnessReport
     }
     contract_send = bus.request(
         ActionType.CONTRACT_SEND,
-        {"document_id": document_record["id"], "document_version": document_record["version"], "to": fixture["contact"]["email"]},
+        {
+            "document_id": document_record["id"],
+            "document_version": document_record["version"],
+            "to": fixture["contact"]["email"],
+        },
         deal=deal,
         owner_approval=fixture["approval"],
     )
     contract_sign = bus.request(
         ActionType.CONTRACT_SIGN,
-        {"document_id": document_record["id"], "document_version": document_record["version"]},
+        {
+            "document_id": document_record["id"],
+            "document_version": document_record["version"],
+        },
         deal=deal,
         owner_approval=fixture["approval"],
     )
@@ -298,6 +308,57 @@ def run_crm_stage_no_commit(mode: str | HarnessMode | None = None) -> HarnessRep
     )
 
 
+def run_communications_followup_no_send(
+    mode: str | HarnessMode | None = None,
+) -> HarnessReport:
+    fixture = load_fixture_family()
+    deal = fixture["deal"]
+    bus = SideEffectBus(mode)
+    prepared = prepare_follow_up(fixture)
+    task = prepared["task"]
+    reply = prepared["reply_draft"]
+
+    task_commit = bus.request(
+        ActionType.CRM_COMMIT,
+        {"record_type": "task", "record_id": task["id"], "record": task},
+        deal=deal,
+        owner_approval=fixture["approval"],
+    )
+    send_type = ActionType.SMS_SEND if reply["channel"] == "sms" else ActionType.EMAIL_SEND
+    send = bus.request(
+        send_type,
+        {
+            "communication_id": reply["id"],
+            "to": reply["to"],
+            "body": reply["body"],
+            "deal_id": deal["id"],
+        },
+        deal=deal,
+        owner_approval=fixture["approval"],
+    )
+    passed = (
+        task["internal_only"] is True
+        and reply["internal_only"] is True
+        and task_commit.decision == "blocked"
+        and send.decision == "blocked"
+        and bus.provider_calls == 0
+    )
+    return HarnessReport(
+        scenario="communications_followup_no_send",
+        mode=bus.mode.value,
+        fixture_family=FIXTURE_FAMILY,
+        verdict="PASS" if passed else "FAIL",
+        provider_calls=bus.provider_calls,
+        actions=list(bus.records),
+        artifacts={
+            "inbound_communication": fixture["communication"],
+            "follow_up_task": task,
+            "reply_draft": reply,
+            "message_sent": False,
+        },
+    )
+
+
 def run_scenario(scenario: str, mode: str | HarnessMode | None = None) -> HarnessReport:
     if scenario == "offer_no_send":
         return run_offer_no_send(mode)
@@ -305,13 +366,30 @@ def run_scenario(scenario: str, mode: str | HarnessMode | None = None) -> Harnes
         return run_contract_no_sign(mode)
     if scenario == "crm_stage_no_commit":
         return run_crm_stage_no_commit(mode)
+    if scenario == "communications_followup_no_send":
+        return run_communications_followup_no_send(mode)
     raise ValueError(f"Unknown harness scenario: {scenario!r}")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a CommandCore Test & Simulation Harness scenario.")
-    parser.add_argument("--scenario", choices=("offer_no_send", "contract_no_sign", "crm_stage_no_commit"), required=True)
-    parser.add_argument("--mode", choices=tuple(mode.value for mode in HarnessMode), default=HarnessMode.SIMULATION.value)
+    parser = argparse.ArgumentParser(
+        description="Run a CommandCore Test & Simulation Harness scenario."
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=(
+            "offer_no_send",
+            "contract_no_sign",
+            "crm_stage_no_commit",
+            "communications_followup_no_send",
+        ),
+        required=True,
+    )
+    parser.add_argument(
+        "--mode",
+        choices=tuple(mode.value for mode in HarnessMode),
+        default=HarnessMode.SIMULATION.value,
+    )
     parser.add_argument("--output-dir", default="artifacts")
     args = parser.parse_args()
 
