@@ -7,7 +7,15 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from supabase import create_client
 
-st.set_page_config(page_title="CommandCore Deal Workflow", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="CommandCore Deal Next Steps", page_icon="🔄", layout="wide")
+
+WORK_TYPE_LABELS = {
+    "deal_analysis": "Deal Analysis",
+    "prepare_offer": "Prepare Offer",
+    "prepare_contract": "Prepare Contract",
+    "title_closing": "Title / Closing",
+    "marketing_dispo": "Marketing / Dispo",
+}
 
 
 def require_password() -> None:
@@ -17,7 +25,7 @@ def require_password() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.title("CommandCore Deal Workflow")
+    st.title("CommandCore Deal Next Steps")
     with st.form("commandcore_deal_workflow_login"):
         password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -71,15 +79,36 @@ def is_open(record: dict[str, Any]) -> bool:
     }
 
 
+def work_type_label(value: Any) -> str:
+    key = text(value)
+    return WORK_TYPE_LABELS.get(key, key.replace("_", " ").title() or "Deal Work")
+
+
+def prep_status_label(value: Any) -> str:
+    status = text(value) or "waiting_for_readiness_check"
+    labels = {
+        "missing_information": "Needs Information",
+        "ready_for_specialist": "Ready to Work",
+        "waiting_for_readiness_check": "Checking Readiness",
+    }
+    return labels.get(status, status.replace("_", " ").title())
+
+
+def open_deal(deal_id: str, *, key: str) -> None:
+    if not deal_id:
+        return
+    if st.button("Open Deal", key=key, type="primary", use_container_width=True):
+        st.session_state["commandcore_selected_deal_id"] = deal_id
+        st.switch_page("pages/45_CommandCore_Deal_Record.py")
+
+
 require_password()
 if st.sidebar.button("Log out", key="commandcore_deal_workflow_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Deal Workflow")
-st.caption(
-    "See analysis, offer, contract, title/closing, and marketing/disposition work that has been started from a deal."
-)
+st.title("CommandCore Deal Next Steps")
+st.caption("See what each deal needs next, what is ready to move, and what is blocked by missing information.")
 
 try:
     tasks = [
@@ -89,7 +118,7 @@ try:
     ]
     deals = list_records("deals")
 except RuntimeError as exc:
-    st.error(f"Deal workflow data could not be loaded: {exc}")
+    st.error(f"Deal next-step data could not be loaded: {exc}")
     st.stop()
 
 deal_by_id = {text(deal.get("id")): deal for deal in deals}
@@ -101,19 +130,27 @@ contracts = [task for task in tasks if text(task.get("work_type")) == "prepare_c
 closing = [task for task in tasks if text(task.get("work_type")) == "title_closing"]
 
 metrics = st.columns(6)
-metrics[0].metric("Open lifecycle work", len(tasks))
-metrics[1].metric("Ready", len(ready))
-metrics[2].metric("Missing info", len(missing))
-metrics[3].metric("Unassigned", len(unassigned))
-metrics[4].metric("Contract prep", len(contracts))
-metrics[5].metric("Title / closing", len(closing))
+metrics[0].metric("Open Next Steps", len(tasks))
+metrics[1].metric("Ready to Work", len(ready))
+metrics[2].metric("Needs Information", len(missing))
+metrics[3].metric("Needs Owner", len(unassigned))
+metrics[4].metric("Contract Prep", len(contracts))
+metrics[5].metric("Title / Closing", len(closing))
 
 if missing:
-    st.warning(f"{len(missing)} deal workflow request(s) are blocked by missing deal information.")
+    st.warning(f"{len(missing)} deal next step(s) are waiting for missing deal information.")
 if unassigned:
-    st.warning(f"{len(unassigned)} deal workflow request(s) do not currently have an owner.")
+    st.warning(f"{len(unassigned)} deal next step(s) do not currently have an owner.")
 if not tasks:
-    st.success("No open deal lifecycle requests are waiting.")
+    with st.container(border=True):
+        st.markdown("### No deal next steps are waiting")
+        st.write("There is no open lifecycle work in the queue right now.")
+        left, right = st.columns(2)
+        if left.button("Open Deal Workspace", type="primary", use_container_width=True):
+            st.switch_page("pages/45_CommandCore_Deal_Record.py")
+        if right.button("Add New Lead", use_container_width=True):
+            st.switch_page("pages/44_CommandCore_CRM.py")
+        st.caption("New deal work will appear here automatically when it is started from a deal.")
     st.stop()
 
 status_filter = st.segmented_control(
@@ -122,8 +159,9 @@ status_filter = st.segmented_control(
     default="All",
 )
 work_filter = st.selectbox(
-    "Work type",
-    ["All", "deal_analysis", "prepare_offer", "prepare_contract", "title_closing", "marketing_dispo"],
+    "Next-step type",
+    ["All", *WORK_TYPE_LABELS],
+    format_func=lambda value: "All" if value == "All" else work_type_label(value),
 )
 
 filtered = tasks
@@ -140,20 +178,28 @@ for task in filtered:
     deal_id = text(links(task).get("deal_id") or task.get("deal_id"))
     deal = deal_by_id.get(deal_id, {})
     deal_name = text(deal.get("title")) or deal_id or "Unknown deal"
-    prep_status = text(task.get("prep_status")) or "waiting_for_readiness_check"
     with st.container(border=True):
-        top = st.columns([2, 1, 1])
-        top[0].markdown(f"**{deal_name}**")
-        top[1].write(text(task.get("title")) or text(task.get("work_type")) or "Lifecycle work")
-        top[2].write(prep_status.replace("_", " ").title())
-        st.caption(
-            f"Owner: {text(task.get('assigned_to')) or 'Unassigned'}  •  "
-            f"Priority: {text(task.get('priority')) or 'medium'}  •  "
-            f"Coordination: {text(task.get('coordination_status')) or 'pending'}"
-        )
+        st.markdown(f"#### {deal_name}")
+        top = st.columns([2, 1])
+        top[0].write(f"**Next step:** {text(task.get('title')) or work_type_label(task.get('work_type'))}")
+        top[1].write(f"**Status:** {prep_status_label(task.get('prep_status'))}")
+        owner = text(task.get("assigned_to")) or "Unassigned"
+        priority = (text(task.get("priority")) or "medium").title()
+        st.caption(f"Owner: {owner}  •  Priority: {priority}")
+
         missing_info = task.get("missing_information")
         if isinstance(missing_info, list) and missing_info:
-            st.write("Missing: " + ", ".join(text(item) for item in missing_info if text(item)))
+            st.warning("Missing information: " + ", ".join(text(item) for item in missing_info if text(item)))
+
+        if deal_id:
+            open_deal(deal_id, key=f"deal-next-step-{text(task.get('id')) or deal_id}")
+
+        coordination_status = text(task.get("coordination_status")) or "pending"
+        with st.expander("More details", expanded=False):
+            st.write(f"**Work type:** {work_type_label(task.get('work_type'))}")
+            st.write(f"**Coordination:** {coordination_status.replace('_', ' ').title()}")
+            if text(task.get("id")):
+                st.caption(f"Task ID: {text(task.get('id'))}")
 
 st.divider()
 st.caption(
