@@ -63,9 +63,9 @@ def load_uncovered_work(owner_id: str) -> dict[str, Any]:
 
 
 def member_label(member: dict[str, Any]) -> str:
-    name = str(member.get("name", "") or member.get("id", "")).strip()
+    name = str(member.get("name", "") or "").strip()
     member_id = str(member.get("id", "") or "").strip()
-    return f"{name} ({member_id})" if member_id and member_id != name else name
+    return name or member_id or "Unnamed team member"
 
 
 def iso_from_inputs(day_value: Any, time_value: Any) -> str:
@@ -91,11 +91,10 @@ def show_detection(detection: dict[str, Any]) -> None:
 
 
 def dispatch_label(dispatch: dict[str, Any]) -> str:
-    dispatch_id = str(dispatch.get("dispatch_id", "") or "").strip()
-    property_id = str(dispatch.get("property_id", "") or "No property ID").strip()
+    property_id = str(dispatch.get("property_id", "") or "Property not linked").strip()
     open_count = int(dispatch.get("open_item_count", 0) or 0)
     urgent = int(dispatch.get("urgent_count", 0) or 0)
-    return f"{property_id} • {dispatch_id} • {open_count} open • {urgent} urgent"
+    return f"{property_id} • {open_count} open • {urgent} urgent"
 
 
 require_password()
@@ -105,12 +104,17 @@ if st.sidebar.button("Log out", key="commandcore_coverage_logout"):
     st.rerun()
 
 st.title("CommandCore Coverage")
-st.caption("Detects missed shift takeovers and automatically finds the internal work that needs safe backup coverage.")
+st.caption("Check a shift takeover and safely route still-open internal work to an eligible backup when coverage is missed.")
 
 team = load_team()
 active_team = [member for member in team if member.get("active") is not False]
 if not active_team:
-    st.info("No active team members are available in the Team Registry yet.")
+    st.info("No active team members are available for coverage right now.")
+    left, right = st.columns(2)
+    if left.button("Review Team Health", type="primary", use_container_width=True):
+        st.switch_page("pages/40_CommandCore_Team_Health.py")
+    if right.button("Open Operations", use_container_width=True):
+        st.switch_page("pages/39_CommandCore_Operations_Hub.py")
     st.stop()
 
 selected_label = st.selectbox("Incoming team member", [member_label(member) for member in active_team])
@@ -140,7 +144,12 @@ handoff_status = str(detection.get("handoff_status", "") or "").lower()
 requires_attention = detection.get("requires_attention") is True
 
 if not requires_attention:
-    st.caption("No backup routing is needed right now.")
+    st.success("Coverage is okay. No backup routing is needed right now.")
+    left, right = st.columns(2)
+    if left.button("Open My Work", type="primary", use_container_width=True):
+        st.switch_page("pages/35_CommandCore_My_Work.py")
+    if right.button("Review Follow-Up & Pipeline", use_container_width=True):
+        st.switch_page("pages/46_CommandCore_Pipeline_Followup.py")
 else:
     recommendation = call_commandcore(
         "commandcore-coverage-escalation",
@@ -149,24 +158,21 @@ else:
     if recommendation.get("backup_available") is True:
         backup_name = str(recommendation.get("backup_owner_name", "") or "Designated backup")
         backup_id = str(recommendation.get("backup_owner_id", "") or "")
-        st.warning(f"Designated backup available: {backup_name}")
-        if backup_id:
-            st.caption(f"Backup owner ID: {backup_id}")
+        st.warning(f"Backup available: {backup_name}")
 
         uncovered = load_uncovered_work(owner_id)
         dispatches = uncovered.get("dispatches") if isinstance(uncovered, dict) else []
         dispatches = [item for item in dispatches if isinstance(item, dict)] if isinstance(dispatches, list) else []
 
         if not dispatches:
-            st.success("No still-open dispatches are currently assigned to this person.")
+            st.success("No still-open work is currently assigned to this person.")
         else:
-            st.subheader("Uncovered Work")
-            st.caption("CommandCore found these automatically. No dispatch ID entry is needed.")
+            st.subheader("Work Needing Coverage")
+            st.caption("CommandCore found this work automatically. Choose what should move to the backup.")
             st.dataframe(
                 [
                     {
                         "Property": item.get("property_id", ""),
-                        "Dispatch": item.get("dispatch_id", ""),
                         "Open": item.get("open_item_count", 0),
                         "Urgent": item.get("urgent_count", 0),
                         "Blocked": item.get("blocked_count", 0),
@@ -192,12 +198,21 @@ else:
                 if dispatch_label(item) in selected_dispatches
             }
 
+            with st.expander("Technical details", expanded=False):
+                st.write(f"Incoming owner ID: {owner_id or 'Not recorded'}")
+                st.write(f"Backup owner ID: {backup_id or 'Not recorded'}")
+                for item in dispatches:
+                    st.write(
+                        f"Dispatch {item.get('dispatch_id', '') or 'Not recorded'} — "
+                        f"Property {item.get('property_id', '') or 'Not linked'}"
+                    )
+
             st.caption(
                 "Applying coverage changes internal assignment only. It cannot approve a deal, change consent, alter readiness, authorize spending, change legal terms, or send anything externally."
             )
-            if st.button("Route selected uncovered work to backup", type="primary"):
+            if st.button("Route Selected Work to Backup", type="primary"):
                 if not selected_ids:
-                    st.error("Select at least one uncovered dispatch to route.")
+                    st.error("Select at least one work group to route.")
                 else:
                     success_count = 0
                     failure_count = 0
@@ -217,14 +232,16 @@ else:
                             failure_count += 1
                     load_uncovered_work.clear()
                     if success_count:
-                        st.success(f"Coverage reassignment requested for {success_count} dispatch(es).")
+                        st.success(f"Coverage reassignment requested for {success_count} work group(s).")
                     if failure_count:
-                        st.error(f"{failure_count} dispatch(es) could not be safely reassigned. No external action was taken.")
+                        st.error(f"{failure_count} work group(s) could not be safely reassigned. No external action was taken.")
     elif recommendation.get("escalation_required"):
-        st.error("No eligible designated backup is available. Manager review is required.")
+        st.error("No eligible backup is available. Manager review is required.")
         message = str(recommendation.get("recommended_action", "") or "").strip()
         if message:
             st.write(message)
+        if st.button("Open Coverage Exceptions", type="primary"):
+            st.switch_page("pages/37_CommandCore_Coverage_Exceptions.py")
 
 st.divider()
 st.caption(
