@@ -59,3 +59,28 @@ render_facebook_group_posting_center(
     st.secrets,
     dwelyx_base_url(st.secrets),
 )
+
+with st.expander("Facebook setup & supporting tools", expanded=False):
+    st.caption("Use these only when you need to maintain the group list, prepare copy variations, or review team assignments.")
+    import_col, variation_col, assignments_col = st.columns(3)
+    with import_col:
+        st.page_link(
+            "pages/8_Facebook_Group_Bulk_Import.py",
+            label="Add / Import Groups",
+            icon="📥",
+            use_container_width=True,
+        )
+    with variation_col:
+        st.page_link(
+            "pages/9_Facebook_Group_Variation_Pack.py",
+            label="Create Variation Pack",
+            icon="📝",
+            use_container_width=True,
+        )
+    with assignments_col:
+        st.page_link(
+            "pages/10_Facebook_Daily_Assignments.py",
+            label="Daily Assignments",
+            icon="📋",
+            use_container_width=True,
+        )
