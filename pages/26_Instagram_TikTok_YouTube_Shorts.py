@@ -20,7 +20,7 @@ from cfh_disposition.social_video_channels import (
 from cfh_disposition.storage import StorageError, build_storage
 
 st.set_page_config(
-    page_title="Instagram + TikTok + YouTube Shorts",
+    page_title="Social Video",
     page_icon="🎬",
     layout="wide",
 )
@@ -39,7 +39,7 @@ def require_password() -> None:
         st.stop()
     if st.session_state.get("authenticated"):
         return
-    st.title("Instagram + TikTok + YouTube Shorts")
+    st.title("Social Video")
     st.caption("Private internal access")
     with st.form("social_video_login"):
         submitted_password = st.text_input("App password", type="password")
@@ -58,13 +58,20 @@ def get_storage():
 
 
 require_password()
-st.title("Instagram Reels + TikTok + YouTube Shorts")
+st.title("Social Video")
 st.caption(
-    "One canonical social-video workspace for fact-locked creative, Dwelyx attribution, approval, and optional publication handoff."
+    "Choose a marketable property, review ready-to-post packages for Instagram, TikTok, and YouTube Shorts, then approve a handoff when a publication connection is available."
 )
-st.info(
-    "Each platform gets its own tracked Dwelyx link plus platform-specific titles, caption variations, hashtags, on-screen text, scripts, and posting notes. Property facts are read-only here."
-)
+with st.expander("How Social Video stays safe and trackable", expanded=False):
+    st.write(
+        "Each platform receives its own tracked buyer link plus platform-specific titles, captions, hashtags, on-screen text, scripts, and posting notes."
+    )
+    st.write(
+        "Property facts are read-only here. Price, terms, condition, and availability must come from the saved property record."
+    )
+    st.write(
+        "A publication handoff still requires an explicit operator confirmation and only confirms that the connected adapter accepted the package."
+    )
 
 try:
     properties = [
@@ -77,22 +84,27 @@ except StorageError as exc:
     st.stop()
 
 if not properties:
-    st.warning(
-        "No Ready to Launch or Marketing Live property is available for social promotion."
-    )
+    st.warning("No property is currently Ready to Launch or Marketing Live for social promotion.")
+    left, right = st.columns(2)
+    if left.button("Open Marketing Home", type="primary", use_container_width=True):
+        st.switch_page("pages/90_CFH_Marketing_Dispo.py")
+    if right.button("Review Properties", use_container_width=True):
+        st.switch_page("pages/01_Record_Manager.py")
     st.stop()
 
 property_options = {item.display_address or str(item.property_id): item for item in properties}
-selected_label = st.selectbox("Choose property", list(property_options))
+selected_label = st.selectbox("Property", list(property_options))
 selected = property_options[selected_label]
 
-campaign = st.text_input(
-    "Campaign name",
-    value=f"social_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower(),
-    help="The same campaign name is used across all three channels so the Results Center can compare performance cleanly.",
-).strip()
+default_campaign = f"social_{selected.city}_{selected.state}_{str(selected.property_id)[:8]}".lower()
+with st.expander("Campaign tracking details", expanded=False):
+    campaign = st.text_input(
+        "Campaign name",
+        value=default_campaign,
+        help="This tracking name is shared across the three platforms so Buyer Results can compare performance cleanly.",
+    ).strip()
 if not campaign:
-    st.warning("Enter a campaign name before creating the packages.")
+    st.warning("A campaign tracking name is required before creating the packages.")
     st.stop()
 
 link_rows = build_channel_links(
@@ -114,25 +126,24 @@ for channel_key, channel_name in SOCIAL_CHANNELS:
         )
     except SocialVideoPackageError as exc:
         st.error(f"Social fact guard blocked this property: {exc}")
-        st.info("Correct the property facts in Record Manager, then return to this page.")
+        st.info("Correct the saved property facts in Properties & Buyers, then return to Social Video.")
         st.stop()
 
 publish_settings = SocialPublishSettings.from_mapping(st.secrets)
 summary = st.columns(5)
 summary[0].metric("Property", selected.city or selected.state or "Saved property")
 summary[1].metric("Platforms", "3")
-summary[2].metric("Caption variations", "9 total")
-summary[3].metric("Attribution", "Separate by channel")
-summary[4].metric("Publish adapter", "Connected" if publish_settings.configured else "Not connected")
+summary[2].metric("Caption options", "9 total")
+summary[3].metric("Tracking", "By platform")
+summary[4].metric("Publishing", "Connected" if publish_settings.configured else "Manual final post")
 
 if publish_settings.configured:
     st.success(
-        "An approved social publication adapter is configured. A handoff still requires an operator confirmation for each platform."
+        "Social publishing is connected. Each platform still requires a person to review and confirm the exact package before handoff."
     )
 else:
-    st.warning(
-        "Automatic social publication is not connected. The complete posting pack remains usable for a manual final post. "
-        "To enable an approved adapter later, add SOCIAL_PUBLISH_WEBHOOK_URL in Streamlit Secrets."
+    st.info(
+        "Social publishing is not connected yet. The complete posting packages below can still be used for a manual final post."
     )
 
 st.write("### Ready-to-post packages")
@@ -148,7 +159,7 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
             disabled=True,
         )
         st.text_input(
-            "Tracked Dwelyx link",
+            "Tracked buyer link",
             value=package.tracked_link,
             key=f"link_{channel_key}",
             disabled=True,
@@ -200,7 +211,7 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
         st.write(f"**Call to action:** {package.call_to_action}")
 
         st.divider()
-        st.write("### Approval & publication handoff")
+        st.write("### Review & publish")
         variation_number = st.selectbox(
             "Approved caption variation",
             list(range(1, len(package.caption_variants) + 1)),
@@ -242,11 +253,11 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
                 st.error(f"Social publication handoff failed: {exc}")
 
         st.caption(
-            "If no publication adapter is connected, use the exact package above for the manual final post. "
+            "If no publication connection is available, use the exact package above for the manual final post. "
             "Keep the tracked link wherever the platform permits it so buyer activity remains attributable."
         )
 
-st.write("### Downloadable three-channel posting pack")
+st.write("### Download posting pack")
 posting_rows = []
 for channel_key, channel_name in SOCIAL_CHANNELS:
     package = packages[channel_key]
