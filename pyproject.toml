@@ -8,9 +8,12 @@ version = "0.2.0"
 description = "Owner-finance disposition, marketing, buyer growth, and compliance operating system."
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "docxtpl>=0.19,<1",
   "pandas>=2.2,<3",
   "pydantic>=2.8,<3",
   "pypdf>=5.0,<7",
+  "python-dateutil>=2.9,<3",
+  "python-docx>=1.1,<2",
   "requests>=2.32,<3",
   "streamlit>=1.42,<2",
   "supabase>=2.15,<3",
