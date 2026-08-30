@@ -84,7 +84,16 @@ def contact_form(existing: dict[str, Any]) -> dict[str, Any] | None:
         company = st.text_input("Company", value=text(existing.get("company")))
         notes = st.text_area("Notes", value=text(existing.get("notes")), height=120)
         if st.form_submit_button("Save contact", type="primary"):
-            return {**existing, "first_name": first, "last_name": last, "name": f"{first} {last}".strip(), "phone": phone, "email": email, "company": company, "notes": notes}
+            return {
+                **existing,
+                "first_name": first,
+                "last_name": last,
+                "name": f"{first} {last}".strip(),
+                "phone": phone,
+                "email": email,
+                "company": company,
+                "notes": notes,
+            }
     return None
 
 
@@ -102,7 +111,18 @@ def property_form(existing: dict[str, Any]) -> dict[str, Any] | None:
         parcel = st.text_input("Parcel / APN", value=text(existing.get("parcel_id")))
         notes = st.text_area("Property notes", value=text(existing.get("notes")), height=120)
         if st.form_submit_button("Save property", type="primary"):
-            return {**existing, "address": address, "city": city, "state": state, "zip": zip_code, "bedrooms": beds, "bathrooms": baths, "square_feet": sqft, "parcel_id": parcel, "notes": notes}
+            return {
+                **existing,
+                "address": address,
+                "city": city,
+                "state": state,
+                "zip": zip_code,
+                "bedrooms": beds,
+                "bathrooms": baths,
+                "square_feet": sqft,
+                "parcel_id": parcel,
+                "notes": notes,
+            }
     return None
 
 
@@ -141,22 +161,37 @@ if st.sidebar.button("Log out", key="commandcore_crm_logout"):
     st.rerun()
 
 st.title("CommandCore CRM")
-st.caption("The daily workspace for sellers, properties, and deals. Records save directly into the CommandCore CRM backbone.")
+st.caption(
+    "The daily workspace for sellers, properties, and deals. Records save directly into the CommandCore CRM backbone."
+)
 
-entity = st.segmented_control("Workspace", options=list(ENTITY_LABELS), format_func=lambda item: ENTITY_LABELS[item], default="deals")
+entity = st.segmented_control(
+    "Workspace",
+    options=list(ENTITY_LABELS),
+    format_func=lambda item: ENTITY_LABELS[item],
+    default="deals",
+)
 entity = entity or "deals"
 records = load_records(entity)
 
 search = st.text_input("Search", placeholder=f"Search {ENTITY_LABELS[entity].lower()}...").strip().lower()
 if search:
-    records = [record for record in records if search in " ".join(text(value).lower() for value in record.values())]
+    records = [
+        record
+        for record in records
+        if search in " ".join(text(value).lower() for value in record.values())
+    ]
 
 left, right = st.columns([0.38, 0.62], gap="large")
 with left:
     st.subheader(ENTITY_LABELS[entity])
     st.caption(f"{len(records)} active record(s)")
     options = {record_label(entity, record): record for record in records}
-    selected_label = st.radio("Open record", ["+ Create new", *options.keys()], label_visibility="collapsed")
+    selected_label = st.radio(
+        "Open record",
+        ["+ Create new", *options.keys()],
+        label_visibility="collapsed",
+    )
     selected = {} if selected_label == "+ Create new" else options[selected_label]
 
 with right:
@@ -164,6 +199,10 @@ with right:
     if selected:
         meta = [text(selected.get("source")), text(selected.get("external_id"))]
         st.caption(" • ".join(item for item in meta if item))
+    if entity == "deals" and selected and text(selected.get("id")):
+        if st.button("Open Unified Deal Record", type="primary", use_container_width=True):
+            st.session_state["commandcore_selected_deal_id"] = text(selected.get("id"))
+            st.switch_page("pages/45_CommandCore_Deal_Record.py")
     if entity == "contacts":
         saved = contact_form(selected)
     elif entity == "properties":
@@ -179,4 +218,7 @@ with right:
         st.error(text(result.get("error")) or "CommandCore could not save this record.")
 
 st.divider()
-st.caption("This workspace manages internal CRM records only. It does not send messages, move money, sign contracts, approve offers, or perform external actions.")
+st.caption(
+    "This workspace manages internal CRM records only. It does not send messages, move money, sign contracts, "
+    "approve offers, or perform external actions."
+)
