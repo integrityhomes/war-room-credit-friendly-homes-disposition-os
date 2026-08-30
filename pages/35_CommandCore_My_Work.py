@@ -357,7 +357,15 @@ c4.metric("High Priority", high_count)
 c5.metric("Reassigned", reassigned_count)
 
 if not filtered:
-    st.success("No work is currently assigned for this view.")
+    with st.container(border=True):
+        st.markdown("### You're caught up for this view")
+        st.write("There is no assigned CommandCore work here right now.")
+        next_left, next_right = st.columns(2)
+        if next_left.button("Review Follow-Up & Pipeline", type="primary", use_container_width=True):
+            st.switch_page("pages/46_CommandCore_Pipeline_Followup.py")
+        if next_right.button("Add New Lead", use_container_width=True):
+            st.switch_page("pages/44_CommandCore_CRM.py")
+        st.caption("CommandCore will place new assigned work here automatically when it needs human attention.")
     st.stop()
 
 st.subheader("What needs attention")
