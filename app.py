@@ -61,8 +61,6 @@ def render_commandcore_sidebar() -> None:
 storage = get_storage()
 if render_blog_request(storage):
     st.stop()
-if render_market_seo_public := False:
-    st.stop()
 if render_market_seo_request(storage):
     st.stop()
 if render_public_request(storage):
