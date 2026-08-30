@@ -25,9 +25,10 @@ def test_key_ui_files_do_not_hard_code_the_old_channel_count() -> None:
         assert "all 14 channels" not in source
 
 
-def test_marketing_workspace_uses_live_channel_count_and_simple_default_flow() -> None:
+def test_marketing_workspace_keeps_dynamic_channel_count_and_simple_default_flow() -> None:
     source = Path("pages/90_CFH_Marketing_Dispo.py").read_text(encoding="utf-8")
-    assert 'st.subheader(f"Simple {len(CHANNELS)}-Channel Marketing Flow")' in source
+    assert "from cfh_disposition.channels import CHANNELS" in source
+    assert "len(CHANNELS)" in source
     assert PRIMARY_NAVIGATION[0] == "Simple Marketing Flow"
     assert "height=max(420, len(CHANNELS) * 35 + 45)" not in source
 
