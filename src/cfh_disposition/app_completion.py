@@ -64,7 +64,12 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
         "Live result events require the Dwelyx server-side sender/shared-secret connection.",
     ),
     AppCompletion("pages/20_Vacant_Home_Disposition_Escalation.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Vacant-home disposition escalation workflow."),
-    AppCompletion("pages/21_CommandCore_Operator_Dashboard.py", "Tasks & Follow-Up", AppCompletionState.SUPPORT_TOOL, "Operator dashboard; fold into My Work/Operations during final UI pass."),
+    AppCompletion(
+        "pages/21_CommandCore_Operator_Dashboard.py",
+        "Tasks & Follow-Up",
+        AppCompletionState.COMPLETE,
+        "Compatibility redirect to canonical My Work; former Operator Dashboard is fully consolidated.",
+    ),
     AppCompletion("pages/21_Property_Terms_Test_Relaunch.py", "Management", AppCompletionState.DIAGNOSTIC, "Property terms/relaunch diagnostic; keep out of normal operator navigation."),
     AppCompletion("pages/22_Showing_to_Contract_Conversion.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Showing-to-contract conversion workflow."),
     AppCompletion("pages/23_Daily_Executive_Disposition_Command.py", "Management", AppCompletionState.SUPPORT_TOOL, "Executive disposition command support view."),
