@@ -5,21 +5,21 @@ def source() -> str:
     return Path("pages/47_CommandCore_Deal_Workflow_Queue.py").read_text(encoding="utf-8")
 
 
-def test_deal_next_steps_uses_business_language() -> None:
+def test_deal_work_queue_uses_business_language() -> None:
     page = source()
 
     for marker in (
-        'st.title("CommandCore Deal Next Steps")',
-        'metrics[0].metric("Open Next Steps"',
+        'st.title("CommandCore Deal Work Queue")',
+        'metrics[0].metric("Open Work"',
         'metrics[1].metric("Ready to Work"',
         'metrics[2].metric("Needs Information"',
         'metrics[3].metric("Needs Owner"',
-        '"Next-step type"',
+        '"Work type"',
     ):
         assert marker in page
 
 
-def test_deal_next_steps_opens_exact_deal() -> None:
+def test_deal_work_queue_opens_exact_deal() -> None:
     page = source()
 
     assert 'st.session_state["commandcore_selected_deal_id"] = deal_id' in page
@@ -35,11 +35,11 @@ def test_technical_coordination_details_are_secondary() -> None:
     assert 'Task ID:' in page
 
 
-def test_empty_deal_next_steps_has_clear_next_actions() -> None:
+def test_empty_deal_work_queue_has_clear_next_actions() -> None:
     page = source()
 
     for marker in (
-        'st.markdown("### No deal next steps are waiting")',
+        'st.markdown("### No deal work is waiting")',
         '"Open Deal Workspace"',
         'st.switch_page("pages/45_CommandCore_Deal_Record.py")',
         '"Add New Lead"',
