@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .date_formatting import portable_strftime
 from .storage import SupabaseSettings
 
 FACEBOOK_GROUP_BUCKET = "cfh-facebook-group-posting"
@@ -240,7 +241,7 @@ def facebook_group_post_status(
     else:
         message = (
             f"Do not repost this property to {group.name} yet. The group cooldown ends "
-            f"{next_eligible.strftime('%B %-d, %Y at %-I:%M %p ET')} "
+            f"{portable_strftime(next_eligible, '%B %-d, %Y at %-I:%M %p ET')} "
             f"({wait_days} day{'s' if wait_days != 1 else ''} remaining)."
         )
     return FacebookGroupPostStatus(

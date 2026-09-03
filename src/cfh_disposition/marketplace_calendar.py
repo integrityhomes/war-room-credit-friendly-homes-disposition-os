@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .date_formatting import portable_strftime
 from .storage import SupabaseSettings
 
 MARKETPLACE_BUCKET = "cfh-marketplace-ledger"
@@ -125,7 +126,7 @@ def marketplace_month_status(
         message = (
             f"Facebook Marketplace monthly limit reached: {used} of {monthly_limit} Homes for Sale or Rent "
             f"listings have been created. Deleted listings still count. New Marketplace ad creation unlocks "
-            f"{reset_at.strftime('%B %-d, %Y')} in {wait_days} day{'s' if wait_days != 1 else ''}."
+            f"{portable_strftime(reset_at, '%B %-d, %Y')} in {wait_days} day{'s' if wait_days != 1 else ''}."
         )
     elif duplicate:
         message = (
