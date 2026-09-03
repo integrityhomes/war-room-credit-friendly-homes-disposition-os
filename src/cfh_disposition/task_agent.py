@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .harness.mode import HarnessMode
-from .harness.side_effects import ActionType, SideEffectBus
+from .harness.side_effects import ActionType, Executor, SideEffectBus
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,10 +47,12 @@ def run_task_agent(
     work_type: str,
     command: str,
     mode: HarnessMode = HarnessMode.SIMULATION,
+    staging_executor: Executor | None = None,
+    production_executor: Executor | None = None,
 ) -> TaskAgentRun:
-    """Prepare exactly one internal task in simulation without writing production CRM."""
-    if mode is not HarnessMode.SIMULATION:
-        raise ValueError("The Command Center Task Agent is simulation-only in this slice.")
+    """Prepare exactly one internal task in simulation or CRM staging."""
+    if mode is HarnessMode.PRODUCTION:
+        raise ValueError("The Command Center Task Agent does not support production mode.")
 
     deal_id = _text(deal.get("id"))
     if not deal_id:
@@ -61,37 +63,44 @@ def run_task_agent(
         "external_id": _run_id(deal_id, work_type, command),
         "task_type": "deal_lifecycle_request",
         "work_type": work_type,
-        "title": f"Simulated {work_type.replace('_', ' ')} work",
+        "title": f"{'Simulated' if mode is HarnessMode.SIMULATION else 'Staged'} {work_type.replace('_', ' ')} work",
         "status": "open",
         "source": "commandcore-task-agent",
         "command_text": command,
         "normalized_command": _normalized_command(command),
         "requested_at": timestamp,
-        "coordination_status": "simulation",
+        "coordination_status": mode.value,
         "internal_only": True,
         "external_action_started": False,
         "approval_bypassed": False,
         "links": {"deal_id": deal_id},
     }
 
-    simulation_deal = {
+    internal_deal = {
         **deal,
         "internal_only": True,
         "external_action_started": False,
     }
-    bus = SideEffectBus(HarnessMode.SIMULATION)
+    bus = SideEffectBus(
+        mode,
+        staging_executor=staging_executor,
+        production_executor=production_executor,
+    )
     record = bus.request(
         ActionType.CRM_COMMIT,
         {"entity": "tasks", "record": task},
-        deal=simulation_deal,
+        deal=internal_deal,
     )
-    status = "simulated" if record.decision == "blocked" and bus.provider_calls == 0 else "failed"
+    if mode is HarnessMode.SIMULATION:
+        status = "simulated" if record.decision == "blocked" and bus.provider_calls == 0 else "failed"
+    else:
+        status = "staged" if record.decision == "staging_only" and bus.provider_calls == 1 else "failed"
     return TaskAgentRun(
         run_id=task["external_id"],
         deal_id=deal_id,
         work_type=work_type,
         command_text=command,
-        mode=HarnessMode.SIMULATION.value,
+        mode=mode.value,
         internal_only=True,
         external_action_started=False,
         task_preview=task,

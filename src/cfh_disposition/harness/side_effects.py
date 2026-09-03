@@ -140,7 +140,7 @@ class SideEffectBus:
         if self.mode is HarnessMode.SIMULATION:
             reason = "Simulation mode records intent only; provider calls and production CRM writes are disabled."
         elif self.mode is HarnessMode.STAGING:
-            if action is ActionType.CRM_COMMIT and not internal_only:
+            if action is ActionType.CRM_COMMIT:
                 decision = "staging_only"
                 reason = "Staging mode permits CRM writes only through the staging executor."
                 executor = self.staging_executor
