@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from .listing_compliance import ComplianceResult, review_shared_compliance
 from .models import OwnerFinanceProperty
+
+META_REQUIRED_DISCLOSURES = ("Approval is not guaranteed.", "Equal Housing Opportunity.")
 
 
 class PaidTrafficPackageError(ValueError):
@@ -107,7 +110,7 @@ def build_paid_traffic_package(
             f"New owner-finance opportunity: {address}. {fact_line}. See the current property details in Dwelyx.",
             f"Explore this available home in {location}. {fact_line}. Use the link to review current details and next steps.",
         )
-        description = "Current property details and next steps in Dwelyx. Approval is not guaranteed."
+        description = "Current property details and next steps in Dwelyx. Approval is not guaranteed. Equal Housing Opportunity."
         notes = (
             "Treat as a housing-related ad and complete the platform's current housing-category setup during final ad creation.",
             "Do not use protected-class targeting, discriminatory copy, approval guarantees, or no-credit-check claims.",
@@ -143,4 +146,29 @@ def build_paid_traffic_package(
         daily_budget=daily_budget,
         monthly_budget_cap=monthly_budget_cap,
         approval_notes=notes,
+    )
+
+
+def review_paid_traffic_package(
+    package: PaidTrafficPackage,
+    property_record: OwnerFinanceProperty,
+) -> ComplianceResult:
+    """Run the executable final-copy check without authorizing an ad or budget."""
+    content = "\n".join(
+        (
+            *package.headline_options,
+            *package.primary_text_options,
+            package.description,
+            package.call_to_action,
+            *package.approval_notes,
+        )
+    )
+    disclosures = META_REQUIRED_DISCLOSURES if package.channel_key == "meta_ads" else ("Approval is not guaranteed.",)
+    return review_shared_compliance(
+        channel=package.channel_key,
+        content=content,
+        property_record=property_record,
+        required_disclosures=disclosures,
+        approval_required=True,
+        publication_mode="Approval Required",
     )

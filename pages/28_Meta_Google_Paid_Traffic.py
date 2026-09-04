@@ -14,6 +14,7 @@ from cfh_disposition.go_live_connections import build_connection_status
 from cfh_disposition.paid_traffic_channels import (
     PaidTrafficPackageError,
     build_paid_traffic_package,
+    review_paid_traffic_package,
 )
 from cfh_disposition.sample_data import SAMPLE_BUYERS, SAMPLE_PROPERTIES
 from cfh_disposition.storage import StorageError, build_storage
@@ -151,11 +152,24 @@ for tab, key in zip(tabs, channel_keys, strict=True):
             st.error(f"Campaign guard blocked this package: {exc}")
             continue
 
+        compliance = review_paid_traffic_package(package, selected)
+
         cols = st.columns(4)
         cols[0].metric("Channel", channel.name)
         cols[1].metric("Daily budget", f"${package.daily_budget:,.0f}")
         cols[2].metric("Monthly cap", f"${package.monthly_budget_cap:,.0f}")
         cols[3].metric("Launch status", "Owner approval required")
+
+        st.write("### Compliance review")
+        st.metric("Result", compliance.result.value)
+        for reason in compliance.blockers:
+            st.error(reason)
+        for reason in compliance.warnings:
+            st.warning(reason)
+        st.caption(
+            f"Policy {compliance.policy_version} checked for {channel.name}. "
+            "This result does not authorize publication or spending."
+        )
 
         st.write("### Headline options")
         st.dataframe(

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .analytics import ClickEvent
 from .dwelyx import build_dwelyx_url
+from .listing_compliance import ComplianceResultState, review_shared_compliance
 from .models import OwnerFinanceProperty
 from .storage import SupabaseSettings
 
@@ -35,39 +36,6 @@ SUPPORTED_ACQUISITION_SOURCES: dict[str, str] = {
 
 MANUAL_PUBLICATION_SOURCES = {"facebook_groups", "classifieds"}
 PAID_SOURCES = {"meta_ads", "google_ads"}
-
-PROHIBITED_AUDIENCE_PHRASES = (
-    "families only",
-    "perfect for families",
-    "no children",
-    "christian",
-    "muslim",
-    "white buyers",
-    "black buyers",
-    "hispanic buyers",
-    "men only",
-    "women only",
-    "young professionals",
-    "seniors only",
-    "disabled",
-    "safe neighborhood",
-    "crime-free",
-    "best schools",
-    "good schools",
-    "bad credit guaranteed",
-    "guaranteed approval",
-    "everyone approved",
-    "no credit check",
-    "instant approval",
-)
-
-PROHIBITED_COPY_PHRASES = PROHIBITED_AUDIENCE_PHRASES + (
-    "move-in ready",
-    "move in ready",
-    "government grant",
-    "free house",
-)
-
 
 class BuyerAcquisitionError(RuntimeError):
     """Raised when a buyer-acquisition campaign cannot be created or updated."""
@@ -217,10 +185,16 @@ def _slug(value: str) -> str:
 
 
 def validate_audience_notes(notes: str) -> None:
-    lowered = notes.casefold()
-    for phrase in PROHIBITED_AUDIENCE_PHRASES:
-        if phrase in lowered:
-            raise BuyerAcquisitionError(f"Prohibited housing audience language detected: {phrase}")
+    result = review_shared_compliance(
+        channel="housing_audience",
+        content=notes,
+        approval_required=False,
+        publication_mode="Internal Review",
+    )
+    if result.result == ComplianceResultState.BLOCKED:
+        raise BuyerAcquisitionError(
+            "Prohibited housing audience language detected: " + "; ".join(result.blockers)
+        )
 
 
 def validate_campaign_copy(campaign: AcquisitionCampaign, property_record: OwnerFinanceProperty | None = None) -> list[str]:
@@ -235,9 +209,15 @@ def validate_campaign_copy(campaign: AcquisitionCampaign, property_record: Owner
         ]
     )
     lowered = combined.casefold()
-    for phrase in PROHIBITED_COPY_PHRASES:
-        if phrase in lowered:
-            errors.append(f"Prohibited campaign phrase detected: {phrase}")
+    baseline = review_shared_compliance(
+        channel=campaign.source_key,
+        content=combined,
+        approval_required=campaign.source_key in PAID_SOURCES,
+        publication_mode=(
+            "Assisted Posting" if campaign.source_key in MANUAL_PUBLICATION_SOURCES else "Approval Required"
+        ),
+    )
+    errors.extend(baseline.blockers)
     if combined.count(campaign.tracked_link) != 3:
         errors.append("The tracked Dwelyx link must appear once in the main copy, video hook, and call to action.")
     if "equal housing opportunity" not in lowered:

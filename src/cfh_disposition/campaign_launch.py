@@ -29,6 +29,7 @@ from .channel_tracking import build_channel_links
 from .channels import CHANNELS, CHANNELS_BY_KEY
 from .dwelyx import tracking_app_base_url
 from .launch_plan import build_launch_plan
+from .listing_compliance import ComplianceResult, ComplianceResultState
 from .marketplace_calendar import (
     MarketplaceCalendarError,
     MarketplaceCalendarStore,
@@ -61,6 +62,7 @@ class ChannelLaunchRecord(BaseModel):
     updated_at: datetime | None = None
     updated_by: str = ""
     notes: str = Field(default="", max_length=1000)
+    compliance: ComplianceResult | None = None
 
 
 class CampaignLaunchState(BaseModel):
@@ -129,6 +131,7 @@ def set_channel_status(
         updated_at=timestamp,
         updated_by=updated_by,
         notes=notes,
+        compliance=channels[channel_key].compliance,
     )
     return state.model_copy(update={"channels": channels, "updated_at": timestamp})
 
@@ -140,15 +143,25 @@ def approve_all_channels(
     now: datetime | None = None,
 ) -> CampaignLaunchState:
     timestamp = now or datetime.now(UTC)
-    channels = {
-        channel.key: ChannelLaunchRecord(
-            status=LaunchStatus.READY,
+    channels = {}
+    for channel in CHANNELS:
+        previous = state.channels.get(channel.key, ChannelLaunchRecord())
+        meta_previously_approved = channel.key != "meta_ads" or (
+            previous.status == LaunchStatus.READY
+            and previous.compliance is not None
+            and previous.compliance.result != ComplianceResultState.BLOCKED
+        )
+        channels[channel.key] = ChannelLaunchRecord(
+            status=LaunchStatus.READY if meta_previously_approved else LaunchStatus.PAUSED,
             updated_at=timestamp,
             updated_by=approved_by,
-            notes=state.channels.get(channel.key, ChannelLaunchRecord()).notes,
+            notes=(
+                previous.notes
+                if meta_previously_approved
+                else "Meta requires its own compliance review and channel approval."
+            ),
+            compliance=previous.compliance,
         )
-        for channel in CHANNELS
-    }
     return state.model_copy(
         update={
             "channels": channels,
@@ -156,6 +169,55 @@ def approve_all_channels(
             "approved_by": approved_by,
             "updated_at": timestamp,
         }
+    )
+
+
+def set_channel_compliance(
+    state: CampaignLaunchState,
+    channel_key: str,
+    result: ComplianceResult,
+    *,
+    updated_by: str = "",
+    now: datetime | None = None,
+) -> CampaignLaunchState:
+    if channel_key not in CHANNELS_BY_KEY or result.channel != channel_key:
+        raise ValueError("Compliance result does not match a known campaign channel.")
+    timestamp = now or datetime.now(UTC)
+    channels = {key: value.model_copy(deep=True) for key, value in ensure_all_channels(state).channels.items()}
+    previous = channels[channel_key]
+    channels[channel_key] = previous.model_copy(
+        update={
+            "status": LaunchStatus.PAUSED if result.result == ComplianceResultState.BLOCKED else previous.status,
+            "updated_at": timestamp,
+            "updated_by": updated_by,
+            "notes": "; ".join(result.blockers) if result.blockers else previous.notes,
+            "compliance": result,
+        }
+    )
+    return state.model_copy(update={"channels": channels, "updated_at": timestamp})
+
+
+def approve_channel(
+    state: CampaignLaunchState,
+    channel_key: str,
+    *,
+    approved_by: str,
+    now: datetime | None = None,
+) -> CampaignLaunchState:
+    if not approved_by.strip():
+        raise ValueError("The approving person is required.")
+    record = ensure_all_channels(state).channels.get(channel_key)
+    if record is None or record.compliance is None:
+        raise ValueError("A current channel compliance result is required before approval.")
+    if record.compliance.result == ComplianceResultState.BLOCKED:
+        raise ValueError("Blocked channel copy cannot be approved.")
+    return set_channel_status(
+        state,
+        channel_key,
+        LaunchStatus.READY,
+        updated_by=approved_by.strip(),
+        notes="Channel compliance reviewed and approved.",
+        now=now,
     )
 
 

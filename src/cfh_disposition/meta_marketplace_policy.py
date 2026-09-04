@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .listing_compliance import review_shared_compliance
+
 META_MARKETPLACE_POLICY_VERSION = "2026-08-03"
 
 
@@ -218,7 +220,13 @@ def _rule_messages(text: str, rules: tuple[MetaPolicyRule, ...]) -> list[str]:
 
 
 def meta_marketplace_policy_errors(text: str) -> list[str]:
-    return _rule_messages(text, BLOCKING_RULES)
+    baseline = review_shared_compliance(
+        channel="marketplace",
+        content=text,
+        approval_required=False,
+        publication_mode="Assisted Posting",
+    )
+    return sorted(set((*baseline.blockers, *_rule_messages(text, BLOCKING_RULES))))
 
 
 def meta_marketplace_policy_warnings(text: str) -> list[str]:

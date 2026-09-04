@@ -15,6 +15,9 @@ def test_paid_ads_planning_keeps_spend_outside_page() -> None:
         'st.write("### Proposed budget")',
         'with st.expander("Ad account connection status", expanded=False):',
         'with st.expander("Tracking link & launch requirements", expanded=False):',
+        'st.write("### Compliance review")',
+        'st.metric("Result", compliance.result.value)',
+        "This result does not authorize publication or spending.",
     ):
         assert marker in source
 

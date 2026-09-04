@@ -5,14 +5,17 @@ from cfh_disposition.ai_campaign import build_fallback_campaign
 from cfh_disposition.campaign_launch import (
     LaunchStatus,
     approve_all_channels,
+    approve_channel,
     campaign_copy_for_channel,
     campaign_slug,
     launch_object_path,
     launch_rows,
     new_launch_state,
+    set_channel_compliance,
     set_channel_status,
 )
 from cfh_disposition.channels import CHANNELS
+from cfh_disposition.listing_compliance import review_shared_compliance
 from cfh_disposition.models import OwnerFinanceProperty
 
 
@@ -53,7 +56,12 @@ def test_approve_all_and_update_one_channel():
         now=now,
     )
 
-    assert all(record.status == LaunchStatus.READY for record in state.channels.values())
+    assert state.channels["meta_ads"].status == LaunchStatus.PAUSED
+    assert all(
+        record.status == LaunchStatus.READY
+        for key, record in state.channels.items()
+        if key != "meta_ads"
+    )
     assert state.approved_by == "Sabrina"
 
     updated = set_channel_status(
@@ -68,6 +76,27 @@ def test_approve_all_and_update_one_channel():
     assert updated.channels["marketplace"].notes == "Posted to Marketplace listing 123."
     assert updated.channels["sms"].status == LaunchStatus.READY
     assert updated.channels["nextdoor"].status == LaunchStatus.READY
+
+
+def test_meta_requires_channel_compliance_before_channel_approval() -> None:
+    now = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
+    state = new_launch_state("property-123", "meta-safe", now=now)
+    result = review_shared_compliance(
+        channel="meta_ads",
+        content="Factual Meta housing ad. Approval is not guaranteed. Equal Housing Opportunity.",
+        approval_required=True,
+        publication_mode="Approval Required",
+        checked_at=now,
+    )
+    state = set_channel_compliance(state, "meta_ads", result, updated_by="Compliance", now=now)
+    broad = approve_all_channels(state, approved_by="Sabrina", now=now)
+    assert broad.channels["meta_ads"].status == LaunchStatus.PAUSED
+
+    state = approve_channel(state, "meta_ads", approved_by="Sabrina", now=now)
+
+    assert state.channels["meta_ads"].status == LaunchStatus.READY
+    assert state.channels["meta_ads"].updated_by == "Sabrina"
+    assert state.channels["meta_ads"].compliance == result
 
 
 def test_marketplace_copy_excludes_all_external_links():
