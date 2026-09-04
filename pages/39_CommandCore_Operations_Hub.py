@@ -361,13 +361,17 @@ with st.expander("Property Source Diagnostics", expanded=False):
             first_row[0].metric("Worksheets discovered", full_audit.worksheets_discovered)
             first_row[1].metric("Worksheets processed", full_audit.worksheets_processed)
             first_row[2].metric("Physical rows inspected", full_audit.total_physical_rows_inspected)
-            first_row[3].metric("Normalized properties", full_audit.normalized_properties)
+            first_row[3].metric("Source property rows detected", full_audit.source_property_rows_detected)
             second_row = st.columns(4)
-            second_row[0].metric("Duplicate candidates", full_audit.duplicate_candidates)
-            second_row[1].metric("Malformed / skipped", full_audit.malformed_or_skipped_rows)
-            second_row[2].metric("Sold", full_audit.sold_count)
-            second_row[3].metric("Do not sell", full_audit.do_not_sell_count)
-            st.metric("Active / available", full_audit.active_available_count)
+            second_row[0].metric("Fully normalized", full_audit.fully_normalized_properties)
+            second_row[1].metric("Needs review", full_audit.properties_needing_review)
+            second_row[2].metric("True malformed rows", full_audit.true_malformed_property_rows)
+            second_row[3].metric("Non-property / header / blank", full_audit.non_property_header_blank_rows)
+            third_row = st.columns(4)
+            third_row[0].metric("Duplicate candidates", full_audit.duplicate_candidates)
+            third_row[1].metric("Sold", full_audit.sold_count)
+            third_row[2].metric("Do not sell", full_audit.do_not_sell_count)
+            third_row[3].metric("Active / available", full_audit.active_available_count)
             st.markdown("#### Properties by source tab")
             st.dataframe(
                 [item.model_dump() for item in full_audit.properties_by_source_tab],
@@ -398,6 +402,28 @@ with st.expander("Property Source Diagnostics", expanded=False):
                         st.caption(
                             "Additional properties are included in the summary but are not displayed here."
                         )
+            if full_audit.needs_review_previews:
+                with st.expander("Properties needing review", expanded=False):
+                    st.dataframe(
+                        [
+                            {
+                                "Property address": item.property_address,
+                                "Source tab": item.source_tab,
+                                "Source identity": item.source_identity,
+                                "Source row": item.source_row_number,
+                                "Status": item.status,
+                                "Sales price": item.sales_price,
+                                "Down payment": item.down_payment,
+                                "Monthly payment": item.total_monthly_payment,
+                                "Last update": item.last_update or "Needs review",
+                                "Review reason": "; ".join(item.reasons),
+                                "Possible duplicate": "Yes" if item.possible_duplicate else "No",
+                            }
+                            for item in full_audit.needs_review_previews[:25]
+                        ],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
             st.caption(
                 "CommandCore records created: 0 · Google writes: 0 · Sensitive data exposed: No"
             )

@@ -84,16 +84,20 @@ def test_full_audit_discovers_tabs_classifies_restrictive_tabs_and_deduplicates(
 
     assert result.worksheets_discovered == result.worksheets_processed == 4
     assert result.total_physical_rows_inspected == 8
-    assert result.normalized_properties == 5
+    assert result.source_property_rows_detected == 5
+    assert result.fully_normalized_properties == 5
+    assert result.properties_needing_review == 0
+    assert result.true_malformed_property_rows == 0
+    assert result.non_property_header_blank_rows == 3
     assert result.duplicate_candidates == 2
     assert result.sold_count == 1
     assert result.do_not_sell_count == 1
-    assert result.active_available_count == 0
+    assert result.active_available_count == 3
     assert result.google_writes == result.commandcore_persistence == 0
     statuses = {item.worksheet_or_tab: item.status for item in result.safe_previews}
     assert statuses["SOLD"] == "Sold / Unavailable"
     assert statuses["DO NOT SELL LIST"] == "Paused"
-    assert statuses["Future Unknown Market"] == "Coming Soon"
+    assert statuses["Future Unknown Market"] == "Available"
     assert result.safe_previews[0].canonical_identity == result.safe_previews[2].canonical_identity
     serialized = result.model_dump_json()
     for sensitive in (
@@ -107,11 +111,11 @@ def test_full_audit_discovers_tabs_classifies_restrictive_tabs_and_deduplicates(
 
 
 def test_variable_header_location_blank_rows_malformed_rows_and_large_batch() -> None:
-    header = ["Property Address", "Sales Price", "Down Payment", "Monthly Payment"]
+    header = list(V14_PROPERTY_COLUMNS)
     values = [["Report heading"], [], header]
     values.extend(
         [
-            [f"{number} Example Street, Springfield, IL 62701", "160000", "12000", "1300"]
+            fixed_row(f"{number} Example Street, Springfield, IL 62701")
             for number in range(1000, 2005)
         ]
     )
@@ -125,9 +129,74 @@ def test_variable_header_location_blank_rows_malformed_rows_and_large_batch() ->
     )
 
     assert result.total_physical_rows_inspected == 1009
-    assert result.normalized_properties == 1005
-    assert result.malformed_or_skipped_rows == 4
-    assert result.properties_by_source_tab[0].valid_property_rows == 1005
+    assert result.source_property_rows_detected == 1005
+    assert result.fully_normalized_properties == 1005
+    assert result.non_property_header_blank_rows == 4
+    assert result.properties_by_source_tab[0].fully_normalized == 1005
+
+
+def test_v14_detection_preserves_street_only_and_invalid_date_for_review() -> None:
+    values = [
+        ["Property Address"],
+        fixed_row(
+            "201 Example Avenue, Springfield, IL 62701",
+            last_update="09/04/2026",
+        ),
+        fixed_row("202 Example Avenue", last_update="09/04/2026"),
+        fixed_row(
+            "203 Example Avenue, Springfield, IL 62701",
+            last_update="not-a-date",
+        ),
+        fixed_row(
+            "204 Example Avenue, Springfield, IL 62701",
+            beds="not-a-number",
+        ),
+        ["Descriptive source note"],
+        [],
+    ]
+    result = run_full_property_source_audit(
+        secrets(),
+        credential_factory=credentials,
+        worksheet_loader=lambda *_args: (
+            ReadOnlyWorksheetValues("Decatur/Quincy", values),
+        ),
+    )
+
+    assert result.source_property_rows_detected == 4
+    assert result.fully_normalized_properties == 1
+    assert result.properties_needing_review == 2
+    assert result.true_malformed_property_rows == 1
+    assert result.non_property_header_blank_rows == 3
+    assert {item.property_address for item in result.needs_review_previews} == {
+        "202 Example Avenue",
+        "203 Example Avenue, Springfield, IL 62701",
+    }
+    assert all(item.source_identity for item in result.needs_review_previews)
+    assert all(item.status == "Available" for item in result.needs_review_previews)
+    invalid_date = next(
+        item
+        for item in result.needs_review_previews
+        if item.property_address.startswith("203 ")
+    )
+    assert invalid_date.last_update is None
+    assert "date format was not recognized" in invalid_date.reasons[0]
+
+
+def test_do_not_sell_street_only_property_is_detected_before_canonical_review() -> None:
+    result = run_full_property_source_audit(
+        secrets(),
+        credential_factory=credentials,
+        worksheet_loader=lambda *_args: (
+            ReadOnlyWorksheetValues(
+                "DO NOT SELL LIST", [fixed_row("301 Example Avenue")]
+            ),
+        ),
+    )
+
+    assert result.source_property_rows_detected == 1
+    assert result.properties_needing_review == 1
+    assert result.do_not_sell_count == 1
+    assert result.needs_review_previews[0].status == "Paused"
 
 
 def test_loader_discovers_every_worksheet_and_sanitizes_provider_failure() -> None:
