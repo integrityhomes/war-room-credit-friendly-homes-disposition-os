@@ -5,8 +5,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from docx import Document
-
 from cfh_disposition.commandcore_offer_engine import OfferDealInput, analyze_deal
 from cfh_disposition.contract_generation_pipeline import generate_and_store_contract
 
@@ -56,6 +54,8 @@ class _FakeClient:
 
 
 def _fixture_template_bytes() -> bytes:
+    from docx import Document
+
     document = Document()
     document.add_paragraph("HARNESS FIXTURE - Illinois Contract for Deed - {{ BUYER_NAMES }}")
     document.add_paragraph("Property: {{ PROPERTY_ADDRESS }}")

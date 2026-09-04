@@ -6,6 +6,7 @@ from io import BytesIO
 import pytest
 from docx import Document
 
+import cfh_disposition.contract_generation_pipeline as contract_pipeline
 from cfh_disposition.contract_generation_pipeline import (
     ContractGenerationError,
     earliest_illinois_execution_date,
@@ -146,6 +147,13 @@ def test_template_selection_fails_closed_without_exact_approval() -> None:
 def test_execution_date_skips_weekend_and_labor_day() -> None:
     # Notice Friday before Labor Day 2026: Tue/Wed/Thu are the three full business days; execution is Friday.
     assert earliest_illinois_execution_date(date(2026, 9, 4)) == date(2026, 9, 11)
+
+
+def test_execution_date_fallback_skips_observed_federal_holidays(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(contract_pipeline, "holidays", None)
+
+    # New Year's Day 2027 is Friday: Mon/Tue/Wed are the three full business days.
+    assert earliest_illinois_execution_date(date(2026, 12, 31)) == date(2027, 1, 7)
 
 
 def test_generate_and_store_contract_is_private_versioned_and_auditable() -> None:

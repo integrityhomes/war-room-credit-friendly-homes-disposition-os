@@ -5,7 +5,6 @@ import pytest
 from cfh_disposition.harness.mode import HarnessMode
 from cfh_disposition.task_agent import run_task_agent
 
-
 DEAL = {
     "id": "FIXTURE-DEAL-TASK-1",
     "internal_only": True,

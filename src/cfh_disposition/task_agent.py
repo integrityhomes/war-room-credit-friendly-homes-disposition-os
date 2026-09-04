@@ -58,12 +58,16 @@ def run_task_agent(
     if not deal_id:
         raise ValueError("A Deal ID is required before dispatching Task Agent work.")
 
+    normalized_work_type = _text(work_type)
+    if not normalized_work_type:
+        raise ValueError("A work type is required before dispatching Task Agent work.")
+
     timestamp = datetime.now(UTC).isoformat()
     task = {
-        "external_id": _run_id(deal_id, work_type, command),
+        "external_id": _run_id(deal_id, normalized_work_type, command),
         "task_type": "deal_lifecycle_request",
-        "work_type": work_type,
-        "title": f"{'Simulated' if mode is HarnessMode.SIMULATION else 'Staged'} {work_type.replace('_', ' ')} work",
+        "work_type": normalized_work_type,
+        "title": f"{'Simulated' if mode is HarnessMode.SIMULATION else 'Staged'} {normalized_work_type.replace('_', ' ')} work",
         "status": "open",
         "source": "commandcore-task-agent",
         "command_text": command,
@@ -98,7 +102,7 @@ def run_task_agent(
     return TaskAgentRun(
         run_id=task["external_id"],
         deal_id=deal_id,
-        work_type=work_type,
+        work_type=normalized_work_type,
         command_text=command,
         mode=mode.value,
         internal_only=True,

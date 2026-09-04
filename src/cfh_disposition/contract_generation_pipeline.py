@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-import holidays
+try:
+    import holidays
+except ModuleNotFoundError:  # pragma: no cover - exercised when the optional calendar package is unavailable.
+    holidays = None
+
 from dateutil.relativedelta import relativedelta
 
 from .contract_document_renderer import build_amortization_schedule, format_currency, generate_contract_document
@@ -180,8 +184,49 @@ def calculate_monthly_principal_interest(principal: float, annual_interest_rate:
     return principal * (monthly_interest_rate * growth_factor) / (growth_factor - 1)
 
 
+def _fallback_us_holidays(year: int) -> set[date]:
+    """Return observed federal holidays needed by the local execution-date guard."""
+    def observed(day: date) -> date:
+        if day.weekday() == 5:
+            return day - timedelta(days=1)
+        if day.weekday() == 6:
+            return day + timedelta(days=1)
+        return day
+
+    def nth_weekday(month: int, weekday: int, occurrence: int) -> date:
+        current = date(year, month, 1)
+        while current.weekday() != weekday:
+            current += timedelta(days=1)
+        return current + timedelta(days=7 * (occurrence - 1))
+
+    def last_weekday(month: int, weekday: int) -> date:
+        current = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year, 12, 31)
+        while current.weekday() != weekday:
+            current -= timedelta(days=1)
+        return current
+
+    return {
+        observed(date(year, 1, 1)),
+        nth_weekday(1, 0, 3),
+        nth_weekday(2, 0, 3),
+        last_weekday(5, 0),
+        observed(date(year, 6, 19)),
+        observed(date(year, 7, 4)),
+        nth_weekday(9, 0, 1),
+        nth_weekday(10, 0, 2),
+        observed(date(year, 11, 11)),
+        nth_weekday(11, 3, 4),
+        observed(date(year, 12, 25)),
+    }
+
+
 def earliest_illinois_execution_date(notice_date: date, full_business_days: int = 3) -> date:
-    calendar = holidays.country_holidays("US", subdiv="IL", years=[notice_date.year, notice_date.year + 1], observed=True)
+    years = [notice_date.year, notice_date.year + 1]
+    calendar = (
+        holidays.country_holidays("US", subdiv="IL", years=years, observed=True)
+        if holidays is not None
+        else set().union(*(_fallback_us_holidays(year) for year in years))
+    )
     current = notice_date
     counted = 0
     while counted < full_business_days:
