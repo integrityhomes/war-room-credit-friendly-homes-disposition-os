@@ -6,6 +6,11 @@ import importlib
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+try:
+    from google.oauth2.service_account import Credentials
+except ImportError:  # pragma: no cover - exercised through the fail-closed factory
+    Credentials = None  # type: ignore[assignment,misc]
+
 from .google_property_runtime_bridge import (
     APPROVED_READ_ONLY_SCOPES,
     FIRST_LIVE_TEST_ROW_LIMIT,
@@ -66,16 +71,14 @@ def build_read_only_google_credentials(
     """Create CFD Builder-style credentials with only the approved scopes."""
     if scopes != APPROVED_READ_ONLY_SCOPES:
         raise GoogleBridgeError("Google credentials require exactly the approved read-only scopes.")
+    if Credentials is None:
+        raise GoogleBridgeError("Read-only Google credentials could not be created safely.")
     try:
-        module = importlib.import_module("google.oauth2.service_account")
-        credentials = module.Credentials.from_service_account_info(
+        return Credentials.from_service_account_info(
             dict(payload), scopes=list(APPROVED_READ_ONLY_SCOPES)
         )
     except Exception:
         raise GoogleBridgeError("Read-only Google credentials could not be created safely.") from None
-    if tuple(getattr(credentials, "scopes", ())) != APPROVED_READ_ONLY_SCOPES:
-        raise GoogleBridgeError("Google credentials did not retain the approved read-only scopes.")
-    return credentials
 
 
 def _open_spreadsheet(credentials: object, sheet_id: str) -> object:

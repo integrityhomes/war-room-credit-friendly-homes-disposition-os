@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import cfh_disposition.google_property_readonly_loader as loader_module
 from cfh_disposition.google_property_readonly_loader import (
     V14_PROPERTY_COLUMNS,
     build_read_only_google_credentials,
@@ -64,11 +65,7 @@ def install_fakes(monkeypatch: pytest.MonkeyPatch, worksheets: list[FakeWorkshee
     credentials_type = SimpleNamespace(
         from_service_account_info=lambda _payload, scopes: FakeCredentials(scopes)
     )
-    monkeypatch.setitem(
-        sys.modules,
-        "google.oauth2.service_account",
-        SimpleNamespace(Credentials=credentials_type),
-    )
+    monkeypatch.setattr(loader_module, "Credentials", credentials_type)
     spreadsheet = FakeSpreadsheet(worksheets)
     monkeypatch.setitem(
         sys.modules,
@@ -105,6 +102,55 @@ def test_credentials_use_only_exact_read_only_scopes(monkeypatch: pytest.MonkeyP
             {"type": "service_account"},
             ("https://www.googleapis.com/auth/spreadsheets",),
         )
+
+
+def test_credential_factory_matches_cfd_builder_call_without_post_creation_scope_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[dict[str, object], list[str]]] = []
+    created = object()
+
+    class KnownGoodCredentials:
+        @staticmethod
+        def from_service_account_info(
+            payload: dict[str, object], *, scopes: list[str]
+        ) -> object:
+            calls.append((payload, scopes))
+            return created
+
+    monkeypatch.setattr(loader_module, "Credentials", KnownGoodCredentials)
+    result = build_read_only_google_credentials(
+        {"type": "service_account", "private_key": PRIVATE_MARKER},
+        APPROVED_READ_ONLY_SCOPES,
+    )
+
+    assert result is created
+    assert calls == [
+        (
+            {"type": "service_account", "private_key": PRIVATE_MARKER},
+            list(APPROVED_READ_ONLY_SCOPES),
+        )
+    ]
+
+
+def test_credential_creation_exception_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingCredentials:
+        @staticmethod
+        def from_service_account_info(
+            _payload: dict[str, object], *, scopes: list[str]
+        ) -> object:
+            assert scopes == list(APPROVED_READ_ONLY_SCOPES)
+            raise ValueError(PRIVATE_MARKER)
+
+    monkeypatch.setattr(loader_module, "Credentials", FailingCredentials)
+    with pytest.raises(GoogleBridgeError) as raised:
+        build_read_only_google_credentials(
+            {"type": "service_account", "private_key": PRIVATE_MARKER},
+            APPROVED_READ_ONLY_SCOPES,
+        )
+    assert PRIVATE_MARKER not in str(raised.value)
 
 
 def test_lists_worksheets_and_requires_one_explicit_match(monkeypatch: pytest.MonkeyPatch) -> None:
