@@ -142,6 +142,30 @@ def test_secretary_test_panel_is_plain_english_and_cannot_execute() -> None:
         assert forbidden not in secretary_panel.casefold()
 
 
+def test_nevaeh_inbox_is_read_only_plain_english_and_prioritized() -> None:
+    source = operations_source()
+
+    for marker in (
+        'with st.expander("Nevaeh Inbox", expanded=True):',
+        'st.warning("NEVAEH — TEST MODE\\n\\nNOTHING WILL BE SENT")',
+        'list_secretary_crm_records("communications")',
+        "build_nevaeh_inbox(",
+        "for column, category in zip(summary_columns, NevaehInboxCategory, strict=True):",
+        'column.metric(category.value, category_counts[category.value])',
+        '"Nevaeh classification": item.classification',
+        '"Recommended next step": item.recommended_next_step',
+        '"Approval required": "Yes" if item.approval_required else "No"',
+        '"Nevaeh cannot send, call, approve, or change legal or financial terms."',
+    ):
+        assert marker in source
+
+    inbox_start = source.index('with st.expander("Nevaeh Inbox", expanded=True):')
+    test_start = source.index('with st.expander("Nevaeh Test", expanded=False):')
+    inbox_panel = source[inbox_start:test_start]
+    for forbidden in ("post_commandcore", "upsert", "insert", "update", "delete", "send_sms", "send_email", "make_call"):
+        assert forbidden not in inbox_panel.casefold()
+
+
 def test_secretary_phase_two_uses_only_existing_crm_read_actions() -> None:
     source = operations_source()
 

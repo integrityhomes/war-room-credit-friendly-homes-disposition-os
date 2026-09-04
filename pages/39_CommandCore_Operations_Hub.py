@@ -8,6 +8,11 @@ from urllib.request import Request, urlopen
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_nevaeh_inbox import (
+    NevaehInboxCategory,
+    build_nevaeh_inbox,
+    inbox_category_counts,
+)
 from cfh_disposition.commandcore_property_source_diagnostics import (
     run_property_source_diagnostic,
     safe_property_diagnostic_failure,
@@ -332,6 +337,67 @@ st.title("CommandCore Operations")
 st.caption(
     "Start with what needs management attention now. System readiness and CRM cutover details remain available below."
 )
+
+with st.expander("Nevaeh Inbox", expanded=True):
+    st.warning("NEVAEH — TEST MODE\n\nNOTHING WILL BE SENT")
+    st.caption(
+        "Review incoming CommandCore communications with safe matching, priority, and next-step recommendations."
+    )
+    try:
+        inbox_communications = list_secretary_crm_records("communications")
+        inbox_contacts = list_secretary_crm_records("contacts")
+        inbox_properties = list_secretary_crm_records("properties")
+        inbox_deals = list_secretary_crm_records("deals")
+        nevaeh_inbox = build_nevaeh_inbox(
+            inbox_communications,
+            contacts=inbox_contacts,
+            properties=inbox_properties,
+            deals=inbox_deals,
+        )
+    except Exception:
+        st.error("The Nevaeh Inbox could not be loaded safely. No records were changed.")
+    else:
+        category_counts = inbox_category_counts(nevaeh_inbox)
+        summary_columns = st.columns(len(NevaehInboxCategory))
+        for column, category in zip(summary_columns, NevaehInboxCategory, strict=True):
+            column.metric(category.value, category_counts[category.value])
+        selected_inbox_category = st.selectbox(
+            "Show communications",
+            ["All communications", *[category.value for category in NevaehInboxCategory]],
+            key="commandcore_nevaeh_inbox_category",
+        )
+        filtered_inbox = [
+            item
+            for item in nevaeh_inbox
+            if selected_inbox_category == "All communications"
+            or selected_inbox_category in {category.value for category in item.categories}
+        ]
+        if not filtered_inbox:
+            st.info("No incoming communications match this view yet.")
+        else:
+            st.dataframe(
+                [
+                    {
+                        "Who": item.person,
+                        "Channel": item.channel,
+                        "Received": item.received_at,
+                        "Related property": item.related_property,
+                        "Related deal": item.related_deal,
+                        "Assigned worker": item.assigned_worker,
+                        "Nevaeh classification": item.classification,
+                        "Confidence": item.confidence,
+                        "Approval required": "Yes" if item.approval_required else "No",
+                        "Recommended next step": item.recommended_next_step,
+                    }
+                    for item in filtered_inbox
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+        st.caption(
+            "Nevaeh can read, classify, match, recommend, and draft in test mode. "
+            "Nevaeh cannot send, call, approve, or change legal or financial terms."
+        )
 
 with st.expander("Nevaeh Test", expanded=False):
     st.warning("TEST MODE — NOTHING WILL BE SENT OR CHANGED")
