@@ -11,6 +11,7 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_property_source_diagnostics import (
     run_property_source_diagnostic,
 )
+from cfh_disposition.google_property_full_audit import run_full_property_source_audit
 from cfh_disposition.google_property_runtime_bridge import GoogleBridgeError
 from supabase import create_client
 
@@ -334,6 +335,64 @@ with st.expander("Property Source Diagnostics", expanded=False):
                 use_container_width=True,
                 hide_index=True,
             )
+            st.caption(
+                "CommandCore records created: 0 · Google writes: 0 · Sensitive data exposed: No"
+            )
+    st.divider()
+    if st.button(
+        "Run Full Property Source Audit",
+        key="commandcore_full_property_source_audit",
+        use_container_width=True,
+    ):
+        try:
+            full_audit = run_full_property_source_audit(st.secrets)
+        except GoogleBridgeError:
+            st.error(
+                "Full Google property source: FAIL. The read-only audit stopped safely; no Google or CommandCore records were changed."
+            )
+        else:
+            st.success("Full Google property source: PASS")
+            first_row = st.columns(4)
+            first_row[0].metric("Worksheets discovered", full_audit.worksheets_discovered)
+            first_row[1].metric("Worksheets processed", full_audit.worksheets_processed)
+            first_row[2].metric("Physical rows inspected", full_audit.total_physical_rows_inspected)
+            first_row[3].metric("Normalized properties", full_audit.normalized_properties)
+            second_row = st.columns(4)
+            second_row[0].metric("Duplicate candidates", full_audit.duplicate_candidates)
+            second_row[1].metric("Malformed / skipped", full_audit.malformed_or_skipped_rows)
+            second_row[2].metric("Sold", full_audit.sold_count)
+            second_row[3].metric("Do not sell", full_audit.do_not_sell_count)
+            st.metric("Active / available", full_audit.active_available_count)
+            st.markdown("#### Properties by source tab")
+            st.dataframe(
+                [item.model_dump() for item in full_audit.properties_by_source_tab],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.markdown("#### Safe sample properties")
+            safe_rows = [
+                {
+                    "Property address": preview.property_address,
+                    "Source tab": preview.worksheet_or_tab,
+                    "Canonical identity": preview.canonical_identity or "Needs review",
+                    "Status": preview.status,
+                    "Normalization result": preview.normalization_result,
+                    "Duplicate check": preview.duplicate_result,
+                    "Sales price": preview.sales_price,
+                    "Down payment": preview.down_payment,
+                    "Monthly payment": preview.total_monthly_payment,
+                    "Last update": preview.last_update or "Not provided",
+                }
+                for preview in full_audit.safe_previews
+            ]
+            st.dataframe(safe_rows[:5], use_container_width=True, hide_index=True)
+            if len(safe_rows) > 5:
+                with st.expander("Inspect additional safe previews", expanded=False):
+                    st.dataframe(safe_rows[5:25], use_container_width=True, hide_index=True)
+                    if len(safe_rows) > 25:
+                        st.caption(
+                            "Additional properties are included in the summary but are not displayed here."
+                        )
             st.caption(
                 "CommandCore records created: 0 · Google writes: 0 · Sensitive data exposed: No"
             )

@@ -82,3 +82,19 @@ def test_owner_only_property_source_diagnostic_is_safe_and_plain_english() -> No
         "notes",
     ):
         assert forbidden not in diagnostic_block
+
+
+def test_full_property_source_audit_shows_summary_not_full_source() -> None:
+    source = operations_source()
+
+    for marker in (
+        '"Run Full Property Source Audit"',
+        "run_full_property_source_audit(st.secrets)",
+        '"Full Google property source: PASS"',
+        'st.markdown("#### Properties by source tab")',
+        'st.markdown("#### Safe sample properties")',
+        'safe_rows[:5]',
+        'with st.expander("Inspect additional safe previews", expanded=False):',
+        "safe_rows[5:25]",
+    ):
+        assert marker in source

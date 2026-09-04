@@ -93,6 +93,24 @@ def _credential_payload(raw: str) -> Mapping[str, Any]:
     return payload
 
 
+def resolve_read_only_google_access(
+    secrets: Mapping[str, Any], credential_factory: CredentialFactory
+) -> tuple[object, str]:
+    """Resolve runtime access without logging or returning raw secret material."""
+    credential_json = _required_secret(secrets, GOOGLE_SERVICE_ACCOUNT_SECRET)
+    sheet_id = _required_secret(secrets, GOOGLE_SHEET_ID_SECRET)
+    payload = _credential_payload(credential_json)
+    try:
+        credentials = credential_factory(payload, APPROVED_READ_ONLY_SCOPES)
+    except GoogleBridgeError:
+        raise
+    except Exception:
+        raise GoogleBridgeError(
+            "The read-only Google property source could not be opened safely."
+        ) from None
+    return credentials, sheet_id
+
+
 def run_read_only_property_source_test(
     *,
     secrets: Mapping[str, Any],
@@ -108,11 +126,8 @@ def run_read_only_property_source_test(
     if tuple(scopes) != APPROVED_READ_ONLY_SCOPES:
         raise GoogleBridgeError("Google scopes must be exactly the approved read-only scopes.")
 
-    credential_json = _required_secret(secrets, GOOGLE_SERVICE_ACCOUNT_SECRET)
-    sheet_id = _required_secret(secrets, GOOGLE_SHEET_ID_SECRET)
-    payload = _credential_payload(credential_json)
+    credentials, sheet_id = resolve_read_only_google_access(secrets, credential_factory)
     try:
-        credentials = credential_factory(payload, APPROVED_READ_ONLY_SCOPES)
         batch = sheet_loader(credentials, sheet_id, FIRST_LIVE_TEST_ROW_LIMIT)
     except GoogleBridgeError:
         raise

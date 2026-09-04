@@ -46,6 +46,19 @@ V14_PROPERTY_COLUMNS = (
     "last_update",
 )
 
+FULL_AUDIT_BATCH_SIZE = 500
+
+
+class ReadOnlyWorksheetValues(tuple):
+    """One worksheet's populated values, retained only for in-memory normalization."""
+
+    tab_name: str
+
+    def __new__(cls, tab_name: str, values: Sequence[Sequence[object]]):
+        instance = super().__new__(cls, tuple(tuple(row) for row in values))
+        instance.tab_name = tab_name
+        return instance
+
 
 def build_read_only_google_credentials(
     payload: Mapping[str, Any], scopes: tuple[str, ...]
@@ -144,3 +157,27 @@ def make_read_only_sheet_loader(worksheet_name: str) -> ReadOnlySheetLoader:
 def build_read_only_google_runtime(worksheet_name: str) -> tuple[Callable[..., object], ReadOnlySheetLoader]:
     """Return the two executable dependencies accepted by the existing runtime bridge."""
     return build_read_only_google_credentials, make_read_only_sheet_loader(worksheet_name)
+
+
+def load_all_read_only_worksheet_values(
+    credentials: object, sheet_id: str
+) -> tuple[ReadOnlyWorksheetValues, ...]:
+    """Discover every worksheet and read populated values without exposing writes."""
+    spreadsheet = _open_spreadsheet(credentials, sheet_id)
+    try:
+        worksheets = tuple(spreadsheet.worksheets())
+        names = tuple(str(item.title).strip() for item in worksheets)
+        if not names or any(not name for name in names):
+            raise GoogleBridgeError("The spreadsheet has no unambiguous worksheet names.")
+        if len({name.casefold() for name in names}) != len(names):
+            raise GoogleBridgeError("The spreadsheet has ambiguous worksheet names.")
+        return tuple(
+            ReadOnlyWorksheetValues(name, worksheet.get_all_values())
+            for name, worksheet in zip(names, worksheets, strict=True)
+        )
+    except GoogleBridgeError:
+        raise
+    except Exception:
+        raise GoogleBridgeError(
+            "The configured property worksheets could not be read safely."
+        ) from None
