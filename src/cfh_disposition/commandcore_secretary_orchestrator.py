@@ -270,6 +270,8 @@ def decide_secretary_action(
     properties: Sequence[SecretaryPropertyContext] = (),
     deals: Sequence[SecretaryDealContext] = (),
     routing: SecretaryRoutingConfiguration | None = None,
+    context_uncertain: bool = False,
+    uncertainty_evidence: str = "",
     now: datetime | None = None,
 ) -> SecretaryOrchestratorResult:
     """Classify and recommend internal action without executing or persisting it."""
@@ -280,7 +282,7 @@ def decide_secretary_action(
         property_matches = [item for item in properties if item.property_id == deal.property_id]
         property_, property_ambiguous = _one_or_ambiguous(property_matches)  # type: ignore[assignment]
 
-    ambiguous = contact_ambiguous or property_ambiguous or deal_ambiguous
+    ambiguous = contact_ambiguous or property_ambiguous or deal_ambiguous or context_uncertain
     relationship = contact.relationship if contact else ""
     intent, urgency, confidence, evidence = _classify(
         event.message_text.casefold(), relationship, deal is not None
@@ -289,7 +291,10 @@ def decide_secretary_action(
         intent = SecretaryIntent.UNKNOWN
         urgency = SecretaryUrgency.HIGH
         confidence = SecretaryConfidence.INSUFFICIENT
-        evidence = ("More than one CRM record could match this communication.",)
+        evidence = (
+            uncertainty_evidence
+            or "More than one CRM record could match this communication.",
+        )
 
     configured = routing or SecretaryRoutingConfiguration()
     owner = (

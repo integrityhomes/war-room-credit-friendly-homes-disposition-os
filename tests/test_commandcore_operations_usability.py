@@ -115,17 +115,20 @@ def test_secretary_test_panel_is_plain_english_and_cannot_execute() -> None:
 
     for marker in (
         'with st.expander("Secretary Test", expanded=False):',
-        'st.warning("TEST MODE — NOTHING WILL BE SENT")',
+        'st.warning("TEST MODE — NOTHING WILL BE SENT OR CHANGED")',
         '"Evaluate in Test Mode"',
         'st.markdown("### Secretary Result")',
-        '"**Who this appears to be:** "',
-        '"**Related deal/property:** "',
+        '"**Person:**',
+        '"**Relationship:**',
+        '"**Related property:**',
+        '"**Related deal:**',
+        '"**Current deal owner:**',
         '"**What they appear to want:**',
         '"**Recommended next step:**',
         '"**Who should handle it:**',
         '"**Approval required:**',
-        '"**Draft response, if appropriate:** "',
-        '"No external action, record write, message, call, approval, or task was started."',
+        '"**Draft response, if safe:** "',
+        '"No external action, record write, message, call, approval, consent change, or task was started."',
     ):
         assert marker in source
 
@@ -136,3 +139,37 @@ def test_secretary_test_panel_is_plain_english_and_cannot_execute() -> None:
     secretary_panel = source[secretary_start:property_diagnostics]
     for forbidden in ("send_sms", "send_email", "make_call", "upsert", "post_commandcore"):
         assert forbidden not in secretary_panel.casefold()
+
+
+def test_secretary_phase_two_uses_only_existing_crm_read_actions() -> None:
+    source = operations_source()
+
+    for marker in (
+        '"Existing CommandCore Communication"',
+        'list_secretary_crm_records("communications")',
+        'list_secretary_crm_records("contacts")',
+        'list_secretary_crm_records("properties")',
+        'list_secretary_crm_records("deals")',
+        '"action": "list"',
+        '"Evaluate Existing Communication"',
+        'st.markdown("### Match Quality")',
+        '"**Contact match:**',
+        '"**Property match:**',
+        '"**Deal match:**',
+        '"**Routing source:**',
+        '"**Consent state:**',
+        '"commandcore-contact-ledger"',
+        '"action": "evaluate_contact"',
+        "read_secretary_consent(",
+    ):
+        assert marker in source
+
+    read_helper = source[source.index("def list_secretary_crm_records"):source.index("def post_commandcore")]
+    for forbidden in ("upsert", "insert", "update", "delete", "create"):
+        assert forbidden not in read_helper.casefold()
+
+    consent_helper = source[
+        source.index("def read_secretary_consent"):source.index("def post_commandcore")
+    ]
+    for forbidden in ("record_consent", "upsert_contact", "insert", "update", "delete"):
+        assert forbidden not in consent_helper.casefold()
