@@ -50,3 +50,35 @@ def test_system_readiness_and_crm_cutover_are_preserved() -> None:
         '"Do not discontinue the outside CRM yet."',
     ):
         assert marker in source
+
+
+def test_owner_only_property_source_diagnostic_is_safe_and_plain_english() -> None:
+    source = operations_source()
+
+    for marker in (
+        'with st.expander("Property Source Diagnostics", expanded=False):',
+        '"Run 3-Property Read-Only Test"',
+        'run_property_source_diagnostic(st.secrets)',
+        '"Live Google connection: PASS"',
+        'status_left.metric("Read-only scope", "PASS")',
+        'status_middle.metric("Rows read", diagnostic.rows_read)',
+        'status_right.metric("Rows written", diagnostic.google_writes)',
+        '"CommandCore records created: 0 · Google writes: 0 · Sensitive data exposed: No"',
+    ):
+        assert marker in source
+
+    diagnostic_index = source.index(
+        'with st.expander("Property Source Diagnostics", expanded=False):'
+    )
+    operations_load_index = source.index("queue_items = load_queue_items()")
+    assert diagnostic_index < operations_load_index
+
+    diagnostic_block = source[diagnostic_index:operations_load_index]
+    for forbidden in (
+        "GOOGLE_SERVICE_ACCOUNT_JSON",
+        "GOOGLE_SHEET_ID",
+        "lockbox",
+        "seller_email",
+        "notes",
+    ):
+        assert forbidden not in diagnostic_block

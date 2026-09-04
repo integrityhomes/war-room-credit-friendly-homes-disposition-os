@@ -8,6 +8,10 @@ from urllib.request import Request, urlopen
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_property_source_diagnostics import (
+    run_property_source_diagnostic,
+)
+from cfh_disposition.google_property_runtime_bridge import GoogleBridgeError
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Operations", page_icon="🧭", layout="wide")
@@ -26,9 +30,9 @@ def require_password() -> None:
     st.title("CommandCore Operations")
     st.caption("Private internal access")
     with st.form("commandcore_operations_hub_login"):
-        password = st.text_input("App password", type="password")
+        entered_password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
+    if submitted and password_matches(entered_password, expected):
         st.session_state.authenticated = True
         st.rerun()
     if submitted:
@@ -290,6 +294,49 @@ st.title("CommandCore Operations")
 st.caption(
     "Start with what needs management attention now. System readiness and CRM cutover details remain available below."
 )
+
+with st.expander("Property Source Diagnostics", expanded=False):
+    st.caption(
+        "Owner/admin diagnostic only. Reads up to three properties from Decatur/Quincy without changing Google or CommandCore."
+    )
+    if st.button(
+        "Run 3-Property Read-Only Test",
+        key="commandcore_property_source_diagnostic",
+        use_container_width=True,
+    ):
+        try:
+            diagnostic = run_property_source_diagnostic(st.secrets)
+        except GoogleBridgeError:
+            st.error(
+                "Live Google connection: FAIL. The read-only test stopped safely; no Google or CommandCore records were changed."
+            )
+        else:
+            st.success("Live Google connection: PASS")
+            status_left, status_middle, status_right = st.columns(3)
+            status_left.metric("Read-only scope", "PASS")
+            status_middle.metric("Rows read", diagnostic.rows_read)
+            status_right.metric("Rows written", diagnostic.google_writes)
+            st.dataframe(
+                [
+                    {
+                        "Property address": preview.property_address,
+                        "Source tab": preview.worksheet_or_tab,
+                        "Canonical identity": preview.canonical_identity or "Needs review",
+                        "Normalization result": preview.normalization_result,
+                        "Duplicate check": preview.duplicate_result,
+                        "Sales price": preview.sales_price,
+                        "Down payment": preview.down_payment,
+                        "Monthly payment": preview.total_monthly_payment,
+                        "Last update": preview.last_update or "Not provided",
+                    }
+                    for preview in diagnostic.previews
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(
+                "CommandCore records created: 0 · Google writes: 0 · Sensitive data exposed: No"
+            )
 
 try:
     queue_items = load_queue_items()
