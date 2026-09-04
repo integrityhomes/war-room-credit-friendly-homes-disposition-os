@@ -159,3 +159,22 @@ def test_does_not_invent_optional_inventory_routing_fields() -> None:
     assert result.normalized.assigned_worker_or_team is None
     assert result.normalized.market is None
     assert result.normalized.campaign is None
+
+
+def test_v14_contract_fields_are_preserved_as_internal_inventory_facts() -> None:
+    result = normalize_google_sheet_row(
+        valid_row(
+            sheet_row=12,
+            lockbox_code="TEST",
+            monthly_principal_interest="900",
+            monthly_insurance="100",
+            monthly_taxes="150",
+            legal_description="Fictional legal description",
+            parcel_number="TEST-PARCEL",
+        )
+    )
+    assert result.normalized is not None
+    assert result.normalized.source_row_number == 12
+    assert result.normalized.lockbox_code == "TEST"
+    assert str(result.normalized.monthly_principal_interest) == "900"
+    assert result.normalized.legal_description == "Fictional legal description"

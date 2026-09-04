@@ -229,3 +229,16 @@ def test_planner_never_writes_or_starts_campaign_actions() -> None:
     assert result.external_action_started is False
     assert result.campaign_shutdown_started is False
     assert result.marketing_review_required is True
+
+
+def test_partial_update_does_not_erase_verified_extended_property_facts() -> None:
+    existing = existing_record(
+        lockbox_code="VERIFIED",
+        legal_description="Verified legal description",
+        parcel_number="VERIFIED-PARCEL",
+    )
+    result = plan_property_sync(normalized(), [existing], synced_at=NOW + timedelta(hours=1))
+    assert result.record is not None
+    assert result.record.lockbox_code == "VERIFIED"
+    assert result.record.legal_description == "Verified legal description"
+    assert result.record.parcel_number == "VERIFIED-PARCEL"

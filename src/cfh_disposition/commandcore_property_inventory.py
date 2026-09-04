@@ -61,6 +61,9 @@ class FieldProvenance(BaseModel):
     source_record_id: str
     source_row_hash: str
     source_updated_at: str | None = None
+    source_type: str = ""
+    source_tab: str = ""
+    source_reference_hash: str = ""
     commandcore_synced_at: datetime
 
 
@@ -83,6 +86,9 @@ class CanonicalPropertyRecord(BaseModel):
     source_record_id: str
     source_row_hash: str
     source_updated_at: str | None = None
+    source_type: str = ""
+    source_tab: str = ""
+    source_reference_hash: str = ""
     address: str
     city: str
     state: str
@@ -104,6 +110,26 @@ class CanonicalPropertyRecord(BaseModel):
     assigned_worker_or_team: str = ""
     market: str = ""
     campaign: str = ""
+    source_row_number: int | None = None
+    lockbox_code: str = ""
+    monthly_principal_interest: Decimal | None = None
+    monthly_insurance: Decimal | None = None
+    monthly_taxes: Decimal | None = None
+    insurance_included: str = ""
+    photo_link: str = ""
+    legal_description: str = ""
+    parcel_number: str = ""
+    last_tax_bill: Decimal | None = None
+    fair_cash_value: Decimal | None = None
+    assessed_value: Decimal | None = None
+    lender: str = ""
+    payment_system: str = ""
+    seller_entity: str = ""
+    seller_address: str = ""
+    seller_state: str = ""
+    seller_email: str = ""
+    notes: str = ""
+    date_added: str = ""
     public_marketing_eligible: bool = False
     last_commandcore_sync: datetime
     validation_state: InventoryValidationState
@@ -226,6 +252,26 @@ def _record_from_row(
         "market",
         "campaign",
         "availability",
+        "source_row_number",
+        "lockbox_code",
+        "monthly_principal_interest",
+        "monthly_insurance",
+        "monthly_taxes",
+        "insurance_included",
+        "photo_link",
+        "legal_description",
+        "parcel_number",
+        "last_tax_bill",
+        "fair_cash_value",
+        "assessed_value",
+        "lender",
+        "payment_system",
+        "seller_entity",
+        "seller_address",
+        "seller_state",
+        "seller_email",
+        "notes",
+        "date_added",
     )
     existing_provenance = {
         item.field_name: item for item in (existing.provenance if existing else ())
@@ -237,6 +283,9 @@ def _record_from_row(
             source_record_id=row.source_record_id,
             source_row_hash=row.source_row_hash,
             source_updated_at=row.source_updated_at,
+            source_type=row.source_type or "",
+            source_tab=row.source_tab or "",
+            source_reference_hash=row.source_reference_hash or "",
             commandcore_synced_at=synced_at,
         )
         for field in fields
@@ -259,6 +308,9 @@ def _record_from_row(
         source_record_id=row.source_record_id,
         source_row_hash=row.source_row_hash,
         source_updated_at=row.source_updated_at,
+        source_type=row.source_type or "",
+        source_tab=row.source_tab or "",
+        source_reference_hash=row.source_reference_hash or "",
         address=row.address,
         city=row.city,
         state=row.state,
@@ -288,6 +340,28 @@ def _record_from_row(
         ),
         market=supplied_or_existing("market", "market") or "",
         campaign=supplied_or_existing("campaign", "campaign") or "",
+        source_row_number=supplied_or_existing("source_row_number", "source_row_number"),
+        lockbox_code=supplied_or_existing("lockbox_code", "lockbox_code") or "",
+        monthly_principal_interest=supplied_or_existing(
+            "monthly_principal_interest", "monthly_principal_interest"
+        ),
+        monthly_insurance=supplied_or_existing("monthly_insurance", "monthly_insurance"),
+        monthly_taxes=supplied_or_existing("monthly_taxes", "monthly_taxes"),
+        insurance_included=supplied_or_existing("insurance_included", "insurance_included") or "",
+        photo_link=supplied_or_existing("photo_link", "photo_link") or "",
+        legal_description=supplied_or_existing("legal_description", "legal_description") or "",
+        parcel_number=supplied_or_existing("parcel_number", "parcel_number") or "",
+        last_tax_bill=supplied_or_existing("last_tax_bill", "last_tax_bill"),
+        fair_cash_value=supplied_or_existing("fair_cash_value", "fair_cash_value"),
+        assessed_value=supplied_or_existing("assessed_value", "assessed_value"),
+        lender=supplied_or_existing("lender", "lender") or "",
+        payment_system=supplied_or_existing("payment_system", "payment_system") or "",
+        seller_entity=supplied_or_existing("seller_entity", "seller_entity") or "",
+        seller_address=supplied_or_existing("seller_address", "seller_address") or "",
+        seller_state=supplied_or_existing("seller_state", "seller_state") or "",
+        seller_email=supplied_or_existing("seller_email", "seller_email") or "",
+        notes=supplied_or_existing("notes", "notes") or "",
+        date_added=supplied_or_existing("date_added", "date_added") or "",
         public_marketing_eligible=_publicly_marketable(row.availability) and not conflicts,
         last_commandcore_sync=synced_at,
         validation_state=InventoryValidationState.NEEDS_REVIEW if conflicts else InventoryValidationState.VERIFIED,

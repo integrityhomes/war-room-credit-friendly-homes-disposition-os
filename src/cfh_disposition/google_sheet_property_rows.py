@@ -33,6 +33,9 @@ class NormalizedPropertyRow(BaseModel):
     source_record_id: str
     source_updated_at: str | None = None
     source_row_hash: str
+    source_type: str | None = None
+    source_tab: str | None = None
+    source_reference_hash: str | None = None
     commandcore_property_id: str | None = None
     address: str
     city: str
@@ -56,6 +59,26 @@ class NormalizedPropertyRow(BaseModel):
     market: str | None = None
     campaign: str | None = None
     market_campaign: str | None = None
+    source_row_number: int | None = Field(default=None, ge=1)
+    lockbox_code: str | None = None
+    monthly_principal_interest: Decimal | None = Field(default=None, ge=0)
+    monthly_insurance: Decimal | None = Field(default=None, ge=0)
+    monthly_taxes: Decimal | None = Field(default=None, ge=0)
+    insurance_included: str | None = None
+    photo_link: str | None = None
+    legal_description: str | None = None
+    parcel_number: str | None = None
+    last_tax_bill: Decimal | None = Field(default=None, ge=0)
+    fair_cash_value: Decimal | None = Field(default=None, ge=0)
+    assessed_value: Decimal | None = Field(default=None, ge=0)
+    lender: str | None = None
+    payment_system: str | None = None
+    seller_entity: str | None = None
+    seller_address: str | None = None
+    seller_state: str | None = None
+    seller_email: str | None = None
+    notes: str | None = None
+    date_added: str | None = None
 
 
 class RowNormalizationResult(BaseModel):
@@ -73,6 +96,9 @@ class RowNormalizationResult(BaseModel):
 _ALIASES: dict[str, tuple[str, ...]] = {
     "source_record_id": ("source_record_id", "source_id", "record_id", "inventory_id"),
     "source_updated_at": ("source_updated_at", "updated_at", "last_updated", "modified_at"),
+    "source_type": ("source_type",),
+    "source_tab": ("source_tab", "worksheet_name", "tab_name"),
+    "source_reference_hash": ("source_reference_hash",),
     "commandcore_property_id": ("commandcore_property_id", "property_id", "commandcore_id"),
     "address": ("address", "street_address", "property_address", "street"),
     "city": ("city",),
@@ -101,6 +127,26 @@ _ALIASES: dict[str, tuple[str, ...]] = {
     "market": ("market", "market_name"),
     "campaign": ("campaign", "campaign_name", "campaign_id"),
     "market_campaign": ("market_campaign", "campaign", "market"),
+    "source_row_number": ("source_row_number", "sheet_row"),
+    "lockbox_code": ("lockbox_code", "lockbox"),
+    "monthly_principal_interest": ("monthly_principal_interest", "monthly_pi"),
+    "monthly_insurance": ("monthly_insurance", "insurance"),
+    "monthly_taxes": ("monthly_taxes", "taxes"),
+    "insurance_included": ("insurance_included",),
+    "photo_link": ("photo_link", "photos"),
+    "legal_description": ("legal_description", "legal"),
+    "parcel_number": ("parcel_number", "parcel", "pin"),
+    "last_tax_bill": ("last_tax_bill", "annual_taxes"),
+    "fair_cash_value": ("fair_cash_value",),
+    "assessed_value": ("assessed_value",),
+    "lender": ("lender",),
+    "payment_system": ("payment_system",),
+    "seller_entity": ("seller_entity",),
+    "seller_address": ("seller_address",),
+    "seller_state": ("seller_state",),
+    "seller_email": ("seller_email",),
+    "notes": ("notes",),
+    "date_added": ("date_added",),
 }
 
 _STATUS_ALIASES = {
@@ -244,6 +290,13 @@ def normalize_google_sheet_row(
         "monthly_payment": _decimal(raw["monthly_payment"], "Monthly payment", errors),
         "interest_rate": _decimal(raw["interest_rate"], "Interest rate", errors),
         "term_months": _integer(raw["term_months"], "Term months", errors),
+        "source_row_number": _integer(raw["source_row_number"], "Source row number", errors),
+        "monthly_principal_interest": _decimal(raw["monthly_principal_interest"], "Monthly principal and interest", errors),
+        "monthly_insurance": _decimal(raw["monthly_insurance"], "Monthly insurance", errors),
+        "monthly_taxes": _decimal(raw["monthly_taxes"], "Monthly taxes", errors),
+        "last_tax_bill": _decimal(raw["last_tax_bill"], "Last tax bill", errors),
+        "fair_cash_value": _decimal(raw["fair_cash_value"], "Fair cash value", errors),
+        "assessed_value": _decimal(raw["assessed_value"], "Assessed value", errors),
     }
 
     result_state = (
@@ -261,6 +314,9 @@ def normalize_google_sheet_row(
             source_record_id=source_id or "",
             source_updated_at=updated_at,
             source_row_hash=row_hash,
+            source_type=_text(raw["source_type"]),
+            source_tab=_text(raw["source_tab"]),
+            source_reference_hash=_text(raw["source_reference_hash"]),
             commandcore_property_id=_text(raw["commandcore_property_id"]),
             address=required["address"] or "",
             city=required["city"] or "",
@@ -276,6 +332,19 @@ def normalize_google_sheet_row(
             market=_text(raw["market"]),
             campaign=_text(raw["campaign"]),
             market_campaign=_text(raw["market_campaign"]),
+            lockbox_code=_text(raw["lockbox_code"]),
+            insurance_included=_text(raw["insurance_included"]),
+            photo_link=_text(raw["photo_link"]),
+            legal_description=_text(raw["legal_description"]),
+            parcel_number=_text(raw["parcel_number"]),
+            lender=_text(raw["lender"]),
+            payment_system=_text(raw["payment_system"]),
+            seller_entity=_text(raw["seller_entity"]),
+            seller_address=_text(raw["seller_address"]),
+            seller_state=_text(raw["seller_state"]),
+            seller_email=_text(raw["seller_email"]),
+            notes=_text(raw["notes"]),
+            date_added=_text(raw["date_added"]),
             **values,
         )
     return RowNormalizationResult(

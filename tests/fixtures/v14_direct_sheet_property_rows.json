@@ -1,0 +1,39 @@
+[
+  {
+    "sheet_row": "9",
+    "property_address": "123 Example Avenue, Springfield, MO 65801",
+    "lockbox_code": "TEST-ONLY",
+    "beds": "3",
+    "baths": "2",
+    "square_feet": "1,400",
+    "down_payment": "$10,000",
+    "total_monthly_payment": "$1,250",
+    "sales_price": "$150,000",
+    "interest_rate": "8.5%",
+    "monthly_principal_interest": "$1,000",
+    "monthly_insurance": "$100",
+    "monthly_taxes": "$150",
+    "insurance_included": "Yes",
+    "photo_link": "https://example.invalid/fictional-property-photo",
+    "legal_description": "Fictional legal description",
+    "parcel_number": "TEST-PARCEL-001",
+    "last_tax_bill": "$1,800",
+    "fair_cash_value": "$145,000",
+    "assessed_value": "$48,000",
+    "lender": "Example Lender",
+    "payment_system": "Example Servicing",
+    "seller_entity": "Example Homes LLC",
+    "seller_address": "456 Example Road",
+    "seller_state": "MO",
+    "seller_email": "seller@example.invalid",
+    "notes": "Fictional direct-Sheet test row",
+    "date_added": "2026-08-01",
+    "last_update": "2026-09-04T11:00:00Z"
+  },
+  {
+    "sheet_row": "10",
+    "property_address": "",
+    "beds": "not-a-number",
+    "last_update": "not-a-date"
+  }
+]
