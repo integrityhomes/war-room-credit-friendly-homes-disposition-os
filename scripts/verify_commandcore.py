@@ -16,12 +16,31 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMP_PARENT = ROOT / ".commandcore-verification"
+TEMP_PARENT = ROOT / ".ccv"
 BOT_DEV_ROOT = ROOT.parent / "bot_dev"
 BOT_DEV_APP = BOT_DEV_ROOT / "app"
 OWNERSHIP_FILE = ".commandcore-verification-owner.json"
 RUN_PREFIX = "run-"
 MAX_OUTPUT = 12_000
+MAX_WINDOWS_TEMP_ROOT_LENGTH = 180
+WINDOWS_PYTEST_TEMP_WRAPPER = """
+import os
+
+original_mkdir = os.mkdir
+
+
+def inherited_acl_mkdir(path, mode=0o777, *, dir_fd=None):
+    safe_mode = 0o777 if mode == 0o700 else mode
+    if dir_fd is None:
+        return original_mkdir(path, safe_mode)
+    return original_mkdir(path, safe_mode, dir_fd=dir_fd)
+
+
+os.mkdir = inherited_acl_mkdir
+from pytest import console_main
+
+raise SystemExit(console_main())
+""".strip()
 SECRET_PATTERNS = (
     re.compile(r"\b(?:sk|ghp|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b"),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
@@ -100,7 +119,13 @@ def approved_relative_path(value: str, *, must_exist: bool = True) -> tuple[Path
     return target, target.relative_to(ROOT).as_posix()
 
 
-def _run(arguments: Sequence[str], *, cwd: Path = ROOT, timeout: int = 900) -> subprocess.CompletedProcess[str]:
+def _run(
+    arguments: Sequence[str],
+    *,
+    cwd: Path = ROOT,
+    timeout: int = 900,
+    environment_overrides: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.update(
         {
@@ -114,6 +139,8 @@ def _run(arguments: Sequence[str], *, cwd: Path = ROOT, timeout: int = 900) -> s
             "ALL_PROXY": "",
         }
     )
+    if environment_overrides:
+        environment.update(environment_overrides)
     try:
         return subprocess.run(
             list(arguments),
@@ -133,7 +160,7 @@ def _run(arguments: Sequence[str], *, cwd: Path = ROOT, timeout: int = 900) -> s
 
 def _checked(arguments: Sequence[str], *, cwd: Path = ROOT, timeout: int = 900) -> str:
     result = _run(arguments, cwd=cwd, timeout=timeout)
-    output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+    output = "\n".join(part.rstrip() for part in (result.stdout, result.stderr) if part.strip())
     if result.returncode != 0:
         raise VerificationError(output or f"{arguments[0]} exited {result.returncode}")
     return output
@@ -160,14 +187,45 @@ def git_status_paths() -> list[str]:
 
 
 def create_owned_temp() -> tuple[Path, str]:
-    TEMP_PARENT.mkdir(exist_ok=True)
     run_id = secrets.token_hex(16)
     run_dir = (TEMP_PARENT / f"{RUN_PREFIX}{run_id}").resolve()
     if run_dir.parent != TEMP_PARENT.resolve() or not _inside_root(run_dir):
         raise VerificationError("Verification temporary path escaped its owned parent")
+    if os.name == "nt" and len(str(run_dir)) > MAX_WINDOWS_TEMP_ROOT_LENGTH:
+        raise VerificationError("Verification temporary root is too long for safe Windows test paths")
+    TEMP_PARENT.mkdir(exist_ok=True)
     run_dir.mkdir()
     (run_dir / OWNERSHIP_FILE).write_text(json.dumps({"run_id": run_id, "root": str(ROOT)}), encoding="utf-8")
     return run_dir, run_id
+
+
+def prepare_owned_test_temp(run_dir: Path, run_id: str, stage: str) -> tuple[Path, Path]:
+    resolved = run_dir.resolve()
+    expected = TEMP_PARENT.resolve() / f"{RUN_PREFIX}{run_id}"
+    marker = resolved / OWNERSHIP_FILE
+    try:
+        ownership = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise VerificationError("Refusing test temp setup because ownership cannot be proven") from exc
+    if (
+        resolved != expected
+        or resolved.parent != TEMP_PARENT.resolve()
+        or not _inside_root(resolved)
+        or ownership != {"run_id": run_id, "root": str(ROOT)}
+        or not re.fullmatch(r"[a-z][a-z0-9-]{0,19}", stage)
+    ):
+        raise VerificationError("Refusing test temp setup outside the current owned run")
+    stage_root = resolved / stage
+    system_temp = resolved / "tmp"
+    try:
+        stage_root.mkdir(exist_ok=False)
+        system_temp.mkdir(exist_ok=True)
+        probe = stage_root / ".write-check"
+        probe.write_text("owned", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise VerificationError(f"Owned test temp is not safely writable: {exc}") from exc
+    return stage_root, system_temp
 
 
 def cleanup_owned_temp(run_dir: Path, run_id: str) -> None:
@@ -182,9 +240,12 @@ def cleanup_owned_temp(run_dir: Path, run_id: str) -> None:
         raise VerificationError("Refusing cleanup because the ownership marker is missing or invalid") from exc
     if ownership != {"run_id": run_id, "root": str(ROOT)}:
         raise VerificationError("Refusing cleanup because the ownership marker does not match")
-    shutil.rmtree(resolved)
-    if TEMP_PARENT.exists() and not any(TEMP_PARENT.iterdir()):
-        TEMP_PARENT.rmdir()
+    try:
+        shutil.rmtree(resolved)
+        if TEMP_PARENT.exists() and not any(TEMP_PARENT.iterdir()):
+            TEMP_PARENT.rmdir()
+    except OSError as exc:
+        raise VerificationError(f"Could not clean the marker-owned verification directory: {exc}") from exc
 
 
 def _python() -> str:
@@ -196,11 +257,37 @@ def _python() -> str:
     return str(candidate)
 
 
-def run_pytest(paths: Sequence[str], basetemp: Path) -> str:
+def run_pytest(paths: Sequence[str], basetemp: Path, system_temp: Path) -> str:
     if not paths:
         raise VerificationError("At least one test target is required")
     approved = [approved_relative_path(path)[1] for path in paths]
-    return _checked([_python(), "-m", "pytest", "-p", "no:cacheprovider", "--basetemp", str(basetemp), *approved])
+    temp_path = str(system_temp.resolve())
+    pytest_root = str(basetemp.resolve())
+    pytest_entrypoint = (
+        [_python(), "-c", WINDOWS_PYTEST_TEMP_WRAPPER]
+        if sys.platform == "win32"
+        else [_python(), "-m", "pytest"]
+    )
+    result = _run(
+        [
+            *pytest_entrypoint,
+            "-p",
+            "no:cacheprovider",
+            "-o",
+            "tmp_path_retention_policy=none",
+            *approved,
+        ],
+        environment_overrides={
+            "TEMP": temp_path,
+            "TMP": temp_path,
+            "TMPDIR": temp_path,
+            "PYTEST_DEBUG_TEMPROOT": pytest_root,
+        },
+    )
+    output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+    if result.returncode != 0:
+        raise VerificationError(output or f"pytest exited {result.returncode}")
+    return output
 
 
 def run_ruff() -> str:
@@ -296,11 +383,22 @@ def verify(
         report.changed_files = changed_files
         report.unrelated_dirty_files = sorted(set(initial_dirty) - set(changed_files))
         run_dir, run_id = create_owned_temp()
+        focused_temp, system_temp = prepare_owned_test_temp(run_dir, run_id, "focused")
+        regression_temp, _ = prepare_owned_test_temp(run_dir, run_id, "regression")
+        full_temp, _ = prepare_owned_test_temp(run_dir, run_id, "full")
 
         for name, operation in (
-            ("focused tests", lambda: run_pytest(focused_tests, run_dir / "focused")),
-            ("regression tests", lambda: run_pytest(regression_tests, run_dir / "regression") if regression_tests else "Not requested"),
-            ("full CommandCore suite", lambda: run_pytest(["tests"], run_dir / "full") if full else "Not requested"),
+            ("focused tests", lambda: run_pytest(focused_tests, focused_temp, system_temp)),
+            (
+                "regression tests",
+                lambda: run_pytest(regression_tests, regression_temp, system_temp)
+                if regression_tests
+                else "Not requested",
+            ),
+            (
+                "full CommandCore suite",
+                lambda: run_pytest(["tests"], full_temp, system_temp) if full else "Not requested",
+            ),
             ("repository Ruff", run_ruff),
             ("secret and diff review", lambda: secret_and_diff_review(changed_files)),
             ("trusted read-only Docker", lambda: run_trusted_docker(focused_tests)),

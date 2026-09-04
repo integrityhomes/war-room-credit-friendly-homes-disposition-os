@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -74,6 +75,18 @@ def test_runner_has_no_live_credentials_or_external_calls() -> None:
     assert '"HTTPS_PROXY": ""' in SOURCE
 
 
+def test_git_status_preserves_first_modified_path(monkeypatch) -> None:
+    monkeypatch.setattr(
+        runner,
+        "_checked",
+        lambda arguments: " M scripts/verify_commandcore.py\n?? tests/new_test.py",
+    )
+    assert runner.git_status_paths() == [
+        "scripts/verify_commandcore.py",
+        "tests/new_test.py",
+    ]
+
+
 def test_owned_cleanup_requires_exact_path_and_matching_marker(tmp_path, monkeypatch) -> None:
     root = tmp_path
     parent = root / ".v"
@@ -96,6 +109,110 @@ def test_owned_cleanup_requires_exact_path_and_matching_marker(tmp_path, monkeyp
     assert forged.exists()
 
 
+def test_pytest_temp_is_workspace_local_owned_and_process_routed(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    parent = root / ".ccv"
+    monkeypatch.setattr(runner, "ROOT", root)
+    monkeypatch.setattr(runner, "TEMP_PARENT", parent)
+    monkeypatch.setattr(runner.secrets, "token_hex", lambda size: "owned")
+    run_dir, run_id = runner.create_owned_temp()
+    stage, system_temp = runner.prepare_owned_test_temp(run_dir, run_id, "focused")
+    assert stage.parent == run_dir
+    assert system_temp.parent == run_dir
+
+    captured: dict[str, object] = {}
+
+    def fake_run(arguments, **kwargs):
+        captured["arguments"] = arguments
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(arguments, 0, "passed", "")
+
+    monkeypatch.setattr(runner, "approved_relative_path", lambda value: (root / value, value))
+    monkeypatch.setattr(runner, "_python", lambda: sys.executable)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runner.run_pytest(["tests/test_verify_commandcore.py"], stage, system_temp)
+    environment = captured["env"]
+    assert environment["TEMP"] == str(system_temp.resolve())
+    assert environment["TMP"] == str(system_temp.resolve())
+    assert environment["TMPDIR"] == str(system_temp.resolve())
+    assert environment["PYTEST_DEBUG_TEMPROOT"] == str(stage.resolve())
+    assert os.path.commonpath([environment["TEMP"], str(run_dir)]) == str(run_dir)
+    assert "tmp_path_retention_policy=none" in captured["arguments"]
+    if sys.platform == "win32":
+        assert runner.WINDOWS_PYTEST_TEMP_WRAPPER in captured["arguments"]
+
+
+def test_windows_pytest_wrapper_changes_only_restrictive_temp_mode() -> None:
+    assert "safe_mode = 0o777 if mode == 0o700 else mode" in runner.WINDOWS_PYTEST_TEMP_WRAPPER
+    assert "os.mkdir = inherited_acl_mkdir" in runner.WINDOWS_PYTEST_TEMP_WRAPPER
+
+
+def test_temp_setup_rejects_forged_marker_and_preexisting_stage(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    parent = root / ".ccv"
+    monkeypatch.setattr(runner, "ROOT", root)
+    monkeypatch.setattr(runner, "TEMP_PARENT", parent)
+    monkeypatch.setattr(runner.secrets, "token_hex", lambda size: "owned")
+    run_dir, run_id = runner.create_owned_temp()
+    (run_dir / runner.OWNERSHIP_FILE).write_text("{}", encoding="utf-8")
+    with pytest.raises(runner.VerificationError, match="outside the current owned run"):
+        runner.prepare_owned_test_temp(run_dir, run_id, "focused")
+
+    (run_dir / runner.OWNERSHIP_FILE).write_text(
+        '{"run_id": "owned", "root": "' + str(root).replace("\\", "\\\\") + '"}',
+        encoding="utf-8",
+    )
+    (run_dir / "focused").mkdir()
+    with pytest.raises(runner.VerificationError, match="not safely writable"):
+        runner.prepare_owned_test_temp(run_dir, run_id, "focused")
+
+
+def test_windows_temp_root_length_fails_closed(tmp_path, monkeypatch) -> None:
+    root = tmp_path / ("r" * 190)
+    monkeypatch.setattr(runner, "ROOT", root)
+    monkeypatch.setattr(runner, "TEMP_PARENT", root / ".ccv")
+    monkeypatch.setattr(runner.os, "name", "nt")
+    with pytest.raises(runner.VerificationError, match="too long"):
+        runner.create_owned_temp()
+
+
+def test_cleanup_permission_error_is_reported_fail_closed(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    parent = root / ".ccv"
+    monkeypatch.setattr(runner, "ROOT", root)
+    monkeypatch.setattr(runner, "TEMP_PARENT", parent)
+    monkeypatch.setattr(runner, "MAX_WINDOWS_TEMP_ROOT_LENGTH", 1_000)
+    run_dir, run_id = runner.create_owned_temp()
+    monkeypatch.setattr(runner.shutil, "rmtree", lambda path: (_ for _ in ()).throw(PermissionError("denied")))
+    with pytest.raises(runner.VerificationError, match="marker-owned"):
+        runner.cleanup_owned_temp(run_dir, run_id)
+    assert run_dir.exists()
+
+
+def test_interrupted_run_still_cleans_owned_temp(tmp_path, monkeypatch) -> None:
+    changed = "scripts/verify_commandcore.py"
+    run_dir = tmp_path / "owned-run"
+    run_dir.mkdir()
+    cleaned: list[Path] = []
+    monkeypatch.setattr(runner, "verify_repository", lambda: None)
+    monkeypatch.setattr(runner, "git_status_paths", lambda: [changed])
+    monkeypatch.setattr(runner, "approved_relative_path", lambda value, must_exist=True: (ROOT / value, value))
+    monkeypatch.setattr(runner, "create_owned_temp", lambda: (run_dir, "owned"))
+    monkeypatch.setattr(
+        runner,
+        "prepare_owned_test_temp",
+        lambda root, run_id, stage: (root / stage, root / "tmp"),
+    )
+    monkeypatch.setattr(runner, "cleanup_owned_temp", lambda root, run_id: cleaned.append(root))
+    monkeypatch.setattr(runner, "run_pytest", lambda *args: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        runner.verify(changed=[changed], focused=["tests/test_verify_commandcore.py"])
+    assert cleaned == [run_dir]
+
+
 def test_failure_stops_later_verification_and_preserves_unrelated_dirty_files(monkeypatch, tmp_path) -> None:
     changed = "scripts/verify_commandcore.py"
     unrelated = "notes/user-work.txt"
@@ -106,10 +223,11 @@ def test_failure_stops_later_verification_and_preserves_unrelated_dirty_files(mo
     monkeypatch.setattr(runner, "cleanup_owned_temp", lambda *_: None)
     monkeypatch.setattr(runner, "approved_relative_path", lambda value, must_exist=True: (ROOT / value, value))
 
-    def fail_focused(paths, basetemp):
+    def fail_focused(paths, basetemp, system_temp):
         called.append("focused")
         raise runner.VerificationError("focused failure")
 
+    monkeypatch.setattr(runner, "prepare_owned_test_temp", lambda root, run_id, stage: (root / stage, root / "tmp"))
     monkeypatch.setattr(runner, "run_pytest", fail_focused)
     monkeypatch.setattr(runner, "run_ruff", lambda: called.append("ruff") or "passed")
     monkeypatch.setattr(runner, "run_trusted_docker", lambda paths: called.append("docker") or "passed")
@@ -127,7 +245,8 @@ def test_pass_summary_reports_exact_changed_files(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(runner, "create_owned_temp", lambda: (tmp_path, "owned"))
     monkeypatch.setattr(runner, "cleanup_owned_temp", lambda *_: None)
     monkeypatch.setattr(runner, "approved_relative_path", lambda value, must_exist=True: (ROOT / value, value))
-    monkeypatch.setattr(runner, "run_pytest", lambda paths, basetemp: "tests passed")
+    monkeypatch.setattr(runner, "prepare_owned_test_temp", lambda root, run_id, stage: (root / stage, root / "tmp"))
+    monkeypatch.setattr(runner, "run_pytest", lambda paths, basetemp, system_temp: "tests passed")
     monkeypatch.setattr(runner, "run_ruff", lambda: "ruff passed")
     monkeypatch.setattr(runner, "secret_and_diff_review", lambda paths: "secrets passed")
     monkeypatch.setattr(runner, "run_trusted_docker", lambda paths: "docker passed")
