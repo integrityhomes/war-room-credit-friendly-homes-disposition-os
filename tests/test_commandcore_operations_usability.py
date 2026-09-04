@@ -98,3 +98,13 @@ def test_full_property_source_audit_shows_summary_not_full_source() -> None:
         "safe_rows[5:25]",
     ):
         assert marker in source
+
+
+def test_property_diagnostic_failures_show_only_allowlisted_safe_details() -> None:
+    source = operations_source()
+
+    assert source.count("safe_property_diagnostic_failure(error)") == 2
+    assert source.count('st.write(f"**Failure category:** {failure.category.value}")') == 2
+    assert source.count('st.write(f"**Safe explanation:** {failure.explanation}")') == 2
+    assert "str(error)" not in source
+    assert "st.exception" not in source

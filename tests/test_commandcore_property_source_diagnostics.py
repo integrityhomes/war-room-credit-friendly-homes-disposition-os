@@ -6,7 +6,9 @@ import pytest
 
 from cfh_disposition.commandcore_property_source_diagnostics import (
     PROPERTY_DIAGNOSTIC_WORKSHEET,
+    PropertyDiagnosticFailureCategory,
     run_property_source_diagnostic,
+    safe_property_diagnostic_failure,
 )
 from cfh_disposition.google_property_runtime_bridge import (
     APPROVED_READ_ONLY_SCOPES,
@@ -115,3 +117,45 @@ def test_diagnostic_fails_closed_for_incomplete_dependencies_or_wrong_tab() -> N
             credential_factory=lambda *_args: object(),
             sheet_loader=wrong_tab_loader,
         )
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Required CommandCore runtime secret is missing: REDACTED.", "MISSING_RUNTIME_SECRET"),
+        ("The configured Google service account secret is malformed.", "MALFORMED_SERVICE_ACCOUNT"),
+        ("Read-only Google credentials could not be created safely.", "CREDENTIAL_CREATION_FAILED"),
+        ("The configured read-only Google spreadsheet could not be opened.", "SPREADSHEET_OPEN_FAILED"),
+        ("Worksheet names could not be listed safely.", "WORKSHEET_DISCOVERY_FAILED"),
+        ("The configured property worksheets could not be read safely.", "WORKSHEET_READ_FAILED"),
+        ("No property worksheets were discovered.", "NO_WORKSHEETS_FOUND"),
+        ("The approved worksheet contained no qualifying property rows.", "NO_QUALIFYING_PROPERTIES"),
+        ("Property rows could not be normalized safely.", "ROW_NORMALIZATION_FAILED"),
+        ("Duplicate-property planning could not be completed safely.", "DUPLICATE_PLANNING_FAILED"),
+        ("The property-source diagnostic did not remain read-only.", "READ_ONLY_SAFETY_FAILURE"),
+        (SECRET_MARKER, "UNKNOWN_SAFE_FAILURE"),
+    ],
+)
+def test_safe_failure_categories_never_echo_exception_text(
+    message: str, expected: str
+) -> None:
+    failure = safe_property_diagnostic_failure(GoogleBridgeError(message))
+    assert failure.category.value == expected
+    assert SECRET_MARKER not in failure.model_dump_json()
+
+
+def test_safe_failure_category_values_match_the_approved_allowlist() -> None:
+    assert {item.value for item in PropertyDiagnosticFailureCategory} == {
+        "MISSING_RUNTIME_SECRET",
+        "MALFORMED_SERVICE_ACCOUNT",
+        "CREDENTIAL_CREATION_FAILED",
+        "SPREADSHEET_OPEN_FAILED",
+        "WORKSHEET_DISCOVERY_FAILED",
+        "WORKSHEET_READ_FAILED",
+        "NO_WORKSHEETS_FOUND",
+        "NO_QUALIFYING_PROPERTIES",
+        "ROW_NORMALIZATION_FAILED",
+        "DUPLICATE_PLANNING_FAILED",
+        "READ_ONLY_SAFETY_FAILURE",
+        "UNKNOWN_SAFE_FAILURE",
+    }

@@ -10,6 +10,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_property_source_diagnostics import (
     run_property_source_diagnostic,
+    safe_property_diagnostic_failure,
 )
 from cfh_disposition.google_property_full_audit import run_full_property_source_audit
 from cfh_disposition.google_property_runtime_bridge import GoogleBridgeError
@@ -307,10 +308,12 @@ with st.expander("Property Source Diagnostics", expanded=False):
     ):
         try:
             diagnostic = run_property_source_diagnostic(st.secrets)
-        except GoogleBridgeError:
-            st.error(
-                "Live Google connection: FAIL. The read-only test stopped safely; no Google or CommandCore records were changed."
-            )
+        except GoogleBridgeError as error:
+            failure = safe_property_diagnostic_failure(error)
+            st.error("Live Google connection: FAIL")
+            st.write(f"**Failure category:** {failure.category.value}")
+            st.write(f"**Safe explanation:** {failure.explanation}")
+            st.caption("Google writes: 0 · CommandCore records created: 0")
         else:
             st.success("Live Google connection: PASS")
             status_left, status_middle, status_right = st.columns(3)
@@ -346,10 +349,12 @@ with st.expander("Property Source Diagnostics", expanded=False):
     ):
         try:
             full_audit = run_full_property_source_audit(st.secrets)
-        except GoogleBridgeError:
-            st.error(
-                "Full Google property source: FAIL. The read-only audit stopped safely; no Google or CommandCore records were changed."
-            )
+        except GoogleBridgeError as error:
+            failure = safe_property_diagnostic_failure(error)
+            st.error("Full Google property source: FAIL")
+            st.write(f"**Failure category:** {failure.category.value}")
+            st.write(f"**Safe explanation:** {failure.explanation}")
+            st.caption("Google writes: 0 · CommandCore records created: 0")
         else:
             st.success("Full Google property source: PASS")
             first_row = st.columns(4)
