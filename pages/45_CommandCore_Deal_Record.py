@@ -6,6 +6,7 @@ import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
+from cfh_disposition.commandcore_deal_summary import build_deal_summary, status_label
 from cfh_disposition.commandcore_offer_workspace_ui import render_offer_workspace
 from supabase import create_client
 
@@ -255,6 +256,7 @@ related = {
     entity: [record for record in list_records(entity) if related_to_deal(record, deal_id)]
     for entity in RELATED_ENTITIES
 }
+deal_summary = build_deal_summary(related)
 
 overview, next_step_tab, tasks_tab, messages_tab, offers_tab, closing_tab, history_tab = st.tabs(
     [
@@ -269,6 +271,73 @@ overview, next_step_tab, tasks_tab, messages_tab, offers_tab, closing_tab, histo
 )
 
 with overview:
+    st.markdown("### Deal at a glance")
+    owner = text(deal.get("assigned_to")) or "Not assigned"
+    next_task = deal_summary.next_task
+    next_task_label = text(next_task.get("title")) if next_task else "No open task"
+    next_task_due = text(next_task.get("due_at") or next_task.get("due_date")) if next_task else ""
+    latest_message = deal_summary.recent_communication
+    latest_activity = deal_summary.recent_activity
+
+    headline = st.columns(3)
+    headline[0].metric("Deal owner", owner)
+    headline[1].metric("Next task / follow-up", next_task_label)
+    headline[1].caption(f"Due: {next_task_due}" if next_task_due else "No due date recorded")
+    headline[2].metric("Approvals needing attention", deal_summary.approval_count)
+    if deal_summary.approval_count:
+        headline[2].page_link(
+            "pages/48_CommandCore_Owner_Approvals.py",
+            label="Review owner approvals",
+            use_container_width=True,
+        )
+
+    recent = st.columns(2)
+    with recent[0]:
+        st.markdown("#### Latest communication")
+        if latest_message:
+            st.write(text(latest_message.get("summary")) or "Communication recorded; no summary provided.")
+            st.caption(
+                " • ".join(
+                    filter(
+                        None,
+                        [
+                            text(latest_message.get("channel")).title(),
+                            text(latest_message.get("direction")).title(),
+                            text(latest_message.get("created_at") or latest_message.get("updated_at")),
+                        ],
+                    )
+                )
+                or "Details not recorded"
+            )
+        else:
+            st.caption("No communication recorded for this deal yet.")
+    with recent[1]:
+        st.markdown("#### Latest activity")
+        if latest_activity:
+            st.write(text(latest_activity.get("summary")) or "Activity recorded; no summary provided.")
+            st.caption(
+                " • ".join(
+                    filter(
+                        None,
+                        [
+                            text(latest_activity.get("activity_type")).replace("_", " ").title(),
+                            text(latest_activity.get("created_at") or latest_activity.get("updated_at")),
+                        ],
+                    )
+                )
+                or "Details not recorded"
+            )
+        else:
+            st.caption("No activity recorded for this deal yet.")
+
+    st.markdown("#### Deal progress")
+    progress = st.columns(4)
+    progress[0].metric("Offer", status_label(deal_summary.offer))
+    progress[1].metric("Contract / documents", status_label(deal_summary.document))
+    progress[2].metric("Title / closing", status_label(deal_summary.closing))
+    progress[3].metric("Marketing / disposition", status_label(deal_summary.marketing))
+
+    st.divider()
     st.markdown("### Deal notes")
     st.write(text(deal.get("notes")) or "No deal notes yet.")
     stats = st.columns(6)

@@ -42,3 +42,25 @@ def test_closing_and_transactions_are_grouped_with_documents() -> None:
     assert 'show_related_table("documents", related["documents"])' in closing_block
     assert 'show_related_table("transactions", related["transactions"])' in closing_block
     assert 'show_related_table("transactions", related["transactions"])' not in history_block
+
+
+def test_deal_overview_surfaces_daily_operating_summary() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+    overview = source.split("with overview:", 1)[1].split("with next_step_tab:", 1)[0]
+
+    for marker in (
+        'st.markdown("### Deal at a glance")',
+        'metric("Deal owner"',
+        'metric("Next task / follow-up"',
+        'metric("Approvals needing attention"',
+        'st.markdown("#### Latest communication")',
+        'st.markdown("#### Latest activity")',
+        'metric("Offer"',
+        'metric("Contract / documents"',
+        'metric("Title / closing"',
+        'metric("Marketing / disposition"',
+        'label="Review owner approvals"',
+    ):
+        assert marker in overview
+
+    assert "build_deal_summary(related)" in source
