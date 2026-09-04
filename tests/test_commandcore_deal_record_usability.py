@@ -96,6 +96,27 @@ def test_deal_summary_quick_actions_open_existing_workflows_only() -> None:
     assert 'if property_record and action_columns' in overview
 
 
+def test_deal_overview_shows_read_only_owner_approval_status() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+    overview = source.split("with overview:", 1)[1].split("with next_step_tab:", 1)[0]
+
+    for marker in (
+        'st.markdown("#### Approval Status")',
+        "No approval is currently waiting, and no owner decision history is recorded for this Deal.",
+        'st.write(f"Decision made by: {approval.decided_by}")',
+        "approval_decision_time_label(approval.decided_at)",
+        'st.write(f"Next step: {approval.next_step}")',
+        "if approval.actionable:",
+        'label="Review Approval"',
+        '"pages/48_CommandCore_Owner_Approvals.py"',
+    ):
+        assert marker in overview
+
+    assert 'build_deal_approval_status(related["offers"], related["documents"])' in source
+    assert "OWNER_APPROVAL_PIN" not in overview
+    assert "approval.id" not in overview
+
+
 def test_deal_quick_actions_select_existing_keyed_tabs() -> None:
     source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
 

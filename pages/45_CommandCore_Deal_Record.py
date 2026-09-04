@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_approval_status import approval_decision_time_label, build_deal_approval_status
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
 from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
 from cfh_disposition.commandcore_followup import MAX_FOLLOWUP_NOTE_LENGTH, build_followup_record
@@ -286,6 +287,7 @@ related = {
     for entity in RELATED_ENTITIES
 }
 deal_summary = build_deal_summary(related)
+approval_statuses = build_deal_approval_status(related["offers"], related["documents"])
 
 pending_tab = text(st.session_state.pop("commandcore_deal_pending_tab", ""))
 if pending_tab in DEAL_TAB_LABELS:
@@ -361,6 +363,34 @@ with overview:
     progress[1].metric("Contract / documents", status_label(deal_summary.document))
     progress[2].metric("Title / closing", status_label(deal_summary.closing))
     progress[3].metric("Marketing / disposition", status_label(deal_summary.marketing))
+
+    st.markdown("#### Approval Status")
+    st.caption("Owner decisions shown here come from the existing controlled Owner Approval workflow.")
+    if not approval_statuses:
+        st.info(
+            "No approval is currently waiting, and no owner decision history is recorded for this Deal. "
+            "This does not mean future work will not require approval."
+        )
+    else:
+        for approval in approval_statuses:
+            with st.container(border=True):
+                approval_heading, approval_state = st.columns([3, 1])
+                approval_heading.markdown(f"**{approval.item_label}**")
+                approval_heading.caption(approval.item_type)
+                approval_state.markdown(f"**{approval.state}**")
+                if approval.decided_by:
+                    st.write(f"Decision made by: {approval.decided_by}")
+                if approval.decided_at:
+                    st.caption(f"Decision recorded: {approval_decision_time_label(approval.decided_at)}")
+                if approval.decision_reason:
+                    st.write(f"Decision note: {approval.decision_reason}")
+                st.write(f"Next step: {approval.next_step}")
+                if approval.actionable:
+                    st.page_link(
+                        "pages/48_CommandCore_Owner_Approvals.py",
+                        label="Review Approval",
+                        use_container_width=True,
+                    )
 
     st.markdown("#### Quick actions")
     st.caption("Open the existing workflow for this Deal. These actions do not send, approve, sign, or publish anything.")
