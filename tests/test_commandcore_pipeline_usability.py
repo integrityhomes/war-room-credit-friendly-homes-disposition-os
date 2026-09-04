@@ -34,3 +34,14 @@ def test_empty_pipeline_guides_user_to_add_first_lead() -> None:
         'The pipeline will appear here after the first lead is added.',
     ):
         assert marker in source
+
+
+def test_pipeline_and_deal_use_the_same_followup_record_builder() -> None:
+    pipeline = Path("pages/46_CommandCore_Pipeline_Followup.py").read_text(encoding="utf-8")
+    deal = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+
+    assert "from cfh_disposition.commandcore_followup import build_followup_record" in pipeline
+    assert "build_followup_record(" in pipeline
+    assert "build_followup_record(" in deal
+    assert 'upsert("tasks", record)' in pipeline
+    assert 'save_related("tasks", deal_id, record)' in deal

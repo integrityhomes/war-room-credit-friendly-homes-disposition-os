@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from typing import Any
 
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
-from cfh_disposition.commandcore_deal_summary import build_deal_summary, status_label
+from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
+from cfh_disposition.commandcore_followup import MAX_FOLLOWUP_NOTE_LENGTH, build_followup_record
 from cfh_disposition.commandcore_offer_workspace_ui import render_offer_workspace
 from supabase import create_client
 
@@ -109,7 +111,7 @@ def show_related_table(entity: str, rows: list[dict[str, Any]]) -> None:
         st.caption(f"No {entity} yet.")
         return
     preferred = {
-        "tasks": ["title", "status", "assigned_to", "due_at", "updated_at"],
+        "tasks": ["title", "status", "assigned_to", "due_at", "due_date", "updated_at"],
         "communications": ["channel", "direction", "summary", "status", "created_at"],
         "offers": ["amount", "status", "terms", "created_at"],
         "documents": ["name", "document_type", "version", "status", "created_at"],
@@ -497,26 +499,57 @@ with next_step_tab:
     show_related_table("tasks", lifecycle_rows)
 
 with tasks_tab:
-    with st.form("new_task"):
-        title = st.text_input("Task")
-        owner = st.text_input("Assigned to")
-        due = st.text_input("Due date/time", placeholder="2026-08-30 09:00")
-        if st.form_submit_button("Add task", type="primary") and title.strip():
-            saved = save_related(
-                "tasks",
-                deal_id,
-                {
-                    "title": title.strip(),
-                    "assigned_to": owner.strip(),
-                    "due_at": due.strip(),
-                    "status": "open",
-                    "source": "commandcore",
-                },
+    followups = [task for task in related["tasks"] if text(task.get("task_type")) == "crm_follow_up"]
+    next_followup = next_open_task(followups)
+    st.markdown("### Next follow-up")
+    if next_followup:
+        st.write(text(next_followup.get("title")) or "Follow up")
+        st.caption(
+            " • ".join(
+                [
+                    f"Due: {text(next_followup.get('due_at') or next_followup.get('due_date')) or 'Not scheduled'}",
+                    f"Assigned to: {text(next_followup.get('assigned_to')) or 'Unassigned'}",
+                ]
             )
+        )
+    else:
+        st.caption("No open follow-up is scheduled for this Deal.")
+
+    st.markdown("### Schedule follow-up")
+    st.caption("This creates an internal task only. It does not send a message or make a call.")
+    with st.form("deal_followup"):
+        note = st.text_input(
+            "Follow-up note",
+            placeholder="Example: Call seller to confirm the inspection date",
+            max_chars=MAX_FOLLOWUP_NOTE_LENGTH,
+        )
+        due_columns = st.columns(2)
+        followup_date = due_columns[0].date_input("Due date", value=date.today())
+        followup_time = due_columns[1].time_input("Due time", value=time(hour=9))
+        owner = st.text_input(
+            "Assigned to",
+            value=text(deal.get("assigned_to")),
+            help="The current Deal owner is preserved unless you deliberately change this field.",
+        )
+        submitted = st.form_submit_button("Schedule Follow-Up", type="primary", use_container_width=True)
+    if submitted:
+        try:
+            record = build_followup_record(
+                deal_id=deal_id,
+                note=note,
+                due=datetime.combine(followup_date, followup_time),
+                assigned_to=owner,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            saved = save_related("tasks", deal_id, record)
             if saved:
-                st.success("Task added.")
+                st.success("Follow-up scheduled. No message or call was made.")
                 st.rerun()
-            st.error("CommandCore could not add the task.")
+            st.error("CommandCore could not schedule the follow-up. Your existing tasks were not changed.")
+
+    st.markdown("### All Deal tasks")
     show_related_table("tasks", related["tasks"])
 
 with messages_tab:

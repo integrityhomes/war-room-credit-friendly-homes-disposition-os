@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_followup import build_followup_record
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Follow-Up & Pipeline", page_icon="📈", layout="wide")
@@ -213,23 +214,24 @@ with followup_tab:
         owner = st.text_input("Assigned to", value=text(chosen.get("assigned_to")))
         priority = st.selectbox("Priority", ["medium", "high", "low"], index=0)
         if st.button("Create follow-up", type="primary"):
-            record = {
-                "title": title,
-                "status": "open",
-                "priority": priority,
-                "due_date": followup_date.isoformat(),
-                "assigned_to": owner,
-                "task_type": "crm_follow_up",
-                "links": {"deal_id": text(chosen.get("id"))},
-                "source": "commandcore-pipeline",
-            }
-            result = upsert("tasks", record)
-            if result.get("ok"):
-                st.success(
-                    "Follow-up created. Due follow-ups are synced into the CommandCore Action Queue by the background service."
+            try:
+                record = build_followup_record(
+                    deal_id=text(chosen.get("id")),
+                    note=title,
+                    due=followup_date,
+                    assigned_to=owner,
+                    priority=priority,
                 )
-                st.rerun()
-            st.error(text(result.get("error")) or "Could not create the follow-up.")
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                result = upsert("tasks", record)
+                if result.get("ok"):
+                    st.success(
+                        "Follow-up created. Due follow-ups are synced into the CommandCore Action Queue by the background service."
+                    )
+                    st.rerun()
+                st.error(text(result.get("error")) or "Could not create the follow-up.")
     else:
         st.caption("Add a lead before scheduling a deal follow-up.")
 

@@ -102,3 +102,28 @@ def test_deal_quick_actions_select_existing_keyed_tabs() -> None:
     assert 'st.session_state["commandcore_deal_pending_tab"] = label' in source
     assert 'st.session_state["commandcore_deal_tabs"] = pending_tab' in source
     assert 'key="commandcore_deal_tabs"' in source
+
+
+def test_deal_tasks_tab_schedules_shared_followup_in_current_deal() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+    tasks = source.split("with tasks_tab:", 1)[1].split("with messages_tab:", 1)[0]
+
+    for marker in (
+        'st.markdown("### Next follow-up")',
+        'st.markdown("### Schedule follow-up")',
+        '"Follow-up note"',
+        'date_input("Due date"',
+        'time_input("Due time"',
+        '"Assigned to"',
+        'value=text(deal.get("assigned_to"))',
+        'st.form_submit_button("Schedule Follow-Up"',
+        "build_followup_record(",
+        "deal_id=deal_id",
+        'save_related("tasks", deal_id, record)',
+        'st.success("Follow-up scheduled. No message or call was made.")',
+        "st.rerun()",
+    ):
+        assert marker in tasks
+
+    assert "Mark Complete" not in tasks
+    assert "mark complete" not in tasks.lower()
