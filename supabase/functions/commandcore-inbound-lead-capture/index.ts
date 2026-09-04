@@ -154,6 +154,12 @@ function sourceAttribution(existing: Row | null, event: Row, lead: Row, source: 
     medium: medium || text(prior.medium) || null,
     source_detail: sourceDetail || text(prior.source_detail) || null,
     source_event_id: eventId || null,
+    meta_page_id: text(lead.meta_page_id) || text(prior.meta_page_id) || null,
+    meta_form_id: text(lead.meta_form_id) || text(prior.meta_form_id) || null,
+    meta_leadgen_id: text(lead.meta_leadgen_id) || text(prior.meta_leadgen_id) || null,
+    meta_campaign_id: text(lead.meta_campaign_id) || text(prior.meta_campaign_id) || null,
+    meta_adset_id: text(lead.meta_adset_id) || text(prior.meta_adset_id) || null,
+    meta_ad_id: text(lead.meta_ad_id) || text(prior.meta_ad_id) || null,
   };
 }
 
@@ -266,7 +272,8 @@ Deno.serve(async (req) => {
   }
 
   const integrationEvent = obj(body.integration_event);
-  const canonicalWebsiteEvent = Object.keys(integrationEvent).length > 0 && text(integrationEvent.event_type) === "website.lead_submitted";
+  const canonicalEventType = text(integrationEvent.event_type);
+  const canonicalLeadEvent = Object.keys(integrationEvent).length > 0 && ["website.lead_submitted", "meta.lead_submitted"].includes(canonicalEventType);
   const lead = obj(integrationEvent.lead || body.lead || body);
   const source = lower(integrationEvent.source || lead.source || lead.channel || body.source || "inbound").slice(0, 80) || "inbound";
   const normalizedLeadType = leadType(lead.lead_type || lead.type || "seller");
@@ -283,7 +290,7 @@ Deno.serve(async (req) => {
   if (normalizedLeadType === "seller" && !address && !text(lead.source_property_id || lead.property_id)) {
     return jsonResponse(422, { ok: false, error: "seller_property_identity_required" });
   }
-  if (canonicalWebsiteEvent) {
+  if (canonicalLeadEvent) {
     const sharedEvidence = text(lead.consent_evidence_reference);
     const smsEvidence = text(lead.sms_consent_evidence) || sharedEvidence;
     const emailEvidence = text(lead.email_consent_evidence) || sharedEvidence;
@@ -307,17 +314,17 @@ Deno.serve(async (req) => {
     || (propertyParts.some(Boolean) ? propertyParts.join(":") : "");
   const propertyStable = propertyIdentity ? hashKey(propertyIdentity) : "";
   const dealStable = hashKey(`${normalizedLeadType}:${contactStable}:${propertyStable || "no-property"}`);
-  const recordSource = canonicalWebsiteEvent ? CANONICAL_SOURCE : source;
-  const contactExternal = canonicalWebsiteEvent ? `canonical-contact-${contactStable}` : `${legacyBaseExternal}-contact`;
-  const propertyExternal = propertyStable ? canonicalWebsiteEvent ? `canonical-property-${propertyStable}` : `${legacyBaseExternal}-property` : "";
-  const dealExternal = canonicalWebsiteEvent ? `canonical-deal-${dealStable}` : `${legacyBaseExternal}-deal`;
+  const recordSource = canonicalLeadEvent ? CANONICAL_SOURCE : source;
+  const contactExternal = canonicalLeadEvent ? `canonical-contact-${contactStable}` : `${legacyBaseExternal}-contact`;
+  const propertyExternal = propertyStable ? canonicalLeadEvent ? `canonical-property-${propertyStable}` : `${legacyBaseExternal}-property` : "";
+  const dealExternal = canonicalLeadEvent ? `canonical-deal-${dealStable}` : `${legacyBaseExternal}-deal`;
   let existingContact: Row | null = null;
   let existingProperty: Row | null = null;
   let existingDeal: Row | null = null;
   let existingFollowUp: Row | null = null;
 
   try {
-    if (canonicalWebsiteEvent) {
+    if (canonicalLeadEvent) {
       existingContact = await getCrm(supabaseUrl, serviceKey, "contacts", deterministicCrmId("contacts", contactExternal));
       existingProperty = propertyExternal
         ? await getCrm(supabaseUrl, serviceKey, "properties", deterministicCrmId("properties", propertyExternal))
@@ -399,16 +406,16 @@ Deno.serve(async (req) => {
       },
     });
 
-    const consentResults = canonicalWebsiteEvent
+    const consentResults = canonicalLeadEvent
       ? await preserveConsent(supabaseUrl, serviceKey, text(contact.id), lead, source)
       : [];
-    const preferences = canonicalWebsiteEvent
+    const preferences = canonicalLeadEvent
       ? await preserveBuyerPreferences(supabaseUrl, serviceKey, text(contact.id), lead)
       : null;
 
     const activity = await callCrm(supabaseUrl, serviceKey, "activities", {
       source: recordSource,
-      external_id: canonicalWebsiteEvent ? `canonical-intake-${dealStable}` : `${legacyBaseExternal}-captured`,
+      external_id: canonicalLeadEvent ? `canonical-intake-${dealStable}` : `${legacyBaseExternal}-captured`,
       activity_type: "inbound_lead_captured",
       title: "Inbound lead captured",
       channel: text(lead.channel || source),
@@ -419,6 +426,11 @@ Deno.serve(async (req) => {
         campaign: text(integrationEvent.campaign || lead.campaign) || null,
         medium: text(integrationEvent.medium || lead.medium) || null,
         source_detail: text(integrationEvent.source_detail || lead.source_detail) || null,
+        meta_page_id: text(lead.meta_page_id) || null,
+        meta_form_id: text(lead.meta_form_id) || null,
+        meta_campaign_id: text(lead.meta_campaign_id) || null,
+        meta_adset_id: text(lead.meta_adset_id) || null,
+        meta_ad_id: text(lead.meta_ad_id) || null,
         raw_lead_reference: originalExternal || null,
         assignment_status: text(routing.status) || null,
         assigned_to: assignedTo,
@@ -432,15 +444,15 @@ Deno.serve(async (req) => {
       },
     });
 
-    const followUp = canonicalWebsiteEvent ? await callCrm(supabaseUrl, serviceKey, "tasks", {
+    const followUp = canonicalLeadEvent ? await callCrm(supabaseUrl, serviceKey, "tasks", {
       source: recordSource,
       external_id: `canonical-follow-up-${dealStable}`,
-      title: "Follow up with website lead",
+      title: canonicalEventType === "meta.lead_submitted" ? "Follow up with Meta lead" : "Follow up with website lead",
       task_type: "crm_follow_up",
       work_type: "lead_follow_up",
       status: text(existingFollowUp?.status) || "open",
       assigned_to: assignedTo,
-      note: text(lead.notes || lead.message) || "Review the new website lead and choose the next contact step.",
+      note: text(lead.notes || lead.message) || (canonicalEventType === "meta.lead_submitted" ? "Review the new Meta lead and choose the next contact step." : "Review the new website lead and choose the next contact step."),
       source_attribution: dealAttribution,
       external_action_started: false,
       links: { deal_id: text(deal.id) || null, contact_id: text(contact.id) || null, property_id: text(property.id) || null },

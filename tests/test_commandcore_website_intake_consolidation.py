@@ -26,7 +26,7 @@ def test_malformed_and_incomplete_submissions_fail_safely() -> None:
 
 
 def test_adapter_uses_canonical_event_and_retains_legacy_path() -> None:
-    assert 'event_type:"website.lead_submitted"' in ADAPTER
+    assert '"meta.lead_submitted":"website.lead_submitted"' in ADAPTER
     assert '"commandcore-inbound-lead-capture"' in ADAPTER
     assert 'body.compatibility_mode==="legacy_lead_intake"' in ADAPTER
     assert 'sourceType==="website_form"||sourceType==="property_page"' in ADAPTER

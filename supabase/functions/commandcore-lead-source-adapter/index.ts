@@ -42,6 +42,10 @@ function normalizeLead(sourceType:string,body:Record<string,unknown>):Record<str
     source_property_address:normalized(first(raw,["property_address","address","listing_address"])),
     city:normalized(first(raw,["city"])),state:normalized(first(raw,["state"])),zip:normalized(first(raw,["zip","postal_code"])),
     campaign,source_detail:sourceDetail,medium,test_mode:raw.test_mode===true,
+    occurred_at:normalized(first(raw,["occurred_at","created_time","created_at"])),
+    meta_page_id:normalized(first(raw,["meta_page_id","page_id"])),meta_form_id:normalized(first(raw,["meta_form_id","form_id"])),
+    meta_leadgen_id:normalized(first(raw,["meta_leadgen_id","leadgen_id"])),meta_campaign_id:normalized(first(raw,["meta_campaign_id","campaign_id"])),
+    meta_adset_id:normalized(first(raw,["meta_adset_id","adset_id"])),meta_ad_id:normalized(first(raw,["meta_ad_id","ad_id"])),
   };
   const numericMap:Record<string,string[]>={
     max_purchase_price:["max_purchase_price","max_price","budget"],
@@ -70,7 +74,7 @@ async function forwardToFunction(name:string,payload:Record<string,unknown>):Pro
 
 function canonicalEvent(sourceType:string,lead:Record<string,unknown>):Record<string,unknown>{
   return {
-    schema_version:"1.0",event_type:"website.lead_submitted",event_id:normalized(lead.source_event_id),
+    schema_version:"1.0",event_type:sourceType==="facebook_lead"?"meta.lead_submitted":"website.lead_submitted",event_id:normalized(lead.source_event_id),
     source:sourceType,channel:normalized(lead.channel)||sourceType,campaign:normalized(lead.campaign)||null,
     source_detail:normalized(lead.source_detail)||null,medium:normalized(lead.medium)||null,
     occurred_at:normalized(lead.occurred_at)||new Date().toISOString(),test_mode:lead.test_mode===true,
@@ -91,8 +95,8 @@ Deno.serve(async (req) => {
     if((normalizedLead.sms_consent_state==="granted"||normalizedLead.email_consent_state==="granted")&&!normalized(normalizedLead.consent_evidence_reference)){
       return jsonResponse(422,{ok:false,error:"granted_consent_requires_evidence"});
     }
-    const websiteSource=sourceType==="website_form"||sourceType==="property_page";
-    const useLegacyIntake=body.compatibility_mode==="legacy_lead_intake"||!websiteSource;
+    const canonicalSource=sourceType==="website_form"||sourceType==="property_page"||sourceType==="facebook_lead";
+    const useLegacyIntake=body.compatibility_mode==="legacy_lead_intake"||!canonicalSource;
     const destination=useLegacyIntake?"commandcore-lead-intake":"commandcore-inbound-lead-capture";
     const payload=useLegacyIntake?normalizedLead:{integration_event:canonicalEvent(sourceType,normalizedLead)};
     const intake=await forwardToFunction(destination,payload);
