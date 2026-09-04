@@ -83,6 +83,39 @@ def test_task_agent_stages_exactly_one_intended_internal_crm_task() -> None:
     assert {item["action_type"] for item in result.side_effects} == {"crm.commit"}
 
 
+def test_task_agent_reports_failed_when_staging_executor_does_not_run() -> None:
+    production_calls: list[tuple[str, dict]] = []
+
+    result = run_task_agent(
+        deal=DEAL,
+        work_type="follow_up",
+        command="Prepare internal follow-up task",
+        mode=HarnessMode.STAGING,
+        production_executor=lambda action, payload: production_calls.append((action, payload)),
+    )
+
+    assert result.status == "failed"
+    assert len(result.side_effects) == 1
+    assert result.side_effects[0]["action_type"] == "crm.commit"
+    assert result.side_effects[0]["decision"] == "staging_only"
+    assert production_calls == []
+
+
+def test_task_agent_rejects_blank_work_type_before_staging_executor_call() -> None:
+    staging_calls: list[tuple[str, dict]] = []
+
+    with pytest.raises(ValueError, match="work type is required"):
+        run_task_agent(
+            deal=DEAL,
+            work_type="   ",
+            command="Prepare internal follow-up task",
+            mode=HarnessMode.STAGING,
+            staging_executor=lambda action, payload: staging_calls.append((action, payload)),
+        )
+
+    assert staging_calls == []
+
+
 def test_task_agent_rejects_production_before_any_executor_call() -> None:
     staging_calls: list[tuple[str, dict]] = []
     production_calls: list[tuple[str, dict]] = []
