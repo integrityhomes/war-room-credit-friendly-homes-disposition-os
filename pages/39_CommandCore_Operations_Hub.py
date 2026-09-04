@@ -12,6 +12,15 @@ from cfh_disposition.commandcore_property_source_diagnostics import (
     run_property_source_diagnostic,
     safe_property_diagnostic_failure,
 )
+from cfh_disposition.commandcore_secretary_orchestrator import (
+    CanonicalCommunicationEvent,
+    CommunicationChannel,
+    CommunicationDirection,
+    SecretaryContactContext,
+    SecretaryDealContext,
+    SecretaryPropertyContext,
+    decide_secretary_action,
+)
 from cfh_disposition.google_property_full_audit import run_full_property_source_audit
 from cfh_disposition.google_property_runtime_bridge import GoogleBridgeError
 from supabase import create_client
@@ -296,6 +305,98 @@ st.title("CommandCore Operations")
 st.caption(
     "Start with what needs management attention now. System readiness and CRM cutover details remain available below."
 )
+
+with st.expander("Secretary Test", expanded=False):
+    st.warning("TEST MODE — NOTHING WILL BE SENT")
+    st.caption(
+        "Evaluate a safe canonical communication example. This panel does not save records, create tasks, or contact anyone."
+    )
+    secretary_event_id = st.text_input(
+        "Communication event reference", value="secretary-safe-test-1"
+    )
+    secretary_channel = st.selectbox(
+        "Communication channel", [item.value for item in CommunicationChannel]
+    )
+    secretary_direction = st.selectbox(
+        "Direction", [item.value for item in CommunicationDirection]
+    )
+    secretary_message = st.text_area(
+        "Safe test message",
+        placeholder="Example: I would like to schedule a showing next week.",
+    )
+    context_left, context_right = st.columns(2)
+    secretary_contact_id = context_left.text_input("Matched contact reference (optional)")
+    secretary_relationship = context_right.selectbox(
+        "Contact relationship", ["Unknown", "Seller", "Buyer", "Investor"]
+    )
+    secretary_property_id = context_left.text_input("Related property reference (optional)")
+    secretary_deal_id = context_right.text_input("Related deal reference (optional)")
+    secretary_assigned_worker = st.text_input("Existing assigned worker (optional)")
+    if st.button(
+        "Evaluate in Test Mode",
+        key="commandcore_secretary_test_mode",
+        use_container_width=True,
+    ):
+        if not secretary_message.strip():
+            st.error("Enter a safe test message before evaluating it.")
+        else:
+            test_contacts = (
+                SecretaryContactContext(
+                    contact_id=secretary_contact_id,
+                    relationship=(
+                        "" if secretary_relationship == "Unknown" else secretary_relationship
+                    ),
+                    assigned_worker=secretary_assigned_worker,
+                ),
+            ) if secretary_contact_id else ()
+            test_properties = (
+                SecretaryPropertyContext(property_id=secretary_property_id),
+            ) if secretary_property_id else ()
+            test_deals = (
+                SecretaryDealContext(
+                    deal_id=secretary_deal_id,
+                    contact_id=secretary_contact_id,
+                    property_id=secretary_property_id,
+                    assigned_worker=secretary_assigned_worker,
+                ),
+            ) if secretary_deal_id else ()
+            secretary_result = decide_secretary_action(
+                CanonicalCommunicationEvent(
+                    communication_event_id=secretary_event_id,
+                    channel=CommunicationChannel(secretary_channel),
+                    direction=CommunicationDirection(secretary_direction),
+                    message_text=secretary_message,
+                    contact_id=secretary_contact_id,
+                    property_id=secretary_property_id,
+                    deal_id=secretary_deal_id,
+                ),
+                contacts=test_contacts,
+                properties=test_properties,
+                deals=test_deals,
+            )
+            st.markdown("### Secretary Result")
+            st.write(
+                "**Who this appears to be:** "
+                + (secretary_relationship if secretary_contact_id else "Not matched — review needed")
+            )
+            st.write(
+                "**Related deal/property:** "
+                + (secretary_result.matched_deal_id or secretary_result.matched_property_id or "Not reliably matched")
+            )
+            st.write(f"**What they appear to want:** {secretary_result.intent.value}")
+            st.write(f"**Urgency:** {secretary_result.urgency.value}")
+            st.write(f"**Confidence:** {secretary_result.confidence.value}")
+            st.write(f"**Recommended next step:** {secretary_result.suggested_action}")
+            st.write(f"**Who should handle it:** {secretary_result.suggested_owner}")
+            st.write(
+                f"**Approval required:** {'Yes' if secretary_result.approval_required else 'No'}"
+            )
+            st.write(f"**Why:** {'; '.join(secretary_result.evidence)}")
+            st.write(
+                "**Draft response, if appropriate:** "
+                + (secretary_result.draft_response or "No draft — human review is required.")
+            )
+            st.caption("No external action, record write, message, call, approval, or task was started.")
 
 with st.expander("Property Source Diagnostics", expanded=False):
     st.caption(

@@ -108,3 +108,31 @@ def test_property_diagnostic_failures_show_only_allowlisted_safe_details() -> No
     assert source.count('st.write(f"**Safe explanation:** {failure.explanation}")') == 2
     assert "str(error)" not in source
     assert "st.exception" not in source
+
+
+def test_secretary_test_panel_is_plain_english_and_cannot_execute() -> None:
+    source = operations_source()
+
+    for marker in (
+        'with st.expander("Secretary Test", expanded=False):',
+        'st.warning("TEST MODE — NOTHING WILL BE SENT")',
+        '"Evaluate in Test Mode"',
+        'st.markdown("### Secretary Result")',
+        '"**Who this appears to be:** "',
+        '"**Related deal/property:** "',
+        '"**What they appear to want:**',
+        '"**Recommended next step:**',
+        '"**Who should handle it:**',
+        '"**Approval required:**',
+        '"**Draft response, if appropriate:** "',
+        '"No external action, record write, message, call, approval, or task was started."',
+    ):
+        assert marker in source
+
+    secretary_start = source.index('with st.expander("Secretary Test", expanded=False):')
+    property_diagnostics = source.index(
+        'with st.expander("Property Source Diagnostics", expanded=False):'
+    )
+    secretary_panel = source[secretary_start:property_diagnostics]
+    for forbidden in ("send_sms", "send_email", "make_call", "upsert", "post_commandcore"):
+        assert forbidden not in secretary_panel.casefold()
