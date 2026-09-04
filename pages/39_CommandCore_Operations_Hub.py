@@ -333,10 +333,11 @@ st.caption(
     "Start with what needs management attention now. System readiness and CRM cutover details remain available below."
 )
 
-with st.expander("Secretary Test", expanded=False):
+with st.expander("Nevaeh Test", expanded=False):
     st.warning("TEST MODE — NOTHING WILL BE SENT OR CHANGED")
     st.caption(
-        "Evaluate an existing CommandCore communication or a safe test message. This panel only reads and recommends."
+        "Nevaeh — CommandCore Secretary can evaluate an existing CommandCore communication or a safe test message. "
+        "This panel only reads and recommends."
     )
     secretary_mode = st.radio(
         "Test source",
@@ -476,7 +477,7 @@ with st.expander("Secretary Test", expanded=False):
                 deal_owner_label = secretary_assigned_worker or deal_owner_label
 
     if secretary_result is not None:
-        st.markdown("### Secretary Result")
+        st.markdown("### Nevaeh Result")
         st.write(f"**Person:** {person_label}")
         st.write(f"**Relationship:** {relationship_label}")
         st.write(f"**Channel:** {secretary_result.channel.value}")

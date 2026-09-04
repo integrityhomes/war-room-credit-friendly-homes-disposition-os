@@ -114,10 +114,11 @@ def test_secretary_test_panel_is_plain_english_and_cannot_execute() -> None:
     source = operations_source()
 
     for marker in (
-        'with st.expander("Secretary Test", expanded=False):',
+        'with st.expander("Nevaeh Test", expanded=False):',
+        '"Nevaeh — CommandCore Secretary can evaluate an existing CommandCore communication or a safe test message. "',
         'st.warning("TEST MODE — NOTHING WILL BE SENT OR CHANGED")',
         '"Evaluate in Test Mode"',
-        'st.markdown("### Secretary Result")',
+        'st.markdown("### Nevaeh Result")',
         '"**Person:**',
         '"**Relationship:**',
         '"**Related property:**',
@@ -132,7 +133,7 @@ def test_secretary_test_panel_is_plain_english_and_cannot_execute() -> None:
     ):
         assert marker in source
 
-    secretary_start = source.index('with st.expander("Secretary Test", expanded=False):')
+    secretary_start = source.index('with st.expander("Nevaeh Test", expanded=False):')
     property_diagnostics = source.index(
         'with st.expander("Property Source Diagnostics", expanded=False):'
     )
