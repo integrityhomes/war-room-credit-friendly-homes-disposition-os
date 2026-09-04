@@ -4,12 +4,13 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_integrations import build_integration_connections, integration_summary
 from cfh_disposition.go_live_connections import (
     automation_connection_sample_json,
     build_connection_status,
-    connection_summary,
     dispatch_publishing_connection_test,
 )
+from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Connections", page_icon="🔌", layout="wide")
 
@@ -32,6 +33,35 @@ def require_password() -> None:
     st.stop()
 
 
+@st.cache_resource
+def get_supabase():
+    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
+    key = str(st.secrets.get("SUPABASE_SECRET_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not url or not key:
+        return None
+    return create_client(url, key)
+
+
+def load_registry_records(keys: list[str]) -> list[dict]:
+    client = get_supabase()
+    if client is None:
+        return []
+    records = []
+    for key in keys:
+        try:
+            response = client.functions.invoke(
+                "commandcore-adapter-registry",
+                {"body": {"action": "get", "channel_key": key}},
+            )
+        except Exception:
+            continue
+        data = response if isinstance(response, dict) else getattr(response, "data", {})
+        connection = data.get("connection") if isinstance(data, dict) else None
+        if isinstance(connection, dict):
+            records.append(connection)
+    return records
+
+
 require_password()
 st.title("CommandCore Connections")
 st.caption("See which outside accounts or handoffs still need setup before their related marketing paths can operate.")
@@ -40,11 +70,40 @@ st.info(
 )
 
 rows = build_connection_status(st.secrets)
-summary = connection_summary(rows)
-cols = st.columns(3)
-cols[0].metric("Setup Categories", summary["total"])
-cols[1].metric("Configured", summary["configured"])
-cols[2].metric("Still Missing", summary["remaining"])
+registry_records = load_registry_records([row.key for row in rows])
+connections = build_integration_connections(rows, registry_records)
+summary = integration_summary(connections)
+cols = st.columns(4)
+cols[0].metric("Connections", summary["total"])
+cols[1].metric("Connected", summary["connected"])
+cols[2].metric("Needs Attention", summary["needs_attention"])
+cols[3].metric("Live Execution Authorized", summary["live_authorized"])
+
+st.write("### Connection Status")
+st.caption(
+    "Configured means setup details are present. Connected requires an explicit registry health record. "
+    "Live execution authorization is tracked separately."
+)
+for connection in connections:
+    with st.container(border=True):
+        heading, state, environment = st.columns([2, 1, 1])
+        heading.markdown(f"**{connection.name}**")
+        heading.caption(connection.provider_account)
+        state.metric("Connection", connection.connection_state)
+        environment.metric("Environment", connection.environment)
+        details = st.columns(4)
+        details[0].caption(f"Credential reference: {connection.credential_reference}")
+        details[1].caption(f"Last successful sync: {connection.last_successful_sync}")
+        details[2].caption(f"Last safe test: {connection.last_safe_test}")
+        details[3].caption(
+            "Live execution: Authorized" if connection.live_execution_authorized else "Live execution: Not authorized"
+        )
+        health = st.columns(4)
+        health[0].caption(f"Webhook health: {connection.webhook_health}")
+        health[1].caption(f"Retry state: {connection.retry_state}")
+        health[2].caption(f"Recent event: {connection.recent_event}")
+        health[3].caption(f"Last error: {connection.last_error}")
+        st.write(connection.next_step)
 
 remaining = [row for row in rows if not row.configured]
 if remaining:
