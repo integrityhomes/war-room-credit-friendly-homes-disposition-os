@@ -176,6 +176,24 @@ def render_simple_marketing_flow() -> None:
             navigate("Property Intake")
         return
 
+    requested_property_id = str(st.session_state.pop("commandcore_marketing_property_id", "")).strip()
+    requested_address = str(st.session_state.pop("commandcore_marketing_property_address", "")).strip().casefold()
+    requested_label = next(
+        (
+            label
+            for label, item in options.items()
+            if (requested_property_id and str(item.property_id) == requested_property_id)
+            or (requested_address and str(item.display_address or "").strip().casefold() == requested_address)
+        ),
+        "",
+    )
+    if requested_label:
+        st.session_state.simple_flow_property = requested_label
+    elif requested_property_id or requested_address:
+        st.warning(
+            "This Deal's linked property is not available in Marketing yet. Choose an available property below or finish its property setup first."
+        )
+
     selected_label = st.selectbox(
         "Property",
         list(options),

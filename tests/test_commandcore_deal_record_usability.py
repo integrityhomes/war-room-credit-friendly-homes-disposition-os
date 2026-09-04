@@ -64,3 +64,41 @@ def test_deal_overview_surfaces_daily_operating_summary() -> None:
         assert marker in overview
 
     assert "build_deal_summary(related)" in source
+
+
+def test_deal_summary_quick_actions_open_existing_workflows_only() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+    overview = source.split("with overview:", 1)[1].split("with next_step_tab:", 1)[0]
+
+    for marker in (
+        '"View Next Task"',
+        'open_deal_tab("Tasks")',
+        '"View Communications"',
+        'open_deal_tab("Messages")',
+        '"View Recent Activity"',
+        'open_deal_tab("History")',
+        '"Review Offers"',
+        '"Start Offer Review"',
+        'open_deal_tab("Offers & Approval")',
+        '"Open Documents & Closing"',
+        'open_deal_tab("Documents & Closing")',
+        '"Open Marketing"',
+        'open_marketing(property_record)',
+        'label="Review Approval"',
+    ):
+        assert marker in overview
+
+    assert "These actions do not send, approve, sign, or publish anything." in overview
+    assert 'if next_task and action_columns' in overview
+    assert 'if latest_message and action_columns' in overview
+    assert 'if latest_activity and action_columns' in overview
+    assert 'if deal_summary.approval_count:' in overview
+    assert 'if property_record and action_columns' in overview
+
+
+def test_deal_quick_actions_select_existing_keyed_tabs() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+
+    assert 'st.session_state["commandcore_deal_pending_tab"] = label' in source
+    assert 'st.session_state["commandcore_deal_tabs"] = pending_tab' in source
+    assert 'key="commandcore_deal_tabs"' in source

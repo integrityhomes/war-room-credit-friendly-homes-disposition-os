@@ -13,6 +13,15 @@ from supabase import create_client
 st.set_page_config(page_title="CommandCore Deal Record", page_icon="📂", layout="wide")
 
 RELATED_ENTITIES = ["activities", "communications", "tasks", "offers", "documents", "transactions"]
+DEAL_TAB_LABELS = [
+    "Overview",
+    "Next Step",
+    "Tasks",
+    "Messages",
+    "Offers & Approval",
+    "Documents & Closing",
+    "History",
+]
 
 
 def require_password() -> None:
@@ -155,6 +164,24 @@ def create_work_request(
     st.error("CommandCore could not create the work request.")
 
 
+def open_deal_tab(label: str) -> None:
+    if label not in DEAL_TAB_LABELS:
+        return
+    st.session_state["commandcore_deal_pending_tab"] = label
+    st.rerun()
+
+
+def open_marketing(property_record: dict[str, Any]) -> None:
+    property_id = text(property_record.get("id") or property_record.get("property_id"))
+    address = text(property_record.get("display_address") or property_record.get("address"))
+    if property_id:
+        st.session_state["commandcore_marketing_property_id"] = property_id
+    if address:
+        st.session_state["commandcore_marketing_property_address"] = address
+    st.session_state["pending_main_navigation"] = "Marketing Home"
+    st.switch_page("pages/90_CFH_Marketing_Dispo.py")
+
+
 require_password()
 if st.sidebar.button("Log out", key="commandcore_deal_logout"):
     st.session_state.authenticated = False
@@ -258,16 +285,12 @@ related = {
 }
 deal_summary = build_deal_summary(related)
 
+pending_tab = text(st.session_state.pop("commandcore_deal_pending_tab", ""))
+if pending_tab in DEAL_TAB_LABELS:
+    st.session_state["commandcore_deal_tabs"] = pending_tab
 overview, next_step_tab, tasks_tab, messages_tab, offers_tab, closing_tab, history_tab = st.tabs(
-    [
-        "Overview",
-        "Next Step",
-        "Tasks",
-        "Messages",
-        "Offers & Approval",
-        "Documents & Closing",
-        "History",
-    ]
+    DEAL_TAB_LABELS,
+    key="commandcore_deal_tabs",
 )
 
 with overview:
@@ -336,6 +359,73 @@ with overview:
     progress[1].metric("Contract / documents", status_label(deal_summary.document))
     progress[2].metric("Title / closing", status_label(deal_summary.closing))
     progress[3].metric("Marketing / disposition", status_label(deal_summary.marketing))
+
+    st.markdown("#### Quick actions")
+    st.caption("Open the existing workflow for this Deal. These actions do not send, approve, sign, or publish anything.")
+    action_columns = st.columns(4)
+    action_index = 0
+
+    if next_task and action_columns[action_index % 4].button(
+        "View Next Task",
+        key=f"deal_quick_task_{deal_id}",
+        use_container_width=True,
+    ):
+        open_deal_tab("Tasks")
+    if next_task:
+        action_index += 1
+
+    if latest_message and action_columns[action_index % 4].button(
+        "View Communications",
+        key=f"deal_quick_messages_{deal_id}",
+        use_container_width=True,
+    ):
+        open_deal_tab("Messages")
+    if latest_message:
+        action_index += 1
+
+    if latest_activity and action_columns[action_index % 4].button(
+        "View Recent Activity",
+        key=f"deal_quick_history_{deal_id}",
+        use_container_width=True,
+    ):
+        open_deal_tab("History")
+    if latest_activity:
+        action_index += 1
+
+    offer_action = "Review Offers" if deal_summary.offer else "Start Offer Review"
+    if action_columns[action_index % 4].button(
+        offer_action,
+        key=f"deal_quick_offer_{deal_id}",
+        use_container_width=True,
+    ):
+        open_deal_tab("Offers & Approval")
+    action_index += 1
+
+    if action_columns[action_index % 4].button(
+        "Open Documents & Closing",
+        key=f"deal_quick_closing_{deal_id}",
+        use_container_width=True,
+    ):
+        open_deal_tab("Documents & Closing")
+    action_index += 1
+
+    if property_record and action_columns[action_index % 4].button(
+        "Open Marketing",
+        key=f"deal_quick_marketing_{deal_id}",
+        use_container_width=True,
+    ):
+        open_marketing(property_record)
+    if property_record:
+        action_index += 1
+    else:
+        st.caption("Marketing will be available after a property is linked to this Deal.")
+
+    if deal_summary.approval_count:
+        action_columns[action_index % 4].page_link(
+            "pages/48_CommandCore_Owner_Approvals.py",
+            label="Review Approval",
+            use_container_width=True,
+        )
 
     st.divider()
     st.markdown("### Deal notes")
