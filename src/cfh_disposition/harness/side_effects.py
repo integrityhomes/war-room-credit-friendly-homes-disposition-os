@@ -91,16 +91,23 @@ def _redact_for_report(value: Any) -> Any:
     return value
 
 
-def _owner_approval_present(approval: dict[str, Any] | None) -> bool:
-    if not approval:
+def _approval_deal_id(approval: dict[str, Any]) -> str:
+    links = approval.get("links")
+    link_deal_id = links.get("deal_id") if isinstance(links, dict) else None
+    return _text(approval.get("deal_id") or link_deal_id)
+
+
+def _owner_approval_present(approval: dict[str, Any] | None, *, deal_id: str) -> bool:
+    if not approval or not deal_id:
         return False
     status = _text(approval.get("status") or approval.get("approval_status")).casefold()
-    return approval.get("approved") is True or status in {
+    approved = approval.get("approved") is True or status in {
         "approved",
         "owner_approved",
         "released",
         "approved_for_release",
     }
+    return approved and _approval_deal_id(approval) == deal_id
 
 
 class SideEffectBus:
@@ -128,10 +135,11 @@ class SideEffectBus:
         owner_approval: dict[str, Any] | None = None,
     ) -> SideEffectRecord:
         action = ActionType(action_type)
+        deal_id = _text(deal.get("id"))
         internal_only = deal.get("internal_only") is True
         external_started = deal.get("external_action_started") is True
         approval_required = action in CONSEQUENTIAL_ACTIONS
-        approval_present = _owner_approval_present(owner_approval)
+        approval_present = _owner_approval_present(owner_approval, deal_id=deal_id)
 
         decision = "blocked"
         reason = "Default deny."
@@ -151,7 +159,7 @@ class SideEffectBus:
         elif not external_started:
             reason = "external_action_started is not explicitly true."
         elif approval_required and not approval_present:
-            reason = "Owner approval is required and no approved owner-approval record was supplied."
+            reason = "A matching approved Owner Approval for this Deal is required."
         else:
             decision = "allowed"
             reason = "Explicit production safety gates passed."
@@ -160,7 +168,7 @@ class SideEffectBus:
         record = SideEffectRecord(
             action_type=action.value,
             mode=self.mode.value,
-            deal_id=_text(deal.get("id")),
+            deal_id=deal_id,
             internal_only=internal_only,
             external_action_started=external_started,
             approval_required=approval_required,
