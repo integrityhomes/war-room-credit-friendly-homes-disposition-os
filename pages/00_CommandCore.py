@@ -462,7 +462,7 @@ elif area == "Marketing & Dispo":
 
 elif area == "Management":
     st.subheader("Management")
-    st.caption("Operations, people, exceptions, audits, and system setup in one management workspace.")
+    st.caption("Review approvals, operations, team capacity, exceptions, and accountability in one workspace.")
 
     st.markdown("### Operations & people")
     c1, c2, c3 = st.columns(3)
@@ -474,8 +474,8 @@ elif area == "Management":
         )
         link(
             "pages/38_CommandCore_Management_Alerts.py",
-            "Management Alerts",
-            "Review management-level alerts and exceptions.",
+            "Priority Alerts",
+            "Review issues that need management attention.",
         )
     with c2:
         link(
@@ -496,35 +496,37 @@ elif area == "Management":
         )
         link(
             "pages/42_CommandCore_Rebalance_Audit.py",
-            "Rebalance Audit",
-            "See automatic internal workload moves and skipped actions.",
+            "Workload History",
+            "See automatic internal workload moves, skipped actions, and their reasons.",
         )
 
-    st.markdown("### System & setup")
-    st.caption("Migration, connection status, completion audits, and diagnostics stay separate from daily work.")
-    s1, s2 = st.columns(2)
-    with s1:
-        link(
-            "pages/43_CommandCore_CRM_Migration.py",
-            "CRM Migration",
-            "Stage, review, and safely import existing CRM records.",
+    with st.expander("Administrator tools", expanded=False):
+        st.caption(
+            "Restricted setup and maintenance workflows. These are not part of ordinary daily work."
         )
-        link(
-            "pages/31_16_Channel_Completion_Audit.py",
-            "Marketing Completion Audit",
-            "See which marketing channels are usable now and which are externally blocked.",
-        )
-    with s2:
-        link(
-            "pages/32_Go_Live_Connection_Center.py",
-            "Go-Live Connections",
-            "See sender, outreach, social, and paid-platform setup status without false readiness.",
-        )
-        link(
-            "pages/34_Safe_Full_Payload_Test.py",
-            "Safe Payload Diagnostic",
-            "Run a controlled diagnostic without publishing, messaging, creating ads, or spending money.",
-        )
+        s1, s2 = st.columns(2)
+        with s1:
+            link(
+                "pages/50_CommandCore_Contract_Templates.py",
+                "Contract Templates",
+                "Manage approved contract-template versions and legal-review status.",
+            )
+            link(
+                "pages/43_CommandCore_CRM_Migration.py",
+                "Import Existing CRM Records",
+                "Stage and review existing records before a controlled import.",
+            )
+        with s2:
+            link(
+                "pages/31_16_Channel_Completion_Audit.py",
+                "Marketing Readiness",
+                "Review channel readiness and external setup blockers.",
+            )
+            link(
+                "pages/32_Go_Live_Connection_Center.py",
+                "Service Connections",
+                "Review sender, outreach, social, and advertising connection status.",
+            )
 
 st.divider()
 st.caption(

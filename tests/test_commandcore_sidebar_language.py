@@ -40,14 +40,17 @@ def test_sidebar_keeps_the_six_approved_areas() -> None:
     assert '"System & Setup": [' not in source
 
 
-def test_contract_templates_are_admin_setup_not_daily_management_navigation() -> None:
+def test_administrator_tools_are_not_in_daily_sidebar_navigation() -> None:
     source = read_app()
     management_start = source.index('st.markdown("#### Management")')
-    admin_start = source.index('with st.expander("Admin & setup", expanded=False):', management_start)
-    templates_link = 'sidebar_link("pages/50_CommandCore_Contract_Templates.py", "Contract Templates", "📄")'
+    management_sidebar = source[management_start : source.index("storage = get_storage()")]
 
-    assert templates_link not in source[management_start:admin_start]
-    assert templates_link in source[admin_start:]
+    assert 'sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "✅")' in management_sidebar
+    assert 'sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations", "🧭")' in management_sidebar
+    assert "Contract Templates" not in management_sidebar
+    assert "CRM Import" not in management_sidebar
+    assert "Connections" not in management_sidebar
+    assert "Internal Check" not in management_sidebar
 
 
 def test_specialty_marketing_tools_are_collapsed_under_marketing_home() -> None:

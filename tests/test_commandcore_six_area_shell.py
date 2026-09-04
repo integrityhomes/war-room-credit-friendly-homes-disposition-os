@@ -33,8 +33,11 @@ def test_planning_and_setup_tools_remain_reachable_inside_main_areas() -> None:
     assert '"pages/28_Meta_Google_Paid_Traffic.py"' in source
     assert '"pages/33_ChatGPT_Ads_Channel_16.py"' in source
     assert 'elif area == "Management":' in source
+    assert 'with st.expander("Administrator tools", expanded=False):' in source
+    assert '"pages/50_CommandCore_Contract_Templates.py"' in source
     assert '"pages/43_CommandCore_CRM_Migration.py"' in source
     assert '"pages/32_Go_Live_Connection_Center.py"' in source
+    assert '"pages/34_Safe_Full_Payload_Test.py"' not in source
 
 
 def test_command_bot_is_part_of_home_workspace() -> None:

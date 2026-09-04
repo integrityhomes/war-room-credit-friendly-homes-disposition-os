@@ -30,3 +30,21 @@ def test_paid_growth_section_stays_planning_only() -> None:
 
     assert "Connecting ad accounts or spending money still requires owner authorization." in source
     assert "No campaign or spend starts here." in source
+
+
+def test_management_keeps_maintenance_out_of_ordinary_work() -> None:
+    source = Path("pages/00_CommandCore.py").read_text(encoding="utf-8")
+    management = source.split('elif area == "Management":', 1)[1]
+    daily, administrator = management.split(
+        'with st.expander("Administrator tools", expanded=False):', 1
+    )
+
+    assert '"Priority Alerts"' in daily
+    assert '"Workload History"' in daily
+    assert '"Contract Templates"' not in daily
+    assert '"Import Existing CRM Records"' not in daily
+    assert '"Contract Templates"' in administrator
+    assert '"Import Existing CRM Records"' in administrator
+    assert '"Marketing Readiness"' in administrator
+    assert '"Service Connections"' in administrator
+    assert "Safe Payload Diagnostic" not in management

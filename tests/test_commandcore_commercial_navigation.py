@@ -29,9 +29,10 @@ def test_commercial_sidebar_keeps_six_approved_areas_and_primary_destinations() 
         'sidebar_link("pages/90_CFH_Marketing_Dispo.py", "Marketing Home"',
         'sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals"',
         'sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations"',
-        'sidebar_link("pages/50_CommandCore_Contract_Templates.py", "Contract Templates"',
     ):
         assert primary in source
+
+    assert 'with st.expander("Admin & setup", expanded=False):' not in source
 
 
 def test_specialty_engines_remain_registered_but_diagnostics_stay_out() -> None:
@@ -45,4 +46,4 @@ def test_specialty_engines_remain_registered_but_diagnostics_stay_out() -> None:
         assert specialty in source
 
     assert "pages/34_Safe_Full_Payload_Test.py" not in source
-    assert 'with st.expander("Admin & setup", expanded=False):' in source
+    assert 'st.Page(DIAGNOSTIC_PAGE, title="Internal Check")' in source

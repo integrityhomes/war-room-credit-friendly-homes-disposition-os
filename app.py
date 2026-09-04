@@ -50,18 +50,6 @@ def render_commandcore_sidebar() -> None:
         sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "✅")
         sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations", "🧭")
 
-        with st.expander("Admin & setup", expanded=False):
-            sidebar_link("pages/50_CommandCore_Contract_Templates.py", "Contract Templates", "📄")
-            sidebar_link("pages/36_CommandCore_Coverage.py", "Coverage", "🛡️")
-            sidebar_link("pages/38_CommandCore_Management_Alerts.py", "Alerts", "⚠️")
-            sidebar_link("pages/37_CommandCore_Coverage_Exceptions.py", "Coverage Exceptions", "🚨")
-            sidebar_link("pages/40_CommandCore_Team_Health.py", "Team Health", "🩺")
-            sidebar_link("pages/41_CommandCore_Workload_Balance.py", "Workload", "⚖️")
-            sidebar_link("pages/42_CommandCore_Rebalance_Audit.py", "Workload Audit", "🧾")
-            sidebar_link("pages/43_CommandCore_CRM_Migration.py", "CRM Import", "📥")
-            sidebar_link("pages/31_16_Channel_Completion_Audit.py", "Marketing Setup Status", "✅")
-            sidebar_link("pages/32_Go_Live_Connection_Center.py", "Connections", "🔌")
-
 
 storage = get_storage()
 if render_blog_request(storage):
