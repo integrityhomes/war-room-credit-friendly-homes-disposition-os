@@ -87,7 +87,15 @@ def test_inbound_retries_use_stable_upsert_identity() -> None:
     assert '"x-upsert": "true"' in crm
     assert "migration_safe_external_ids: true" in crm
     for suffix in ("-contact", "-property", "-deal", "-captured"):
-        assert f"`${{baseExternal}}{suffix}`" in inbound
+        assert f"`${{legacyBaseExternal}}{suffix}`" in inbound
+    for marker in (
+        "canonical-contact-${contactStable}",
+        "canonical-property-${propertyStable}",
+        "canonical-deal-${dealStable}",
+        "canonical-intake-${dealStable}",
+        "canonical-follow-up-${dealStable}",
+    ):
+        assert marker in inbound
     assert "duplicate_safe: true" in inbound
 
 
