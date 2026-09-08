@@ -20,6 +20,7 @@ from cfh_disposition.campaign_launch import (
     render_campaign_launch_center,
 )
 from cfh_disposition.channels import CHANNELS
+from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
 from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
 from cfh_disposition.launch_plan import build_launch_plan
@@ -67,8 +68,8 @@ def require_password() -> None:
     if st.session_state.get("authenticated"):
         return
 
-    st.title("CommandCore Marketing & Dispo")
-    st.caption("Credit Friendly Homes marketing workspace")
+    st.title("Marketing")
+    st.caption("Prepare and review property marketing in one place.")
     with st.form("login_form"):
         submitted_password = st.text_input("App password", type="password")
         submitted = st.form_submit_button("Sign in", type="primary")
@@ -76,7 +77,7 @@ def require_password() -> None:
         st.session_state.authenticated = True
         st.rerun()
     if submitted:
-        st.error("Incorrect password.")
+        show_error("That password did not work.", next_step="Try again or ask an owner for access.")
     st.stop()
 
 
@@ -522,8 +523,10 @@ if render_public_request(storage):
 require_password()
 load_records()
 
-st.title("CommandCore Marketing & Dispo")
-st.caption("Run Credit Friendly Homes property marketing from one simple workflow. Advanced channel and system tools stay out of the daily path.")
+render_page_header(
+    "Marketing",
+    "Prepare a property, review its campaign, and move it toward a safe launch.",
+)
 
 storage = get_storage()
 settings = SupabaseSettings.from_mapping(st.secrets)
@@ -540,7 +543,8 @@ if pending_navigation in PRIMARY_NAVIGATION:
 if st.session_state.get("main_navigation") not in PRIMARY_NAVIGATION:
     st.session_state.main_navigation = PRIMARY_NAVIGATION[0]
 
-with st.expander("Jump to a marketing step or advanced tool", expanded=False):
+with advanced_settings():
+    st.caption("Jump to a different step or open a specialty marketing tool.")
     page = st.selectbox(
         "Go to",
         PRIMARY_NAVIGATION,

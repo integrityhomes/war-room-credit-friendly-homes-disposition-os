@@ -10,7 +10,9 @@ def test_marketing_home_is_the_primary_commandcore_experience() -> None:
 
     for marker in (
         'page_title="CommandCore Marketing & Dispo"',
-        'st.title("CommandCore Marketing & Dispo")',
+        'render_page_header(',
+        '"Marketing",',
+        '"Prepare a property, review its campaign, and move it toward a safe launch."',
         'st.subheader("Marketing Home")',
         '"Property → Prepare Campaign → Launch Marketing.',
         '"Simple Marketing Flow": "Marketing Home"',
@@ -21,7 +23,8 @@ def test_marketing_home_is_the_primary_commandcore_experience() -> None:
 def test_marketing_workflow_navigation_is_secondary_not_sidebar_clutter() -> None:
     source = marketing_source()
 
-    assert 'with st.expander("Jump to a marketing step or advanced tool", expanded=False):' in source
+    assert "with advanced_settings():" in source
+    assert 'st.caption("Jump to a different step or open a specialty marketing tool.")' in source
     assert 'page = st.selectbox(' in source
     assert 'st.sidebar.radio(' not in source
     assert 'st.sidebar.success(f"Storage:' not in source

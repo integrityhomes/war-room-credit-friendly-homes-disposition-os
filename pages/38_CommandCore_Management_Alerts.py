@@ -7,6 +7,12 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_ux import (
+    advanced_settings,
+    render_page_header,
+    show_error,
+    show_warning,
+)
 
 st.set_page_config(page_title="CommandCore Management Alerts", page_icon="⚠️", layout="wide")
 
@@ -72,12 +78,17 @@ if st.sidebar.button("Log out", key="commandcore_management_alerts_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Management Alerts")
-st.caption("See unresolved coverage problems that have aged past the normal response window and what management should handle next.")
+render_page_header(
+    "Management Alerts",
+    "Review the oldest team-coverage problems and open the right place to resolve them.",
+)
 
 result = call_commandcore({"action": "list", "days": 60, "status": "all"})
 if not result.get("ok"):
-    st.error("Management alerts could not be loaded. Nothing was changed.")
+    show_error(
+        "Management alerts could not be loaded. Nothing was changed.",
+        next_step="Try again. If the problem continues, open Operations to check system readiness.",
+    )
     st.stop()
 
 raw = result.get("exceptions") if isinstance(result.get("exceptions"), list) else []
@@ -89,11 +100,13 @@ alerts = [
     and text(item.get("aging_level")).lower() in {"overdue", "escalated", "executive"}
 ]
 
-m1, m2, m3, m4 = st.columns(4)
+m1, m2 = st.columns(2)
 m1.metric("Needs Management", len(alerts))
 m2.metric("Executive", sum(text(item.get("aging_level")).lower() == "executive" for item in alerts))
-m3.metric("Escalated", sum(text(item.get("aging_level")).lower() == "escalated" for item in alerts))
-m4.metric("Overdue", sum(text(item.get("aging_level")).lower() == "overdue" for item in alerts))
+with advanced_settings():
+    m3, m4 = st.columns(2)
+    m3.metric("Escalated", sum(text(item.get("aging_level")).lower() == "escalated" for item in alerts))
+    m4.metric("Overdue", sum(text(item.get("aging_level")).lower() == "overdue" for item in alerts))
 
 if not alerts:
     with st.container(border=True):
@@ -117,12 +130,11 @@ alerts.sort(
 
 executive = [item for item in alerts if text(item.get("aging_level")).lower() == "executive"]
 if executive:
-    st.error(
-        f"{len(executive)} coverage exception(s) require executive attention. "
-        "Handle these before normal queue work."
+    show_warning(
+        f"{len(executive)} coverage problem(s) need an owner or executive decision.",
+        next_step="Open the first item below before returning to normal queue work.",
     )
 
-st.subheader("Management Priority Queue")
 rows = []
 for item in alerts:
     rows.append(
@@ -136,7 +148,9 @@ for item in alerts:
         }
     )
 
-st.dataframe(rows, use_container_width=True, hide_index=True)
+with advanced_settings():
+    st.write("#### Full priority queue")
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 st.subheader("Handle These First")
 for index, item in enumerate(alerts[:10]):

@@ -30,6 +30,7 @@ from cfh_disposition.commandcore_secretary_orchestrator import (
     SecretaryPropertyContext,
     decide_secretary_action,
 )
+from cfh_disposition.commandcore_ux import render_page_header, show_error
 from cfh_disposition.google_property_full_audit import run_full_property_source_audit
 from cfh_disposition.google_property_runtime_bridge import GoogleBridgeError
 from supabase import create_client
@@ -333,12 +334,12 @@ if st.sidebar.button("Log out", key="commandcore_operations_hub_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Operations")
-st.caption(
-    "Start with what needs management attention now. System readiness and CRM cutover details remain available below."
+render_page_header(
+    "Operations",
+    "See what needs management attention and open the right workspace to handle it.",
 )
 
-with st.expander("Nevaeh Inbox", expanded=True):
+with st.expander("Nevaeh Inbox", expanded=False):
     st.warning("NEVAEH — TEST MODE\n\nNOTHING WILL BE SENT")
     st.caption(
         "Review incoming CommandCore communications with safe matching, priority, and next-step recommendations."
@@ -703,8 +704,11 @@ try:
     operator_states = load_operator_states()
     human_escalations = load_human_escalations(queue_items, operator_states)
     coverage_alerts = load_coverage_alerts()
-except Exception as exc:
-    st.error(f"CommandCore operations data could not be loaded: {exc}")
+except Exception:
+    show_error(
+        "Operations could not be loaded. Nothing was changed.",
+        next_step="Try again. If the problem continues, ask an administrator to check CommandCore services.",
+    )
     st.stop()
 
 human = human_rows(queue_items, human_escalations)

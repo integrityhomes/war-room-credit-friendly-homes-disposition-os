@@ -146,7 +146,7 @@ def test_nevaeh_inbox_is_read_only_plain_english_and_prioritized() -> None:
     source = operations_source()
 
     for marker in (
-        'with st.expander("Nevaeh Inbox", expanded=True):',
+        'with st.expander("Nevaeh Inbox", expanded=False):',
         'st.warning("NEVAEH — TEST MODE\\n\\nNOTHING WILL BE SENT")',
         'list_secretary_crm_records("communications")',
         "build_nevaeh_inbox(",
@@ -159,7 +159,7 @@ def test_nevaeh_inbox_is_read_only_plain_english_and_prioritized() -> None:
     ):
         assert marker in source
 
-    inbox_start = source.index('with st.expander("Nevaeh Inbox", expanded=True):')
+    inbox_start = source.index('with st.expander("Nevaeh Inbox", expanded=False):')
     test_start = source.index('with st.expander("Nevaeh Test", expanded=False):')
     inbox_panel = source[inbox_start:test_start]
     for forbidden in ("post_commandcore", "upsert", "insert", "update", "delete", "send_sms", "send_email", "make_call"):

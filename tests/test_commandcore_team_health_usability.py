@@ -34,3 +34,12 @@ def test_empty_team_health_view_explains_why_it_is_empty() -> None:
 
     assert 'st.markdown("### No team members are registered yet")' in source
     assert "Team workload health will populate after the CommandCore team registry has active members." in source
+
+
+def test_team_health_uses_simple_header_and_collapses_secondary_details() -> None:
+    source = team_health_source()
+
+    assert 'render_page_header(' in source
+    assert '"Team Health",' in source
+    assert source.count("with advanced_settings():") == 2
+    assert 'st.write("#### Full team details")' in source

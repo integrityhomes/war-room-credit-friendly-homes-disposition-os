@@ -17,7 +17,7 @@ def test_management_alerts_use_business_first_columns() -> None:
     ):
         assert marker in source
 
-    priority_queue_start = source.index('st.subheader("Management Priority Queue")')
+    priority_queue_start = source.index('st.write("#### Full priority queue")')
     handle_first_start = source.index('st.subheader("Handle These First")')
     priority_queue = source[priority_queue_start:handle_first_start]
     assert '"Dispatch":' not in priority_queue
@@ -29,6 +29,14 @@ def test_management_alerts_open_exact_resolution_workspace() -> None:
     assert '"Open Coverage Exceptions"' in source
     assert 'st.switch_page("pages/37_CommandCore_Coverage_Exceptions.py")' in source
     assert 'with st.expander("Technical details", expanded=False):' in source
+
+
+def test_management_alerts_keep_secondary_counts_and_full_queue_advanced() -> None:
+    source = management_alerts_source()
+
+    assert source.count("with advanced_settings():") == 2
+    assert 'm1.metric("Needs Management", len(alerts))' in source
+    assert 'st.write("#### Full priority queue")' in source
 
 
 def test_empty_management_alert_queue_has_safe_next_actions() -> None:

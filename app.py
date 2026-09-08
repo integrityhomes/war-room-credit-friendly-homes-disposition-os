@@ -48,7 +48,6 @@ EVERYDAY_NAVIGATION = (
         "Buyers / Marketing",
         (
             NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home"),
-            NavigationItem("pages/19_Dwelyx_Results_Attribution.py", "Buyer Results"),
         ),
     ),
     NavigationSection(
@@ -104,6 +103,7 @@ ADMIN_ADVANCED_NAVIGATION = (
             NavigationItem("pages/29_Email_SMS_Reactivation.py", "Buyer Outreach"),
             NavigationItem("pages/30_Owned_Web_SEO_Channels.py", "Web & SEO"),
             NavigationItem("pages/33_ChatGPT_Ads_Channel_16.py", "ChatGPT Ads Planning"),
+            NavigationItem("pages/19_Dwelyx_Results_Attribution.py", "Buyer Results"),
         ),
     ),
     NavigationSection(

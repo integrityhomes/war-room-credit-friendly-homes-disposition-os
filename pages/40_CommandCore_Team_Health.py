@@ -8,6 +8,7 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error, show_warning
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Team Health", page_icon="📊", layout="wide")
@@ -110,15 +111,18 @@ if st.sidebar.button("Log out", key="commandcore_team_health_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Team Workload Health")
-st.caption(
-    "Shows workload, capacity, coverage risk, and unresolved coverage failures so management can see where the team is strained."
+render_page_header(
+    "Team Health",
+    "See who needs help and open the right workspace to balance or cover the work.",
 )
 
 try:
     queue_items = load_queue_items()
-except Exception as exc:
-    st.error(f"CommandCore work could not be loaded: {exc}")
+except Exception:
+    show_error(
+        "Team work could not be loaded. Nothing was changed.",
+        next_step="Try again. If the problem continues, open Operations to check system readiness.",
+    )
     st.stop()
 
 team_result = call_commandcore("commandcore-team-registry", {"action": "list"})
@@ -207,12 +211,14 @@ near_capacity = sum(int(row["Load %"]) >= 80 for row in rows if row["Health"] !=
 unassigned = sum(1 for item in queue_items if is_open(item) and not text(item.get("owner_id")))
 executive_exceptions = sum(text(item.get("aging_level")).lower() == "executive" for item in exceptions)
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3 = st.columns(3)
 c1.metric("Critical Team Risk", critical_team)
 c2.metric("Watch", watch_team)
 c3.metric("Near / Over Capacity", near_capacity)
-c4.metric("Unassigned Work", unassigned)
-c5.metric("Executive Coverage Risk", executive_exceptions)
+with advanced_settings():
+    c4, c5 = st.columns(2)
+    c4.metric("Unassigned Work", unassigned)
+    c5.metric("Executive Coverage Risk", executive_exceptions)
 
 st.subheader("Business Needs Attention Now")
 attention: list[str] = []
@@ -227,7 +233,7 @@ if near_capacity:
 
 if attention:
     for message in attention:
-        st.error(message)
+        show_warning(message, next_step="Use the main action below to review the highest-risk work first.")
     action_left, action_right = st.columns(2)
     if action_left.button("Review Workload", type="primary", use_container_width=True):
         st.switch_page("pages/41_CommandCore_Workload_Balance.py")
@@ -241,9 +247,10 @@ else:
     if action_right.button("Review My Work", use_container_width=True):
         st.switch_page("pages/35_CommandCore_My_Work.py")
 
-st.subheader("Team Health")
 if rows:
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    with advanced_settings():
+        st.write("#### Full team details")
+        st.dataframe(rows, use_container_width=True, hide_index=True)
 else:
     with st.container(border=True):
         st.markdown("### No team members are registered yet")
