@@ -26,7 +26,7 @@ EVERYDAY_NAVIGATION = (
         "Home",
         (
             NavigationItem("pages/00_CommandCore.py", "Home"),
-            NavigationItem("pages/49_CommandCore_Command_Bot.py", "Ask CommandCore"),
+            NavigationItem("pages/49_CommandCore_Command_Bot.py", "Ask CorePilot"),
         ),
     ),
     NavigationSection("Leads / Sellers", (NavigationItem("pages/44_CommandCore_CRM.py", "Leads"),)),
@@ -142,7 +142,7 @@ pages = {
             icon="🧭",
             default=True,
         ),
-        st.Page("pages/49_CommandCore_Command_Bot.py", title="Command Bot", icon="🤖"),
+        st.Page("pages/49_CommandCore_Command_Bot.py", title="CorePilot", icon="🤖"),
     ],
     "Leads & CRM": [
         st.Page("pages/44_CommandCore_CRM.py", title="Leads", icon="🏠"),

@@ -26,6 +26,6 @@ def test_commandcore_home_uses_plain_user_facing_setup_language() -> None:
 def test_commandcore_home_keeps_consequential_actions_gated() -> None:
     source = Path("pages/00_CommandCore.py").read_text(encoding="utf-8")
 
-    assert "Command Bot cannot send, sign, approve, change legal terms, move money" in source
+    assert "CorePilot cannot send, sign, approve, change legal terms, move money" in source
     assert "Connecting ad accounts or spending money still requires owner authorization." in source
     assert "Open Owner Approvals and review the oldest item first." in source

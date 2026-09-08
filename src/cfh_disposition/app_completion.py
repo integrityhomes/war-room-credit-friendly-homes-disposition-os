@@ -139,7 +139,7 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
         AppCompletionState.SUPPORT_TOOL,
         "Offline provider-neutral phone inventory, staff assignment, routing, and porting-planning workspace.",
     ),
-    AppCompletion("pages/49_CommandCore_Command_Bot.py", "Home / Command Center", AppCompletionState.COMPLETE, "Command Bot with idempotent internal request creation."),
+    AppCompletion("pages/49_CommandCore_Command_Bot.py", "Home / Command Center", AppCompletionState.COMPLETE, "CorePilot read-only operator with safe preparation previews."),
     AppCompletion(
         "pages/50_CommandCore_Contract_Templates.py",
         "Management",

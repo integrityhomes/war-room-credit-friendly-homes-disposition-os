@@ -245,19 +245,18 @@ if area == "Home / Command Center":
         )
 
     with st.container(border=True):
-        st.markdown("### Command Bot")
+        st.markdown("### CorePilot")
         st.caption(
-            "Tell CommandCore what you need in plain English. It can create safe internal deal work for analysis, "
-            "offer prep, contract/CFD prep, title/closing, and marketing/dispo."
+            "Ask CorePilot to find information, explain what needs attention, or prepare the next step."
         )
         st.page_link(
             "pages/49_CommandCore_Command_Bot.py",
-            label="Open Command Bot",
+            label="Ask CorePilot",
             icon="🤖",
             use_container_width=True,
         )
         st.caption(
-            "Command Bot cannot send, sign, approve, change legal terms, move money, or start an outside transaction."
+            "CorePilot cannot send, sign, approve, change legal terms, move money, or start an outside transaction."
         )
 
 elif area == "Leads & CRM":
