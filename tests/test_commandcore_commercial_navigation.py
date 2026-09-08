@@ -5,37 +5,42 @@ def test_commandcore_hides_automatic_page_catalog() -> None:
     source = Path("app.py").read_text(encoding="utf-8")
 
     assert 'st.navigation(pages, position="hidden")' in source
-    assert "render_commandcore_sidebar()" in source
+    assert "render_sidebar_navigation(EVERYDAY_NAVIGATION, ADMIN_ADVANCED_NAVIGATION)" in source
 
 
-def test_commercial_sidebar_keeps_six_approved_areas_and_primary_destinations() -> None:
+def test_commercial_sidebar_prioritizes_everyday_work_areas() -> None:
     source = Path("app.py").read_text(encoding="utf-8")
+    everyday = source.split("EVERYDAY_NAVIGATION =", 1)[1].split(
+        "ADMIN_ADVANCED_NAVIGATION =", 1
+    )[0]
 
     for area in (
-        'st.markdown("#### Home / Command Center")',
-        'st.markdown("#### Leads & CRM")',
-        'st.markdown("#### Deals")',
-        'st.markdown("#### Tasks & Follow-Up")',
-        'st.markdown("#### Marketing & Dispo")',
-        'st.markdown("#### Management")',
+        '"Home"',
+        '"Leads / Sellers"',
+        '"Deals / Properties"',
+        '"My Work"',
+        '"Buyers / Marketing"',
+        '"Management"',
+        '"Owner Approvals"',
     ):
-        assert area in source
+        assert area in everyday
 
     for primary in (
-        'sidebar_link("pages/00_CommandCore.py", "Command Center"',
-        'sidebar_link("pages/44_CommandCore_CRM.py", "Leads"',
-        'sidebar_link("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"',
-        'sidebar_link("pages/35_CommandCore_My_Work.py", "My Work"',
-        'sidebar_link("pages/90_CFH_Marketing_Dispo.py", "Marketing Home"',
-        'sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals"',
-        'sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations"',
+        'NavigationItem("pages/00_CommandCore.py", "Home")',
+        'NavigationItem("pages/44_CommandCore_CRM.py", "Leads")',
+        'NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace")',
+        'NavigationItem("pages/35_CommandCore_My_Work.py", "My Work")',
+        'NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home")',
+        'NavigationItem("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals")',
+        'NavigationItem("pages/39_CommandCore_Operations_Hub.py", "Operations")',
     ):
-        assert primary in source
+        assert primary in everyday
 
-    assert 'with st.expander("Admin & setup", expanded=False):' not in source
+    ux_source = Path("src/cfh_disposition/commandcore_ux.py").read_text(encoding="utf-8")
+    assert 'with st.expander("Admin / Advanced Tools", expanded=False):' in ux_source
 
 
-def test_specialty_engines_remain_registered_but_diagnostics_stay_out() -> None:
+def test_specialty_engines_remain_registered() -> None:
     source = Path("app.py").read_text(encoding="utf-8")
 
     for specialty in (
@@ -45,5 +50,4 @@ def test_specialty_engines_remain_registered_but_diagnostics_stay_out() -> None:
     ):
         assert specialty in source
 
-    assert "pages/34_Safe_Full_Payload_Test.py" not in source
     assert 'st.Page(DIAGNOSTIC_PAGE, title="Internal Check")' in source

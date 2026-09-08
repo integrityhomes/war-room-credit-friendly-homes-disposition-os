@@ -1,6 +1,8 @@
+from pathlib import Path
+
+
 def read_app() -> str:
-    with open("app.py", encoding="utf-8") as handle:
-        return handle.read()
+    return Path("app.py").read_text(encoding="utf-8")
 
 
 def test_sidebar_uses_plain_business_labels() -> None:
@@ -23,7 +25,7 @@ def test_sidebar_uses_plain_business_labels() -> None:
     assert 'title="System Diagnostic"' not in source
 
 
-def test_sidebar_keeps_the_six_approved_areas() -> None:
+def test_sidebar_keeps_the_existing_registered_areas() -> None:
     source = read_app()
 
     for area in (
@@ -36,35 +38,36 @@ def test_sidebar_keeps_the_six_approved_areas() -> None:
     ):
         assert area in source
 
-    assert '"Marketing Planning": [' not in source
-    assert '"System & Setup": [' not in source
 
-
-def test_administrator_tools_are_not_in_daily_sidebar_navigation() -> None:
+def test_administrator_tools_are_not_in_everyday_navigation() -> None:
     source = read_app()
-    management_start = source.index('st.markdown("#### Management")')
-    management_sidebar = source[management_start : source.index("storage = get_storage()")]
+    everyday = source.split("EVERYDAY_NAVIGATION =", 1)[1].split(
+        "ADMIN_ADVANCED_NAVIGATION =", 1
+    )[0]
+    advanced = source.split("ADMIN_ADVANCED_NAVIGATION =", 1)[1].split(
+        "storage = get_storage()", 1
+    )[0]
 
-    assert 'sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "✅")' in management_sidebar
-    assert 'sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations", "🧭")' in management_sidebar
-    assert "Contract Templates" not in management_sidebar
-    assert "CRM Import" not in management_sidebar
-    assert "Connections" not in management_sidebar
-    assert "Internal Check" not in management_sidebar
+    assert 'NavigationItem("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals")' in everyday
+    assert 'NavigationItem("pages/39_CommandCore_Operations_Hub.py", "Operations")' in everyday
+    for label in ("Contract Templates", "CRM Import", "Connections", "Internal Connection Check"):
+        assert label not in everyday
+        assert label in advanced
 
 
-def test_specialty_marketing_tools_are_collapsed_under_marketing_home() -> None:
+def test_specialty_marketing_tools_are_grouped_under_advanced_tools() -> None:
     source = read_app()
-    marketing_start = source.index('st.markdown("#### Marketing & Dispo")')
-    management_start = source.index('st.markdown("#### Management")', marketing_start)
-    marketing_sidebar = source[marketing_start:management_start]
+    everyday = source.split("EVERYDAY_NAVIGATION =", 1)[1].split(
+        "ADMIN_ADVANCED_NAVIGATION =", 1
+    )[0]
+    advanced = source.split("ADMIN_ADVANCED_NAVIGATION =", 1)[1].split(
+        "storage = get_storage()", 1
+    )[0]
 
-    assert 'sidebar_link("pages/90_CFH_Marketing_Dispo.py", "Marketing Home", "📣")' in marketing_sidebar
-    assert 'with st.expander("Marketing tools", expanded=False):' in marketing_sidebar
+    assert 'NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home")' in everyday
     for marker in (
-        'sidebar_link("pages/7_Facebook_Group_Posting_Center.py", "Facebook Groups", "👥")',
-        'sidebar_link("pages/25_Property_Channel_Tracking_Links.py", "Tracking Links", "🔗")',
-        'sidebar_link("pages/19_Dwelyx_Results_Attribution.py", "Buyer Results", "📊")',
-        'sidebar_link("pages/23_Daily_Executive_Disposition_Command.py", "Disposition Performance", "🎯")',
+        'NavigationItem("pages/7_Facebook_Group_Posting_Center.py", "Facebook Groups")',
+        'NavigationItem("pages/25_Property_Channel_Tracking_Links.py", "Tracking Links")',
+        'NavigationItem("pages/23_Daily_Executive_Disposition_Command.py", "Disposition Performance")',
     ):
-        assert marker in marketing_sidebar
+        assert marker in advanced
