@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import streamlit as st
 from pydantic import ValidationError
 
@@ -7,6 +9,8 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_phone_system import (
     PROFIT_DIAL_CANCELLATION_WARNING,
     PhoneNumberRecord,
+    PhonePlanningDocumentStore,
+    PhonePlanningStorageError,
     PhonePurpose,
     PortingStatus,
     RoutingCategory,
@@ -15,6 +19,7 @@ from cfh_disposition.commandcore_phone_system import (
     offline_provider_catalog,
     summarize_phone_plan,
 )
+from supabase import create_client
 
 st.set_page_config(page_title="Phone System Setup", page_icon="☎️", layout="wide")
 
@@ -38,6 +43,23 @@ def require_password() -> None:
     st.stop()
 
 
+@st.cache_resource
+def get_supabase():
+    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
+    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    if not url or not key:
+        raise PhonePlanningStorageError("Supabase configuration is required for private persistence")
+    return create_client(url, key)
+
+
+def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
+    response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
+    if isinstance(response, dict):
+        return response
+    data = getattr(response, "data", None)
+    return data if isinstance(data, dict) else {}
+
+
 require_password()
 
 if st.sidebar.button("Log out", key="phone_system_logout"):
@@ -46,12 +68,20 @@ if st.sidebar.button("Log out", key="phone_system_logout"):
 
 st.title("PHONE SYSTEM — PLANNING MODE")
 st.error("NO LIVE CALLS OR TEXTS\n\nNO EXTERNAL PHONE ACTIONS")
-st.caption("Offline setup only. Entries remain in this browser session and do not contact any provider.")
-
-number_rows = st.session_state.setdefault("phone_setup_numbers", [])
-assignment_rows = st.session_state.setdefault("phone_setup_assignments", [])
-route_rows = st.session_state.setdefault("phone_setup_routes", [])
-numbers = tuple(PhoneNumberRecord.model_validate(item) for item in number_rows)
+st.caption("Private planning storage only. Saving records does not contact any phone provider.")
+actor_reference = st.sidebar.text_input(
+    "Your CommandCore user reference",
+    value=str(st.session_state.get("phone_actor_reference", "authenticated-commandcore-user")),
+)
+st.session_state.phone_actor_reference = actor_reference
+store = PhonePlanningDocumentStore(call_crm)
+try:
+    numbers = store.list_numbers()
+    assignments = store.list_assignments()
+    routes = store.list_routes()
+except (PhonePlanningStorageError, ValidationError):
+    st.error("Private phone planning records could not be loaded safely. No provider action was started.")
+    st.stop()
 summary = summarize_phone_plan(numbers)
 
 metrics = st.columns(5)
@@ -105,16 +135,47 @@ with number_tab:
                     voicemail_planned=voicemail,
                     porting_status=PortingStatus(port_status),
                     notes=notes,
+                    actor_reference=actor_reference,
                 )
             except ValidationError as error:
                 st.error(str(error))
             else:
-                number_rows.append(record.model_dump(mode="json"))
+                store.save_number(record, action="create")
                 st.rerun()
     if numbers:
         st.dataframe([item.model_dump(mode="json") for item in numbers], hide_index=True, use_container_width=True)
     else:
         st.info("No phone numbers have been entered. Real numbers are not required during development.")
+    if numbers:
+        selected_number_id = st.selectbox(
+            "Inventory record to update",
+            [item.record_id for item in numbers],
+            format_func=lambda item_id: next(item.current_label for item in numbers if item.record_id == item_id),
+        )
+        selected_number = next(item for item in numbers if item.record_id == selected_number_id)
+        with st.form("update_phone_number"):
+            revised_status = st.selectbox(
+                "Updated migration status",
+                [item.value for item in PortingStatus],
+                index=list(PortingStatus).index(selected_number.porting_status),
+            )
+            revised_notes = st.text_area("Updated notes", value=selected_number.notes)
+            update_number = st.form_submit_button("Save inventory update")
+            deactivate_number = st.form_submit_button("Deactivate inventory record")
+        if update_number:
+            updated_number = PhoneNumberRecord.model_validate(
+                {
+                    **selected_number.model_dump(),
+                    "porting_status": revised_status,
+                    "notes": revised_notes,
+                    "actor_reference": actor_reference,
+                }
+            )
+            store.save_number(updated_number, action="update")
+            st.rerun()
+        if deactivate_number:
+            store.deactivate_number(selected_number, actor_reference)
+            st.rerun()
 
 with staff_tab:
     st.subheader("Individual staff / VA routing assignments")
@@ -146,14 +207,42 @@ with staff_tab:
                     after_hours_routing=after_hours,
                     manager_escalation=manager,
                     active=active,
+                    actor_reference=actor_reference,
                 )
             except ValidationError as error:
                 st.error(str(error))
             else:
-                assignment_rows.append(assignment.model_dump(mode="json"))
+                store.save_assignment(assignment, action="create")
                 st.rerun()
-    if assignment_rows:
-        st.dataframe(assignment_rows, hide_index=True, use_container_width=True)
+    if assignments:
+        st.dataframe([item.model_dump(mode="json") for item in assignments], hide_index=True, use_container_width=True)
+        selected_assignment_id = st.selectbox(
+            "Assignment to update",
+            [item.assignment_id for item in assignments],
+            format_func=lambda item_id: next(item.staff_member for item in assignments if item.assignment_id == item_id),
+        )
+        selected_assignment = next(item for item in assignments if item.assignment_id == selected_assignment_id)
+        with st.form("update_staff_assignment"):
+            revised_priority = st.number_input("Updated ring priority", 1, 100, selected_assignment.ring_priority)
+            revised_hours = st.text_input("Updated business hours", value=selected_assignment.business_hours_availability)
+            revised_after_hours = st.text_input("Updated after-hours routing", value=selected_assignment.after_hours_routing)
+            update_assignment = st.form_submit_button("Save assignment update")
+            deactivate_assignment = st.form_submit_button("Deactivate assignment")
+        if update_assignment:
+            updated_assignment = StaffPhoneAssignment.model_validate(
+                {
+                    **selected_assignment.model_dump(),
+                    "ring_priority": revised_priority,
+                    "business_hours_availability": revised_hours,
+                    "after_hours_routing": revised_after_hours,
+                    "actor_reference": actor_reference,
+                }
+            )
+            store.save_assignment(updated_assignment, action="update")
+            st.rerun()
+        if deactivate_assignment:
+            store.deactivate_assignment(selected_assignment, actor_reference)
+            st.rerun()
 
 with routing_tab:
     st.subheader("Provider-neutral routing plan")
@@ -172,14 +261,42 @@ with routing_tab:
                     backup_staff_or_team=backup_team,
                     instructions=instructions,
                     manager_approval_required=approval,
+                    actor_reference=actor_reference,
                 )
             except ValidationError as error:
                 st.error(str(error))
             else:
-                route_rows.append(route.model_dump(mode="json"))
+                store.save_route(route, action="create")
                 st.rerun()
-    if route_rows:
-        st.dataframe(route_rows, hide_index=True, use_container_width=True)
+    if routes:
+        st.dataframe([item.model_dump(mode="json") for item in routes], hide_index=True, use_container_width=True)
+        selected_route_id = st.selectbox(
+            "Route to update",
+            [item.route_id for item in routes],
+            format_func=lambda item_id: next(item.category.value for item in routes if item.route_id == item_id),
+        )
+        selected_route = next(item for item in routes if item.route_id == selected_route_id)
+        with st.form("update_routing_plan"):
+            revised_primary = st.text_input("Updated primary staff or team", value=selected_route.primary_staff_or_team)
+            revised_backup = st.text_input("Updated backup staff or team", value=selected_route.backup_staff_or_team)
+            revised_instructions = st.text_area("Updated planning instructions", value=selected_route.instructions)
+            update_route = st.form_submit_button("Save routing update")
+            deactivate_route = st.form_submit_button("Deactivate route")
+        if update_route:
+            updated_route = RoutingPlan.model_validate(
+                {
+                    **selected_route.model_dump(),
+                    "primary_staff_or_team": revised_primary,
+                    "backup_staff_or_team": revised_backup,
+                    "instructions": revised_instructions,
+                    "actor_reference": actor_reference,
+                }
+            )
+            store.save_route(updated_route, action="update")
+            st.rerun()
+        if deactivate_route:
+            store.deactivate_route(selected_route, actor_reference)
+            st.rerun()
 
 with porting_tab:
     st.warning(PROFIT_DIAL_CANCELLATION_WARNING)

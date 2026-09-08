@@ -4,8 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from cfh_disposition.commandcore_phone_system import (
+    PHONE_AUDIT_DOCUMENT,
     PROFIT_DIAL_CANCELLATION_WARNING,
     PhoneNumberRecord,
+    PhonePlanningDocumentStore,
     PhoneProvider,
     PhonePurpose,
     PhoneSystemPlan,
@@ -45,6 +47,84 @@ def test_phone_inventory_and_dashboard_use_fictional_fixture_only() -> None:
     assert summary.unassigned_numbers == 1
     assert summary.numbers_planned_for_port == 1
     assert summary.numbers_ready_for_port == 1
+
+
+class FakePrivateCrm:
+    def __init__(self) -> None:
+        self.documents: dict[str, dict[str, object]] = {}
+
+    def __call__(self, payload: dict[str, object]) -> dict[str, object]:
+        assert payload["entity"] == "documents"
+        action = payload["action"]
+        if action == "list":
+            return {"ok": True, "records": list(self.documents.values())}
+        assert action == "upsert"
+        record = dict(payload["record"])  # type: ignore[arg-type]
+        self.documents[str(record["id"])] = record
+        return {"ok": True, "record": record}
+
+
+def test_private_persistence_survives_a_new_store_session_and_keeps_audit_history() -> None:
+    backend = FakePrivateCrm()
+    first_session = PhonePlanningDocumentStore(backend)
+    saved = first_session.save_number(fictional_number(), action="create")
+
+    second_session = PhonePlanningDocumentStore(backend)
+    loaded = second_session.list_numbers()
+    assert len(loaded) == 1
+    assert loaded[0].record_id == saved.record_id
+    assert loaded[0].phone_number == "+12025550142"
+    assert loaded[0].porting_status is PortingStatus.KEEP_PROTECTED_MIGRATION_UNDECIDED
+
+    second_session.deactivate_number(loaded[0], "fictional-admin-user")
+    assert second_session.list_numbers() == ()
+    assert second_session.list_numbers(include_inactive=True)[0].active is False
+    audit_events = [
+        item for item in backend.documents.values() if item.get("document_type") == PHONE_AUDIT_DOCUMENT
+    ]
+    assert [item["event_action"] for item in audit_events] == ["create", "deactivate"]
+
+
+@pytest.mark.parametrize(
+    "unsafe_notes",
+    [
+        "carrier pin=example-12345678",
+        "api_key=example-credential-value",
+        "Bearer " + "abcdefghijklmnop",
+    ],
+)
+def test_private_persistence_rejects_credentials_before_storage(unsafe_notes: str) -> None:
+    backend = FakePrivateCrm()
+    store = PhonePlanningDocumentStore(backend)
+    with pytest.raises(ValueError, match="Credentials are prohibited"):
+        store.save_number(fictional_number(notes=unsafe_notes))
+    assert backend.documents == {}
+
+
+def test_assignments_and_routes_persist_across_sessions() -> None:
+    backend = FakePrivateCrm()
+    first_session = PhonePlanningDocumentStore(backend)
+    first_session.save_assignment(
+        StaffPhoneAssignment(
+            staff_member="Fictional VA",
+            user_reference="fictional-user-1",
+            role="VA",
+            assigned_shared_phone_numbers=("+12025550142",),
+            primary_number="+12025550142",
+        ),
+        action="create",
+    )
+    first_session.save_route(
+        RoutingPlan(
+            category=RoutingCategory.SELLER_LEADS,
+            primary_staff_or_team="Fictional Seller Team",
+        ),
+        action="create",
+    )
+
+    new_session = PhonePlanningDocumentStore(backend)
+    assert new_session.list_assignments()[0].user_reference == "fictional-user-1"
+    assert new_session.list_routes()[0].category is RoutingCategory.SELLER_LEADS
 
 
 def test_staff_assignments_use_separate_user_references_and_known_numbers() -> None:
@@ -129,7 +209,7 @@ def test_setup_page_has_no_provider_execution_or_webhook_controls() -> None:
     for forbidden in (
         "requests.",
         "request.urlopen",
-        "functions.invoke",
+        'functions.invoke("commandcore-quo-openphone-adapter"',
         "send_sms",
         "sendSms",
         "makeCall",
