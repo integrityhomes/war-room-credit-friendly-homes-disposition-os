@@ -4,7 +4,9 @@ from pathlib import Path
 def test_commandcore_home_prioritizes_daily_work_over_tool_catalog() -> None:
     source = Path("pages/00_CommandCore.py").read_text(encoding="utf-8")
 
-    assert 'st.expander("Advanced tool directory", expanded=False)' in source
+    assert "render_page_header(" in source
+    assert 'primary_action_label="Start My Work"' in source
+    assert "with advanced_settings():" in source
     assert '"Add / Find Lead"' in source
     assert '"My Work"' in source
     assert '"Owner Approvals"' in source
@@ -26,3 +28,4 @@ def test_commandcore_home_keeps_consequential_actions_gated() -> None:
 
     assert "Command Bot cannot send, sign, approve, change legal terms, move money" in source
     assert "Connecting ad accounts or spending money still requires owner authorization." in source
+    assert "Open Owner Approvals and review the oldest item first." in source

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import streamlit as st
 
 ADVANCED_SETTINGS_LABEL = "Advanced settings"
+SUCCESS_NOTICE_KEY = "commandcore_success_notice"
 
 SAVE = "Save"
 NEXT = "Next"
@@ -84,6 +85,18 @@ def _message_body(what_happened: str, next_step: str | None) -> str:
 def show_success(what_happened: str, *, next_step: str | None = None) -> None:
     """Confirm completion and, when useful, show the next safe step."""
     st.success(_message_body(what_happened, next_step))
+
+
+def queue_success(what_happened: str, *, next_step: str | None = None) -> None:
+    """Keep a success message visible after a safe rerun or page change."""
+    st.session_state[SUCCESS_NOTICE_KEY] = (what_happened, next_step)
+
+
+def show_queued_success() -> None:
+    """Show and clear a success message saved by the previous user action."""
+    notice = st.session_state.pop(SUCCESS_NOTICE_KEY, None)
+    if isinstance(notice, tuple) and len(notice) == 2:
+        show_success(notice[0], next_step=notice[1])
 
 
 def show_needs_attention(what_happened: str, *, next_step: str) -> None:

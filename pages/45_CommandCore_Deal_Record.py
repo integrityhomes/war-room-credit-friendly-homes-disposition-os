@@ -11,6 +11,14 @@ from cfh_disposition.commandcore_contract_workspace_ui import render_contract_wo
 from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
 from cfh_disposition.commandcore_followup import MAX_FOLLOWUP_NOTE_LENGTH, build_followup_record
 from cfh_disposition.commandcore_offer_workspace_ui import render_offer_workspace
+from cfh_disposition.commandcore_ux import (
+    NEXT,
+    advanced_settings,
+    queue_success,
+    render_page_header,
+    show_error,
+    show_queued_success,
+)
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Deal Record", page_icon="📂", layout="wide")
@@ -162,7 +170,10 @@ def create_work_request(
         },
     )
     if saved:
-        st.success(f"{title} request added to the deal.")
+        queue_success(
+            f"{title} request added to the deal.",
+            next_step="Review the new work in the Tasks section.",
+        )
         st.rerun()
     st.error("CommandCore could not create the work request.")
 
@@ -190,11 +201,11 @@ if st.sidebar.button("Log out", key="commandcore_deal_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore Unified Deal Record")
-st.caption(
-    "Open one deal and see the seller, property, tasks, communications, offers, documents, transactions, "
-    "and activity history together."
+render_page_header(
+    "Deal Workspace",
+    "Open a deal, see what matters now, and take the next safe step.",
 )
+show_queued_success()
 
 deals = list_records("deals")
 if not deals:
@@ -229,12 +240,14 @@ seller = linked_record("contacts", text(deal_links.get("contact_id")))
 property_record = linked_record("properties", text(deal_links.get("property_id")))
 
 st.subheader(deal_label(deal))
-summary_cols = st.columns(5)
+summary_cols = st.columns(3)
 summary_cols[0].metric("Stage", text(deal.get("stage")) or "—")
 summary_cols[1].metric("Status", text(deal.get("status")) or "—")
-summary_cols[2].metric("Asking", text(deal.get("asking_price")) or "—")
-summary_cols[3].metric("Our offer", text(deal.get("offer_price")) or "—")
-summary_cols[4].metric("Assigned to", text(deal.get("assigned_to")) or "—")
+summary_cols[2].metric("Assigned to", text(deal.get("assigned_to")) or "—")
+with advanced_settings():
+    financial_summary = st.columns(2)
+    financial_summary[0].metric("Asking", text(deal.get("asking_price")) or "—")
+    financial_summary[1].metric("Our offer", text(deal.get("offer_price")) or "—")
 
 seller_col, property_col = st.columns(2)
 with seller_col:
@@ -305,6 +318,9 @@ with overview:
     next_task_due = text(next_task.get("due_at") or next_task.get("due_date")) if next_task else ""
     latest_message = deal_summary.recent_communication
     latest_activity = deal_summary.recent_activity
+
+    if st.button(NEXT, key=f"deal_primary_next_{deal_id}", type="primary", use_container_width=True):
+        open_deal_tab("Tasks" if next_task else "Next Step")
 
     headline = st.columns(3)
     headline[0].metric("Deal owner", owner)
@@ -392,7 +408,7 @@ with overview:
                         use_container_width=True,
                     )
 
-    st.markdown("#### Quick actions")
+    st.markdown("#### Other actions")
     st.caption("Open the existing workflow for this Deal. These actions do not send, approve, sign, or publish anything.")
     action_columns = st.columns(4)
     action_index = 0
@@ -462,13 +478,15 @@ with overview:
     st.divider()
     st.markdown("### Deal notes")
     st.write(text(deal.get("notes")) or "No deal notes yet.")
-    stats = st.columns(6)
-    stats[0].metric("Tasks", len(related["tasks"]))
-    stats[1].metric("Messages", len(related["communications"]))
-    stats[2].metric("Offers", len(related["offers"]))
-    stats[3].metric("Documents", len(related["documents"]))
-    stats[4].metric("Closing / Transactions", len(related["transactions"]))
-    stats[5].metric("History", len(related["activities"]))
+    with advanced_settings():
+        stats = st.columns(3)
+        stats[0].metric("Tasks", len(related["tasks"]))
+        stats[1].metric("Messages", len(related["communications"]))
+        stats[2].metric("Offers", len(related["offers"]))
+        supporting_stats = st.columns(3)
+        supporting_stats[0].metric("Documents", len(related["documents"]))
+        supporting_stats[1].metric("Closing / Transactions", len(related["transactions"]))
+        supporting_stats[2].metric("History", len(related["activities"]))
     with st.form("quick_activity"):
         note = st.text_area("Add internal deal note", height=90)
         if st.form_submit_button("Save note", type="primary") and note.strip():
@@ -478,9 +496,15 @@ with overview:
                 {"activity_type": "note", "summary": note.strip(), "source": "commandcore"},
             )
             if saved:
-                st.success("Note saved to the deal history.")
+                queue_success(
+                    "The note was saved to the deal history.",
+                    next_step="Continue with the next deal task or review another section.",
+                )
                 st.rerun()
-            st.error("CommandCore could not save the note.")
+            show_error(
+                "The note could not be saved. Existing deal history was not changed.",
+                next_step="Try again. If it still fails, ask an administrator to check the data connection.",
+            )
 
 with next_step_tab:
     st.markdown("### What should happen next?")
@@ -575,7 +599,10 @@ with tasks_tab:
         else:
             saved = save_related("tasks", deal_id, record)
             if saved:
-                st.success("Follow-up scheduled. No message or call was made.")
+                queue_success(
+                    "Follow-up scheduled. No message or call was made.",
+                    next_step="Review the task below or continue working this deal.",
+                )
                 st.rerun()
             st.error("CommandCore could not schedule the follow-up. Your existing tasks were not changed.")
 

@@ -7,6 +7,13 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_ux import (
+    advanced_settings,
+    queue_success,
+    render_page_header,
+    show_error,
+    show_queued_success,
+)
 from cfh_disposition.my_work_operator import render_operator_review
 from supabase import create_client
 
@@ -233,7 +240,10 @@ def show_shift_takeover_controls(
         result = record_shift_takeover(owner_id_value, selected_name, brief, note)
         if result.get("ok"):
             load_takeover_history.clear()
-            st.success("Shift takeover recorded.")
+            queue_success(
+                "Shift takeover recorded.",
+                next_step="Start with the first item under What needs attention.",
+            )
             st.rerun()
         else:
             st.error("Shift takeover could not be recorded. Nothing else was changed.")
@@ -305,13 +315,19 @@ if st.sidebar.button("Log out", key="commandcore_my_work_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore My Work")
-st.caption("Start here for assigned work, urgent items, handoffs, and shift takeover.")
+render_page_header(
+    "My Work",
+    "See your assigned work and handle the most important item first.",
+)
+show_queued_success()
 
 try:
     items = load_items()
-except Exception as exc:
-    st.error(f"Assigned work could not be loaded: {exc}")
+except Exception:
+    show_error(
+        "Your assigned work could not be loaded. Nothing was changed.",
+        next_step="Refresh the page. If it still does not load, ask a manager to check CommandCore.",
+    )
     st.stop()
 
 owners = sorted({owner_name(item) for item in items})
@@ -343,12 +359,14 @@ reassigned_count = sum(
     1 for item in filtered if str(item.get("reassigned_at", "")).strip()
 )
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3 = st.columns(3)
 c1.metric("Open Work", len(filtered))
-c2.metric("Assigned", assigned_count)
+c2.metric("High Priority", high_count)
 c3.metric("Unassigned", unassigned_count)
-c4.metric("High Priority", high_count)
-c5.metric("Reassigned", reassigned_count)
+with advanced_settings():
+    supporting_metrics = st.columns(2)
+    supporting_metrics[0].metric("Assigned", assigned_count)
+    supporting_metrics[1].metric("Reassigned", reassigned_count)
 
 if not filtered:
     with st.container(border=True):

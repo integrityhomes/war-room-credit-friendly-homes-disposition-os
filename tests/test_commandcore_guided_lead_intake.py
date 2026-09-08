@@ -9,12 +9,12 @@ def test_crm_starts_with_one_guided_lead_flow() -> None:
     crm = source()
 
     for marker in (
-        'st.tabs(["Add New Lead", "Find & Edit"])',
-        'st.subheader("Add New Lead")',
+        'st.tabs(["Add a Lead", "Find a Record"])',
+        'st.subheader("Add a Lead")',
         'st.markdown("### 1. Seller")',
         'st.markdown("### 2. Property")',
         'st.markdown("### 3. Deal")',
-        'st.form_submit_button("Create Lead & Open Deal"',
+        'st.form_submit_button("Save and open deal"',
     ):
         assert marker in crm
 
@@ -34,5 +34,5 @@ def test_normal_intake_uses_controlled_pipeline_choices() -> None:
 
     assert 'PIPELINE_STAGES = [' in crm
     assert 'DEAL_STATUSES = ["Active", "On Hold", "Closed", "Dead"]' in crm
-    assert 'with st.expander("More deal details (optional)")' in crm
+    assert "with advanced_settings():" in crm
     assert 'st.caption("Use this area when you need to correct an existing seller, property, or deal.")' in crm

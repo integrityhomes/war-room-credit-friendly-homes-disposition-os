@@ -141,7 +141,8 @@ def test_deal_tasks_tab_schedules_shared_followup_in_current_deal() -> None:
         "build_followup_record(",
         "deal_id=deal_id",
         'save_related("tasks", deal_id, record)',
-        'st.success("Follow-up scheduled. No message or call was made.")',
+        '"Follow-up scheduled. No message or call was made."',
+        "queue_success(",
         "st.rerun()",
     ):
         assert marker in tasks

@@ -6,6 +6,7 @@ import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_agent_finder_ui import render_agent_finder
+from cfh_disposition.commandcore_ux import advanced_settings, queue_success, render_page_header, show_error
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore CRM", page_icon="🏠", layout="wide")
@@ -142,7 +143,7 @@ def create_guided_lead(
 
 
 def guided_lead_intake() -> None:
-    st.subheader("Add New Lead")
+    st.subheader("Add a Lead")
     st.caption(
         "Enter the seller and property once. CommandCore creates and links the seller, property, and deal automatically."
     )
@@ -169,7 +170,7 @@ def guided_lead_intake() -> None:
         source = deal_right.text_input("Lead source", placeholder="Texting, MLS, referral, Facebook...")
         notes = st.text_area("What should the team know?", height=110)
 
-        with st.expander("More deal details (optional)"):
+        with advanced_settings():
             detail_left, detail_middle, detail_right = st.columns(3)
             stage = detail_left.selectbox("Pipeline stage", PIPELINE_STAGES, index=0)
             status = detail_middle.selectbox("Status", DEAL_STATUSES, index=0)
@@ -178,15 +179,21 @@ def guided_lead_intake() -> None:
             repairs = repair_left.text_input("Estimated repairs")
             offer = offer_right.text_input("Our offer")
 
-        submitted = st.form_submit_button("Create Lead & Open Deal", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Save and open deal", type="primary", use_container_width=True)
 
     if not submitted:
         return
     if not address.strip():
-        st.error("Property address is required before CommandCore can create the deal.")
+        show_error(
+            "A property address is needed before this lead can be saved.",
+            next_step="Enter the property address, then select Save and open deal.",
+        )
         return
     if not (first.strip() or last.strip() or phone.strip() or email.strip()):
-        st.error("Add at least the seller's name, phone, or email.")
+        show_error(
+            "The seller does not have a name, phone number, or email yet.",
+            next_step="Enter at least one way to identify or contact the seller.",
+        )
         return
 
     seller_name = f"{first} {last}".strip()
@@ -225,7 +232,10 @@ def guided_lead_intake() -> None:
         st.error(message)
         return
     st.session_state["commandcore_selected_deal_id"] = deal_id
-    st.success(message)
+    queue_success(
+        message,
+        next_step="Review the new deal and choose its next task.",
+    )
     st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
 
@@ -429,10 +439,12 @@ if st.sidebar.button("Log out", key="commandcore_crm_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("Leads & CRM")
-st.caption("Add a new lead in one simple flow, or find an existing seller, property, or deal when you need it.")
+render_page_header(
+    "Leads / Sellers",
+    "Add a seller and property once, or find an existing record.",
+)
 
-new_lead_tab, manage_tab = st.tabs(["Add New Lead", "Find & Edit"])
+new_lead_tab, manage_tab = st.tabs(["Add a Lead", "Find a Record"])
 with new_lead_tab:
     guided_lead_intake()
 with manage_tab:

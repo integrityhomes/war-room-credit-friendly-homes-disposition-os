@@ -6,6 +6,13 @@ from typing import Any
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.commandcore_ux import (
+    advanced_settings,
+    render_page_header,
+    show_error,
+    show_needs_attention,
+    show_success,
+)
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore", page_icon="🧭", layout="wide")
@@ -125,10 +132,14 @@ if st.sidebar.button("Log out", key="commandcore_shell_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("CommandCore")
-st.caption("One operating system for leads, deals, follow-up, marketing, disposition, and management.")
+render_page_header(
+    "Home",
+    "See what needs attention today and go straight to your next task.",
+    primary_action_label="Start My Work",
+    primary_action_page="pages/35_CommandCore_My_Work.py",
+)
 
-with st.expander("Advanced tool directory", expanded=False):
+with advanced_settings():
     st.caption("Use this directory when you need a specialty workspace. Daily navigation is in the CommandCore sidebar.")
     area = st.selectbox(
         "Show tools for",
@@ -168,25 +179,37 @@ if area == "Home / Command Center":
         ]
         approvals = len(offers) + len(documents)
 
-        metrics = st.columns(6)
-        metrics[0].metric("Active deals", len(deals))
-        metrics[1].metric("New leads", len(new_leads))
-        metrics[2].metric("Overdue", len(overdue))
-        metrics[3].metric("Due today", len(due_today))
-        metrics[4].metric("Owner approvals", approvals)
-        metrics[5].metric("Deal workflow", len(lifecycle))
+        metrics = st.columns(3)
+        metrics[0].metric("Owner approvals", approvals)
+        metrics[1].metric("Overdue", len(overdue))
+        metrics[2].metric("Due today", len(due_today))
+        with advanced_settings():
+            supporting_metrics = st.columns(3)
+            supporting_metrics[0].metric("Active deals", len(deals))
+            supporting_metrics[1].metric("New leads", len(new_leads))
+            supporting_metrics[2].metric("Deal workflow", len(lifecycle))
 
         if approvals:
-            st.error(f"Owner decision required: {approvals} approval item(s) are waiting.")
+            show_needs_attention(
+                f"{approvals} owner decision(s) are waiting.",
+                next_step="Open Owner Approvals and review the oldest item first.",
+            )
         elif overdue or due_today or high_priority:
-            st.warning(
+            show_needs_attention(
                 f"Needs attention: {len(overdue)} overdue, {len(due_today)} due today, "
-                f"and {len(high_priority)} high-priority open task(s)."
+                f"and {len(high_priority)} high-priority open task(s).",
+                next_step="Open My Work and handle the highest-priority item first.",
             )
         else:
-            st.success("No owner approvals, overdue, due-today, or high-priority CRM tasks are currently waiting.")
+            show_success(
+                "No owner decisions or urgent tasks are waiting.",
+                next_step="Open My Work to continue with your assigned work.",
+            )
     except RuntimeError:
-        st.error("CommandCore could not load today's dashboard. Your records were not changed.")
+        show_error(
+            "Today's work summary could not be loaded. Your records were not changed.",
+            next_step="Refresh the page. If it still does not load, ask an administrator to check the data connection.",
+        )
 
     st.markdown("### Start work")
     c1, c2, c3, c4, c5 = st.columns(5)

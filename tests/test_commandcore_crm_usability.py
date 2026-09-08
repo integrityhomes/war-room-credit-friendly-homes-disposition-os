@@ -19,11 +19,11 @@ def test_crm_guided_lead_flow_is_the_primary_daily_path() -> None:
     source = Path("pages/44_CommandCore_CRM.py").read_text(encoding="utf-8")
 
     for marker in (
-        'st.title("Leads & CRM")',
-        'st.tabs(["Add New Lead", "Find & Edit"])',
-        'st.subheader("Add New Lead")',
+        '"Leads / Sellers"',
+        'st.tabs(["Add a Lead", "Find a Record"])',
+        'st.subheader("Add a Lead")',
         'with st.form("commandcore_guided_lead_intake")',
-        'st.form_submit_button("Create Lead & Open Deal"',
+        'st.form_submit_button("Save and open deal"',
         '"links": {"contact_id": contact_id, "property_id": property_id}',
         'st.session_state["commandcore_selected_deal_id"] = deal_id',
         'st.switch_page("pages/45_CommandCore_Deal_Record.py")',
