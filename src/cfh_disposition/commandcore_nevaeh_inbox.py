@@ -19,11 +19,15 @@ from .commandcore_secretary_orchestrator import (
 
 class NevaehInboxCategory(StrEnum):
     NEW = "New communications"
-    NEEDS_REVIEW = "Needs review"
-    MATCHED_TO_DEAL = "Matched to deal"
+    NEEDS_REVIEW = "Needs attention"
+    ASSIGNED_TO_ME = "Assigned to me"
+    SELLER = "Seller"
+    BUYER = "Buyer"
+    MATCHED_TO_DEAL = "Deal-related"
     HIGH_PRIORITY = "High priority"
     STOP_CONSENT = "STOP / Consent"
     MONEY_LEGAL = "Money / Legal"
+    UNMATCHED = "Unmatched"
     UNASSIGNED = "Unassigned"
 
 
@@ -38,6 +42,7 @@ class NevaehInboxItem(BaseModel):
     related_deal: str
     assigned_worker: str
     classification: str
+    priority: str
     confidence: str
     approval_required: bool
     recommended_next_step: str
@@ -68,6 +73,7 @@ def build_nevaeh_inbox(
     contacts: Sequence[Mapping[str, Any]],
     properties: Sequence[Mapping[str, Any]],
     deals: Sequence[Mapping[str, Any]],
+    assigned_to: str = "",
 ) -> tuple[NevaehInboxItem, ...]:
     """Classify existing inbound records without writing, sending, or changing consent."""
     items: list[NevaehInboxItem] = []
@@ -89,6 +95,13 @@ def build_nevaeh_inbox(
             categories.append(NevaehInboxCategory.NEW)
         if decision.confidence is SecretaryConfidence.INSUFFICIENT or decision.escalation_required:
             categories.append(NevaehInboxCategory.NEEDS_REVIEW)
+        if assigned_to and decision.suggested_owner.casefold() == assigned_to.strip().casefold():
+            categories.append(NevaehInboxCategory.ASSIGNED_TO_ME)
+        relationship = context.relationship.casefold()
+        if "seller" in relationship:
+            categories.append(NevaehInboxCategory.SELLER)
+        if "buyer" in relationship:
+            categories.append(NevaehInboxCategory.BUYER)
         if decision.matched_deal_id:
             categories.append(NevaehInboxCategory.MATCHED_TO_DEAL)
         if decision.urgency in {SecretaryUrgency.HIGH, SecretaryUrgency.IMMEDIATE}:
@@ -106,6 +119,8 @@ def build_nevaeh_inbox(
             categories.append(NevaehInboxCategory.MONEY_LEGAL)
         if decision.suggested_owner.startswith("Unassigned"):
             categories.append(NevaehInboxCategory.UNASSIGNED)
+        if not decision.matched_contact_id:
+            categories.append(NevaehInboxCategory.UNMATCHED)
         items.append(
             NevaehInboxItem(
                 communication_id=decision.communication_event_id,
@@ -121,6 +136,7 @@ def build_nevaeh_inbox(
                 related_deal=context.deal_label,
                 assigned_worker=decision.suggested_owner,
                 classification=decision.intent.value,
+                priority=decision.urgency.value,
                 confidence=decision.confidence.value,
                 approval_required=decision.approval_required,
                 recommended_next_step=decision.suggested_action,

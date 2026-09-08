@@ -146,6 +146,12 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
         AppCompletionState.COMPLETE,
         "Versioned contract-template workspace with private storage and legal/owner approval gating.",
     ),
+    AppCompletion(
+        "pages/51_CommandCore_Communications.py",
+        "Leads & CRM",
+        AppCompletionState.COMPLETE,
+        "Canonical read-only Communications Hub over existing CRM communications and Nevaeh matching.",
+    ),
     AppCompletion("pages/90_CFH_Marketing_Dispo.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Preserved canonical CFH marketing/disposition workspace."),
 )
 

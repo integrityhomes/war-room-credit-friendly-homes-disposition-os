@@ -31,6 +31,10 @@ EVERYDAY_NAVIGATION = (
     ),
     NavigationSection("Leads / Sellers", (NavigationItem("pages/44_CommandCore_CRM.py", "Leads"),)),
     NavigationSection(
+        "Communications",
+        (NavigationItem("pages/51_CommandCore_Communications.py", "Communications"),),
+    ),
+    NavigationSection(
         "Deals / Properties",
         (
             NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"),
@@ -142,6 +146,7 @@ pages = {
     ],
     "Leads & CRM": [
         st.Page("pages/44_CommandCore_CRM.py", title="Leads", icon="🏠"),
+        st.Page("pages/51_CommandCore_Communications.py", title="Communications", icon="💬"),
     ],
     "Deals": [
         st.Page("pages/45_CommandCore_Deal_Record.py", title="Deal Workspace", icon="📂"),

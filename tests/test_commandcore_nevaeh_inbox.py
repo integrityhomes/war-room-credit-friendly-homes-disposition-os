@@ -41,6 +41,8 @@ def test_known_deal_scheduling_message_is_safe_and_assigned() -> None:
     assert item.related_deal == "100 Example Street"
     assert item.assigned_worker == "Alex Morgan"
     assert item.classification == "Appointment or scheduling request"
+    assert item.priority == "Prompt"
+    assert NevaehInboxCategory.SELLER in item.categories
     assert NevaehInboxCategory.MATCHED_TO_DEAL in item.categories
     assert item.records_written == item.tasks_created == item.external_actions_started == 0
 
@@ -59,6 +61,20 @@ def test_unknown_and_ambiguous_contacts_need_review_without_guessing() -> None:
     assert len(items) == 2
     assert all(NevaehInboxCategory.NEEDS_REVIEW in item.categories for item in items)
     assert all(NevaehInboxCategory.UNASSIGNED in item.categories for item in items)
+    assert all(NevaehInboxCategory.UNMATCHED in item.categories for item in items)
+
+
+def test_assigned_to_me_uses_existing_assignment_without_changing_it() -> None:
+    items = build_nevaeh_inbox(
+        [communication("assigned", "Can we schedule?", contact_phone="2175550100")],
+        contacts=CONTACTS,
+        properties=PROPERTIES,
+        deals=DEALS,
+        assigned_to="Alex Morgan",
+    )
+
+    assert NevaehInboxCategory.ASSIGNED_TO_ME in items[0].categories
+    assert items[0].assigned_worker == "Alex Morgan"
 
 
 def test_stop_money_and_legal_messages_receive_visible_priority_categories() -> None:
