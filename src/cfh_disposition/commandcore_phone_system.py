@@ -30,7 +30,14 @@ class PhonePurpose(StrEnum):
     ACQUISITIONS = "Acquisitions"
     MAIN_LINE = "Main line"
     MARKETING_DIALER_POOL = "Marketing / dialer pool"
+    STAFF_LINE = "STAFF LINE"
     OTHER = "Other"
+
+
+class OperationalStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    INACTIVE_RESERVED = "INACTIVE / RESERVED"
+    UNKNOWN_NEEDS_REVIEW = "UNKNOWN / NEEDS REVIEW"
 
 
 class PortingStatus(StrEnum):
@@ -96,8 +103,9 @@ class PhoneNumberRecord(PlanningModel):
     phone_number: str = Field(min_length=10, max_length=24)
     current_provider: str = Field(min_length=1, max_length=120)
     current_label: str = Field(min_length=1, max_length=120)
-    department_purpose: str = Field(min_length=1, max_length=160)
+    department_purpose: str = Field(default="", max_length=160)
     purpose: PhonePurpose
+    provider_pool_id: str = Field(default="", max_length=160)
     assigned_staff_or_team: str = Field(default="", max_length=160)
     inbound_enabled_planned: bool = False
     outbound_enabled_planned: bool = False
@@ -106,10 +114,26 @@ class PhoneNumberRecord(PlanningModel):
     voicemail_planned: bool = False
     porting_status: PortingStatus = PortingStatus.KEEP_PROTECTED_MIGRATION_UNDECIDED
     notes: str = Field(default="", max_length=2000)
+    operational_status: OperationalStatus = OperationalStatus.UNKNOWN_NEEDS_REVIEW
     active: bool = True
     actor_reference: str = Field(default="authenticated-commandcore-user", min_length=1, max_length=160)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_legacy_active_status(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "operational_status" not in value and "active" in value:
+            value = dict(value)
+            value["operational_status"] = (
+                OperationalStatus.ACTIVE if value["active"] else OperationalStatus.INACTIVE_RESERVED
+            )
+        return value
+
+    @model_validator(mode="after")
+    def keep_legacy_active_compatible(self) -> PhoneNumberRecord:
+        self.active = self.operational_status is not OperationalStatus.INACTIVE_RESERVED
+        return self
 
     @field_validator("phone_number")
     @classmethod
@@ -171,8 +195,31 @@ class RoutingPlan(PlanningModel):
         return self
 
 
+class PhoneProviderPool(PlanningModel):
+    """Provider/category planning container that does not require a phone number."""
+
+    pool_id: str = Field(default_factory=lambda: str(uuid4()))
+    provider_name: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=160)
+    category: PhonePurpose = PhonePurpose.MARKETING_DIALER_POOL
+    operational_status: OperationalStatus = OperationalStatus.UNKNOWN_NEEDS_REVIEW
+    notes: str = Field(default="", max_length=2000)
+    active: bool = True
+    actor_reference: str = Field(default="authenticated-commandcore-user", min_length=1, max_length=160)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def require_marketing_dialer_pool_category(self) -> PhoneProviderPool:
+        if self.category is not PhonePurpose.MARKETING_DIALER_POOL:
+            raise ValueError("Provider pools must use the marketing / dialer pool category")
+        self.active = self.operational_status is not OperationalStatus.INACTIVE_RESERVED
+        return self
+
+
 class PhoneSystemPlan(PlanningModel):
     numbers: tuple[PhoneNumberRecord, ...] = ()
+    provider_pools: tuple[PhoneProviderPool, ...] = ()
     assignments: tuple[StaffPhoneAssignment, ...] = ()
     routes: tuple[RoutingPlan, ...] = ()
     providers: tuple[ProviderConfiguration, ...] = ()
@@ -241,11 +288,13 @@ def offline_provider_catalog() -> tuple[ProviderConfiguration, ...]:
 PHONE_INVENTORY_DOCUMENT = "phone_system_inventory"
 PHONE_ASSIGNMENT_DOCUMENT = "phone_system_staff_assignment"
 PHONE_ROUTE_DOCUMENT = "phone_system_routing_plan"
+PHONE_PROVIDER_POOL_DOCUMENT = "phone_system_provider_pool"
 PHONE_AUDIT_DOCUMENT = "phone_system_audit_event"
 PHONE_DOCUMENT_TYPES = {
     PHONE_INVENTORY_DOCUMENT,
     PHONE_ASSIGNMENT_DOCUMENT,
     PHONE_ROUTE_DOCUMENT,
+    PHONE_PROVIDER_POOL_DOCUMENT,
     PHONE_AUDIT_DOCUMENT,
 }
 _PROHIBITED_CREDENTIAL_KEYS = re.compile(
@@ -319,6 +368,13 @@ class PhonePlanningDocumentStore:
 
     def list_routes(self, *, include_inactive: bool = False) -> tuple[RoutingPlan, ...]:
         records = tuple(RoutingPlan.model_validate(item) for item in self._typed_payloads(PHONE_ROUTE_DOCUMENT))
+        return records if include_inactive else tuple(item for item in records if item.active)
+
+    def list_provider_pools(self, *, include_inactive: bool = False) -> tuple[PhoneProviderPool, ...]:
+        records = tuple(
+            PhoneProviderPool.model_validate(item)
+            for item in self._typed_payloads(PHONE_PROVIDER_POOL_DOCUMENT)
+        )
         return records if include_inactive else tuple(item for item in records if item.active)
 
     def _save(self, *, document_type: str, record_id: str, payload: dict[str, Any], actor_reference: str, action: str) -> None:
@@ -396,11 +452,42 @@ class PhonePlanningDocumentStore:
         )
         return saved
 
+    def save_provider_pool(
+        self, record: PhoneProviderPool, *, action: str = "upsert"
+    ) -> PhoneProviderPool:
+        saved = PhoneProviderPool.model_validate(
+            {**record.model_dump(), "updated_at": datetime.now(UTC)}
+        )
+        self._save(
+            document_type=PHONE_PROVIDER_POOL_DOCUMENT,
+            record_id=saved.pool_id,
+            payload=saved.model_dump(mode="json"),
+            actor_reference=saved.actor_reference,
+            action=action,
+        )
+        return saved
+
     def deactivate_number(self, record: PhoneNumberRecord, actor_reference: str) -> PhoneNumberRecord:
         updated = PhoneNumberRecord.model_validate(
-            {**record.model_dump(), "active": False, "actor_reference": actor_reference}
+            {
+                **record.model_dump(),
+                "operational_status": OperationalStatus.INACTIVE_RESERVED,
+                "actor_reference": actor_reference,
+            }
         )
         return self.save_number(updated, action="deactivate")
+
+    def deactivate_provider_pool(
+        self, record: PhoneProviderPool, actor_reference: str
+    ) -> PhoneProviderPool:
+        updated = PhoneProviderPool.model_validate(
+            {
+                **record.model_dump(),
+                "operational_status": OperationalStatus.INACTIVE_RESERVED,
+                "actor_reference": actor_reference,
+            }
+        )
+        return self.save_provider_pool(updated, action="deactivate")
 
     def deactivate_assignment(self, record: StaffPhoneAssignment, actor_reference: str) -> StaffPhoneAssignment:
         updated = StaffPhoneAssignment.model_validate(

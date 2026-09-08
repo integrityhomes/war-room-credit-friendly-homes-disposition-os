@@ -8,9 +8,11 @@ from pydantic import ValidationError
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_phone_system import (
     PROFIT_DIAL_CANCELLATION_WARNING,
+    OperationalStatus,
     PhoneNumberRecord,
     PhonePlanningDocumentStore,
     PhonePlanningStorageError,
+    PhoneProviderPool,
     PhonePurpose,
     PortingStatus,
     RoutingCategory,
@@ -79,6 +81,7 @@ try:
     numbers = store.list_numbers()
     assignments = store.list_assignments()
     routes = store.list_routes()
+    provider_pools = store.list_provider_pools()
 except (PhonePlanningStorageError, ValidationError):
     st.error("Private phone planning records could not be loaded safely. No provider action was started.")
     st.stop()
@@ -97,8 +100,15 @@ status[1].metric("Live inbound", summary.live_inbound_status)
 status[2].metric("Live outbound", summary.live_outbound_status)
 status[3].metric("Nevaeh phone connection", summary.nevaeh_phone_connection_status)
 
-number_tab, staff_tab, routing_tab, porting_tab, providers_tab = st.tabs(
-    ["Phone number inventory", "Staff / VA assignments", "Routing plan", "Profit Dial porting", "Providers"]
+number_tab, pool_tab, staff_tab, routing_tab, porting_tab, providers_tab = st.tabs(
+    [
+        "Phone number inventory",
+        "Marketing / dialer pools",
+        "Staff / VA assignments",
+        "Routing plan",
+        "Profit Dial porting",
+        "Providers",
+    ]
 )
 
 with number_tab:
@@ -109,9 +119,20 @@ with number_tab:
         phone_number = left.text_input("Phone number")
         current_provider = right.text_input("Current provider", placeholder="REI BlackBook / Profit Dial")
         current_label = left.text_input("Current label / name")
-        department = right.text_input("Department / purpose")
+        department = right.text_input(
+            "Department / business purpose (optional)", placeholder="UNKNOWN / NEEDS REVIEW"
+        )
         purpose = left.selectbox("Line type", [item.value for item in PhonePurpose])
         assigned = right.text_input("Assigned staff member or team")
+        operational_status = left.selectbox(
+            "Operational status",
+            [item.value for item in OperationalStatus],
+            index=list(OperationalStatus).index(OperationalStatus.UNKNOWN_NEEDS_REVIEW),
+        )
+        pool_options = {"Not assigned to a provider pool": ""} | {
+            f"{item.provider_name} — {item.label}": item.pool_id for item in provider_pools
+        }
+        selected_pool = right.selectbox("Provider pool (optional)", list(pool_options))
         inbound = left.checkbox("Inbound enabled — planned")
         outbound = right.checkbox("Outbound enabled — planned")
         texting = left.checkbox("Texting — planned")
@@ -127,7 +148,9 @@ with number_tab:
                     current_label=current_label,
                     department_purpose=department,
                     purpose=PhonePurpose(purpose),
+                    provider_pool_id=pool_options[selected_pool],
                     assigned_staff_or_team=assigned,
+                    operational_status=OperationalStatus(operational_status),
                     inbound_enabled_planned=inbound,
                     outbound_enabled_planned=outbound,
                     texting_planned=texting,
@@ -159,6 +182,11 @@ with number_tab:
                 [item.value for item in PortingStatus],
                 index=list(PortingStatus).index(selected_number.porting_status),
             )
+            revised_operational_status = st.selectbox(
+                "Updated operational status",
+                [item.value for item in OperationalStatus],
+                index=list(OperationalStatus).index(selected_number.operational_status),
+            )
             revised_notes = st.text_area("Updated notes", value=selected_number.notes)
             update_number = st.form_submit_button("Save inventory update")
             deactivate_number = st.form_submit_button("Deactivate inventory record")
@@ -167,6 +195,7 @@ with number_tab:
                 {
                     **selected_number.model_dump(),
                     "porting_status": revised_status,
+                    "operational_status": revised_operational_status,
                     "notes": revised_notes,
                     "actor_reference": actor_reference,
                 }
@@ -176,6 +205,57 @@ with number_tab:
         if deactivate_number:
             store.deactivate_number(selected_number, actor_reference)
             st.rerun()
+
+with pool_tab:
+    st.subheader("Provider-level marketing / dialer pools")
+    st.caption(
+        "Create a planning category such as XLeads without inventing a phone number. "
+        "Actual numbers can be associated later."
+    )
+    with st.form("add_provider_pool", clear_on_submit=True):
+        pool_provider = st.text_input("Provider", placeholder="XLeads")
+        pool_label = st.text_input("Pool label", placeholder="MARKETING / DIALER POOL")
+        pool_status = st.selectbox(
+            "Pool operational status",
+            [item.value for item in OperationalStatus],
+            index=list(OperationalStatus).index(OperationalStatus.UNKNOWN_NEEDS_REVIEW),
+        )
+        pool_notes = st.text_area("Pool notes (never store credentials, PINs, or account secrets)")
+        if st.form_submit_button("Add provider pool", use_container_width=True):
+            try:
+                pool = PhoneProviderPool(
+                    provider_name=pool_provider,
+                    label=pool_label,
+                    operational_status=OperationalStatus(pool_status),
+                    notes=pool_notes,
+                    actor_reference=actor_reference,
+                )
+            except ValidationError as error:
+                st.error(str(error))
+            else:
+                store.save_provider_pool(pool, action="create")
+                st.rerun()
+    if provider_pools:
+        st.dataframe(
+            [item.model_dump(mode="json") for item in provider_pools],
+            hide_index=True,
+            use_container_width=True,
+        )
+        selected_pool_id = st.selectbox(
+            "Provider pool to deactivate",
+            [item.pool_id for item in provider_pools],
+            format_func=lambda item_id: next(
+                item.label for item in provider_pools if item.pool_id == item_id
+            ),
+        )
+        if st.button("Deactivate provider pool"):
+            selected_provider_pool = next(
+                item for item in provider_pools if item.pool_id == selected_pool_id
+            )
+            store.deactivate_provider_pool(selected_provider_pool, actor_reference)
+            st.rerun()
+    else:
+        st.info("No provider pools have been entered. A pool does not require a phone number.")
 
 with staff_tab:
     st.subheader("Individual staff / VA routing assignments")

@@ -6,9 +6,11 @@ from pydantic import ValidationError
 from cfh_disposition.commandcore_phone_system import (
     PHONE_AUDIT_DOCUMENT,
     PROFIT_DIAL_CANCELLATION_WARNING,
+    OperationalStatus,
     PhoneNumberRecord,
     PhonePlanningDocumentStore,
     PhoneProvider,
+    PhoneProviderPool,
     PhonePurpose,
     PhoneSystemPlan,
     PortingStatus,
@@ -47,6 +49,46 @@ def test_phone_inventory_and_dashboard_use_fictional_fixture_only() -> None:
     assert summary.unassigned_numbers == 1
     assert summary.numbers_planned_for_port == 1
     assert summary.numbers_ready_for_port == 1
+
+
+def test_staff_line_unknown_status_and_optional_department_are_supported() -> None:
+    blank_department = fictional_number(
+        purpose=PhonePurpose.STAFF_LINE,
+        department_purpose="",
+        operational_status=OperationalStatus.UNKNOWN_NEEDS_REVIEW,
+    )
+    unknown_department = fictional_number(
+        phone_number="+1 202-555-0151",
+        department_purpose="UNKNOWN / NEEDS REVIEW",
+    )
+
+    assert blank_department.purpose is PhonePurpose.STAFF_LINE
+    assert blank_department.operational_status is OperationalStatus.UNKNOWN_NEEDS_REVIEW
+    assert blank_department.department_purpose == ""
+    assert unknown_department.department_purpose == "UNKNOWN / NEEDS REVIEW"
+    assert blank_department.porting_status is PortingStatus.KEEP_PROTECTED_MIGRATION_UNDECIDED
+
+
+@pytest.mark.parametrize(
+    ("legacy_active", "expected_status"),
+    [
+        (True, OperationalStatus.ACTIVE),
+        (False, OperationalStatus.INACTIVE_RESERVED),
+    ],
+)
+def test_legacy_phase_5b_active_records_remain_readable(
+    legacy_active: bool, expected_status: OperationalStatus
+) -> None:
+    legacy_payload = fictional_number().model_dump(mode="json")
+    legacy_payload.pop("operational_status")
+    legacy_payload.pop("provider_pool_id")
+    legacy_payload["active"] = legacy_active
+
+    loaded = PhoneNumberRecord.model_validate(legacy_payload)
+
+    assert loaded.operational_status is expected_status
+    assert loaded.active is legacy_active
+    assert loaded.provider_pool_id == ""
 
 
 class FakePrivateCrm:
@@ -101,6 +143,20 @@ def test_private_persistence_rejects_credentials_before_storage(unsafe_notes: st
     assert backend.documents == {}
 
 
+def test_provider_pool_rejects_credentials_before_storage() -> None:
+    backend = FakePrivateCrm()
+    store = PhonePlanningDocumentStore(backend)
+    with pytest.raises(ValueError, match="Credentials are prohibited"):
+        store.save_provider_pool(
+            PhoneProviderPool(
+                provider_name="XLeads",
+                label="MARKETING / DIALER POOL",
+                notes="carrier pin=example-12345678",
+            )
+        )
+    assert backend.documents == {}
+
+
 def test_assignments_and_routes_persist_across_sessions() -> None:
     backend = FakePrivateCrm()
     first_session = PhonePlanningDocumentStore(backend)
@@ -125,6 +181,39 @@ def test_assignments_and_routes_persist_across_sessions() -> None:
     new_session = PhonePlanningDocumentStore(backend)
     assert new_session.list_assignments()[0].user_reference == "fictional-user-1"
     assert new_session.list_routes()[0].category is RoutingCategory.SELLER_LEADS
+
+
+def test_xleads_pool_persists_with_zero_phone_numbers_across_sessions() -> None:
+    backend = FakePrivateCrm()
+    first_session = PhonePlanningDocumentStore(backend)
+    saved = first_session.save_provider_pool(
+        PhoneProviderPool(
+            provider_name="XLeads",
+            label="MARKETING / DIALER POOL",
+            actor_reference="fictional-admin-user",
+        ),
+        action="create",
+    )
+
+    second_session = PhonePlanningDocumentStore(backend)
+    pools = second_session.list_provider_pools()
+    assert second_session.list_numbers() == ()
+    assert len(pools) == 1
+    assert pools[0].pool_id == saved.pool_id
+    assert pools[0].provider_name == "XLeads"
+    assert pools[0].category is PhonePurpose.MARKETING_DIALER_POOL
+    assert pools[0].operational_status is OperationalStatus.UNKNOWN_NEEDS_REVIEW
+
+
+def test_phone_number_can_be_added_under_provider_pool_later() -> None:
+    pool = PhoneProviderPool(provider_name="XLeads", label="MARKETING / DIALER POOL")
+    number = fictional_number(
+        phone_number="+1 202-555-0168",
+        purpose=PhonePurpose.MARKETING_DIALER_POOL,
+        provider_pool_id=pool.pool_id,
+    )
+
+    assert number.provider_pool_id == pool.pool_id
 
 
 def test_staff_assignments_use_separate_user_references_and_known_numbers() -> None:
