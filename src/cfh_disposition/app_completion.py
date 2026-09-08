@@ -133,6 +133,12 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion("pages/46_CommandCore_Pipeline_Followup.py", "Tasks & Follow-Up", AppCompletionState.COMPLETE, "Pipeline and follow-up workspace."),
     AppCompletion("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deals", AppCompletionState.COMPLETE, "Internal deal workflow queue."),
     AppCompletion("pages/48_CommandCore_Owner_Approvals.py", "Management", AppCompletionState.COMPLETE, "Owner Approval Queue with separate PIN and crash-safe history."),
+    AppCompletion(
+        "pages/49_CommandCore_Phone_System_Setup.py",
+        "Management",
+        AppCompletionState.SUPPORT_TOOL,
+        "Offline provider-neutral phone inventory, staff assignment, routing, and porting-planning workspace.",
+    ),
     AppCompletion("pages/49_CommandCore_Command_Bot.py", "Home / Command Center", AppCompletionState.COMPLETE, "Command Bot with idempotent internal request creation."),
     AppCompletion(
         "pages/50_CommandCore_Contract_Templates.py",
