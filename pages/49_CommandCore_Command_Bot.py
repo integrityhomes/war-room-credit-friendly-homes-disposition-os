@@ -8,12 +8,12 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
+from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
 from supabase import create_client
 
 st.set_page_config(page_title="CorePilot", page_icon="🤖", layout="wide")
 
-ENTITIES = ("contacts", "properties", "deals", "communications", "tasks", "approvals", "offers", "documents", "transactions", "activities")
 QUICK_ACTIONS = ("What needs my attention?", "Find a deal", "Show my work", "Review communications")
 
 
@@ -87,6 +87,18 @@ def list_records(entity: str) -> list[dict[str, Any]]:
     return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
 
 
+def load_corepilot_records() -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+    records: dict[str, list[dict[str, Any]]] = {}
+    errors: dict[str, str] = {}
+    for entity in validated_crm_entities():
+        try:
+            records[entity] = list_records(entity)
+        except Exception as exc:  # UI safety boundary: never expose provider tracebacks.
+            records[entity] = []
+            errors[entity] = type(exc).__name__
+    return records, errors
+
+
 def render_result(result: CorePilotResult) -> None:
     if result.clarification:
         st.info(result.clarification)
@@ -126,16 +138,22 @@ for index, label in enumerate(QUICK_ACTIONS):
 
 with st.form("corepilot_request_form"):
     request = st.text_input("Ask CorePilot", key="corepilot_request", placeholder="Example: What is holding this closing up?")
-    submitted = st.form_submit_button("Review", type="primary")
+    submitted = st.form_submit_button("Ask CorePilot", type="primary")
 
 if submitted:
     try:
-        records = {entity: list_records(entity) for entity in ENTITIES}
-    except RuntimeError:
+        records, source_errors = load_corepilot_records()
+    except (RuntimeError, ValueError):
         show_error("CorePilot could not safely read CommandCore records.", next_step="Check the app connection and try again.")
     else:
         result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")), current_user=str(st.session_state.get("commandcore_worker_name", "")))
         render_result(result)
+        if source_errors:
+            st.warning("CorePilot couldn't check one part of CommandCore right now. Nothing was changed.")
+            with advanced_settings():
+                st.caption("Unavailable read sources")
+                for source, error_type in source_errors.items():
+                    st.write(f"{source}: {error_type}")
         if result.action_class is CorePilotActionClass.APPROVAL_REQUIRED:
             st.caption("CorePilot stopped before the protected action. No approval was granted and nothing was executed.")
 

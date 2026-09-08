@@ -15,6 +15,9 @@ def test_corepilot_page_is_simple_and_read_only() -> None:
     assert '"action": "upsert"' not in source
     assert '"action": "create"' not in source
     assert "dispatch_command" not in source
+    assert 'st.form_submit_button("Ask CorePilot"' in source
+    assert "except Exception as exc" in source
+    assert "couldn't check one part of CommandCore right now" in source
 
 
 def test_navigation_uses_official_user_facing_name() -> None:

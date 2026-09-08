@@ -77,3 +77,14 @@ def test_deals_without_next_action_are_derived_without_creating_tasks() -> None:
     assert result.status == "complete"
     assert "Fictional quiet deal" in result.what_i_found
     assert result.records_written == 0
+
+
+def test_attention_request_has_useful_empty_state() -> None:
+    records = {entity: [] for entity in ("contacts", "properties", "deals", "activities", "communications", "tasks", "offers", "documents", "transactions")}
+    result = run_corepilot("What needs my attention?", records)
+    assert result.status == "complete"
+    assert "No open assigned work was found." in result.what_i_found
+    assert "0 inbound communications are available." in result.what_i_found
+    assert "0 items are waiting for approval." in result.needs_attention
+    assert result.records_written == 0
+    assert result.external_actions_started == 0

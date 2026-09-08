@@ -148,7 +148,7 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
         messages = _communications_result(records, current_user)
         pending = sum(
             1
-            for entity in ("approvals", "offers", "documents")
+            for entity in ("offers", "documents")
             for item in records.get(entity, ())
             if "approval" in _text(item.get("status")).casefold() or _text(item.get("status")).casefold() in {"pending", "requested"}
         )
@@ -164,7 +164,7 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
     if "approval" in lower:
         related = [
             item
-            for entity in ("approvals", "offers", "documents")
+            for entity in ("offers", "documents")
             for item in records.get(entity, ())
             if "approval" in _text(item.get("status")).casefold() or _text(item.get("status")).casefold() in {"pending", "requested"}
         ]
