@@ -7,6 +7,13 @@ import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_contract_controls import legal_template_blocker, pending_document
+from cfh_disposition.commandcore_ux import (
+    queue_success,
+    render_page_header,
+    show_error,
+    show_queued_success,
+    show_warning,
+)
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Owner Approvals", page_icon="✅", layout="wide")
@@ -84,10 +91,10 @@ def verify_owner_pin(supplied: str) -> bool:
     return bool(expected and supplied and supplied == expected)
 
 
-def open_deal(deal_id: str, *, key: str) -> None:
+def open_deal(deal_id: str, *, key: str, label: str = "Review") -> None:
     if not deal_id:
         return
-    if st.button("Open Unified Deal Record", key=key, use_container_width=True):
+    if st.button(label, key=key, use_container_width=True):
         st.session_state["commandcore_selected_deal_id"] = deal_id
         st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
@@ -147,7 +154,11 @@ def save_decision(
 
 
 def render_supporting_details(entity: str, record: dict[str, Any]) -> None:
-    with st.expander("Review supporting details"):
+    with st.expander("Advanced details", expanded=False):
+        st.caption(f"Record type: {entity} · Record ID: {text(record.get('id')) or 'Unavailable'}")
+        deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
+        if deal_id:
+            st.caption(f"Deal ID: {deal_id}")
         if entity == "offers":
             terms = record.get("terms")
             if isinstance(terms, dict):
@@ -164,6 +175,33 @@ def render_supporting_details(entity: str, record: dict[str, Any]) -> None:
                 st.json(template_reference, expanded=False)
 
 
+def approval_reason(entity: str, record: dict[str, Any]) -> str:
+    for key in ("approval_reason", "owner_approval_reason", "reason"):
+        value = text(record.get(key))
+        if value:
+            return value
+    if entity == "offers":
+        return "The offer is ready for an owner decision before the workflow can continue."
+    return "The document or closing step requires an owner decision before it can continue."
+
+
+def requester_name(record: dict[str, Any]) -> str:
+    for key in ("requested_by_name", "requested_by", "created_by_name", "created_by"):
+        value = text(record.get(key))
+        if value:
+            return value
+    return "Not listed"
+
+
+def risk_label(record: dict[str, Any]) -> str:
+    value = text(record.get("risk_label") or record.get("risk_level") or record.get("severity")).lower()
+    if value in {"high", "critical", "severe", "high risk"}:
+        return "High risk"
+    if value and value not in {"normal", "low", "none"}:
+        return "Needs attention"
+    return "Normal"
+
+
 def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
     record_id = text(record.get("id"))
     deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
@@ -171,23 +209,29 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
     deal_title = text(deal.get("title")) or "Unlinked deal"
     title = deal_title if deal_id else text(record.get("name")) or f"{entity.title()} approval"
     amount = record.get("amount")
-    status = text(record.get("status"))
 
     with st.container(border=True):
         st.markdown(f"#### {title}")
         c1, c2, c3 = st.columns(3)
-        c1.caption(f"Type: {entity[:-1] if entity.endswith('s') else entity}")
-        c2.caption(f"Status: {status}")
-        c3.caption(f"Deal: {deal_title}")
+        c1.write(f"**Requested by:** {requester_name(record)}")
+        c2.write(f"**Related to:** {deal_title}")
+        c3.write(f"**Risk:** {risk_label(record)}")
+        st.write(f"**Why approval is needed:** {approval_reason(entity, record)}")
         if deal_id:
             open_deal(deal_id, key=f"open-deal-{entity}-{record_id}")
         if amount not in (None, ""):
             st.metric("Draft amount", f"${float(amount):,.0f}")
 
         if entity == "offers":
-            st.warning("Approving this records owner approval only. It does not send the offer or bind the company.")
+            show_warning(
+                "Approve records your decision and allows the internal workflow to continue. It does not send the offer or bind the company.",
+                next_step="Reject stops this approval item. Send it back for changes by opening the deal workspace.",
+            )
         else:
-            st.info("This approval records your decision only. It does not sign, send, or externally execute anything.")
+            show_warning(
+                "Approve records your decision and allows the internal workflow to continue. It does not sign, send, or externally execute anything.",
+                next_step="Reject stops this approval item. Send it back for changes by opening the deal workspace.",
+            )
         render_supporting_details(entity, record)
 
         owner_name = st.selectbox(
@@ -211,14 +255,14 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
             key=f"confirm-{entity}-{record_id}",
         )
 
-        approve_col, reject_col = st.columns(2)
+        approve_col, reject_col, changes_col = st.columns(3)
         if approve_col.button("Approve", type="primary", key=f"approve-{entity}-{record_id}", use_container_width=True):
             if owner_name not in OWNER_NAMES:
-                st.error("Choose Shawn or Sabrina as the decision maker.")
+                show_error("No owner was selected.", next_step="Choose Shawn or Sabrina before approving.")
             elif not confirm:
-                st.error("Confirm the owner decision before approving.")
+                show_error("The approval was not confirmed.", next_step="Read and check the confirmation, then approve again.")
             elif not verify_owner_pin(pin):
-                st.error("Owner approval PIN is missing or incorrect.")
+                show_error("The owner PIN was missing or incorrect.", next_step="Enter the separate owner approval PIN and try again.")
             else:
                 save_decision(
                     entity=entity,
@@ -227,16 +271,19 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
                     owner_name=owner_name,
                     reason=reason,
                 )
-                st.success("Owner approval recorded. No external action was started.")
+                queue_success(
+                    f"Approval recorded for {title} by {owner_name}. No external action was started.",
+                    next_step="The internal workflow can continue to its next separately controlled step.",
+                )
                 st.rerun()
 
         if reject_col.button("Reject", key=f"reject-{entity}-{record_id}", use_container_width=True):
             if owner_name not in OWNER_NAMES:
-                st.error("Choose Shawn or Sabrina as the decision maker.")
+                show_error("No owner was selected.", next_step="Choose Shawn or Sabrina before rejecting.")
             elif not confirm:
-                st.error("Confirm the owner decision before rejecting.")
+                show_error("The rejection was not confirmed.", next_step="Read and check the confirmation, then reject again.")
             elif not verify_owner_pin(pin):
-                st.error("Owner approval PIN is missing or incorrect.")
+                show_error("The owner PIN was missing or incorrect.", next_step="Enter the separate owner approval PIN and try again.")
             else:
                 save_decision(
                     entity=entity,
@@ -245,8 +292,19 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
                     owner_name=owner_name,
                     reason=reason,
                 )
-                st.success("Owner rejection recorded. No external action was started.")
+                queue_success(
+                    f"Rejection recorded for {title} by {owner_name}. No external action was started.",
+                    next_step="The item will not continue unless it is revised and submitted for approval again.",
+                )
                 st.rerun()
+
+        if deal_id and changes_col.button(
+            "Send back for changes",
+            key=f"changes-{entity}-{record_id}",
+            use_container_width=True,
+        ):
+            st.session_state["commandcore_selected_deal_id"] = deal_id
+            st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
 
 def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
@@ -262,7 +320,7 @@ def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str,
             open_deal(deal_id, key=f"open-blocked-deal-{record_id}")
         facts = record.get("facts")
         if isinstance(facts, dict):
-            with st.expander("Review supporting details"):
+            with st.expander("Advanced details", expanded=False):
                 st.json(facts, expanded=False)
         st.caption("This item cannot be approved from this queue yet.")
 
@@ -272,8 +330,11 @@ if st.sidebar.button("Log out", key="owner_approval_logout"):
     st.session_state.authenticated = False
     st.rerun()
 
-st.title("Owner Approval Queue")
-st.caption("Review decisions that specifically require Shawn or Sabrina before the workflow can continue.")
+render_page_header(
+    "Owner Approvals",
+    "Review decisions that require Shawn or Sabrina before work can continue.",
+)
+show_queued_success()
 
 if not str(st.secrets.get("OWNER_APPROVAL_PIN", "")).strip():
     st.warning(

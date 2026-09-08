@@ -7,8 +7,8 @@ def test_owner_approvals_puts_decisions_before_blockers() -> None:
     for marker in (
         'decision_tab, blocked_tab = st.tabs(["Needs My Decision", "Blocked / Needs Setup"])',
         'm1.metric("Needs my decision"',
-        'with st.expander("Review supporting details")',
-        '"Open Unified Deal Record"',
+        'with st.expander("Advanced details", expanded=False)',
+        'label: str = "Review"',
     ):
         assert marker in source
 
@@ -41,3 +41,31 @@ def test_owner_approvals_uses_sidebar_instead_of_duplicate_top_navigation() -> N
 
     assert 'label="← Command Center"' not in source
     assert 'label="Unified Deal Record"' not in source
+
+
+def test_each_approval_explains_context_risk_and_outcomes() -> None:
+    source = Path("pages/48_CommandCore_Owner_Approvals.py").read_text(encoding="utf-8")
+
+    for marker in (
+        '"**Requested by:**',
+        '"**Related to:**',
+        '"**Risk:**',
+        '"**Why approval is needed:**',
+        'return "Normal"',
+        'return "Needs attention"',
+        'return "High risk"',
+        '"Send back for changes"',
+        '"Approve"',
+        '"Reject"',
+    ):
+        assert marker in source
+
+
+def test_action_results_explain_what_happened_and_what_comes_next() -> None:
+    source = Path("pages/48_CommandCore_Owner_Approvals.py").read_text(encoding="utf-8")
+
+    assert source.count("queue_success(") == 2
+    assert "show_queued_success()" in source
+    assert "No external action was started." in source
+    assert "The internal workflow can continue" in source
+    assert "submitted for approval again" in source
