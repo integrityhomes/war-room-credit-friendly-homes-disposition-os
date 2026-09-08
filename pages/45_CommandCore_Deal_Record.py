@@ -9,6 +9,7 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_approval_status import approval_decision_time_label, build_deal_approval_status
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
 from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
+from cfh_disposition.commandcore_deal_timeline import build_deal_next_action, build_deal_timeline
 from cfh_disposition.commandcore_followup import MAX_FOLLOWUP_NOTE_LENGTH, build_followup_record
 from cfh_disposition.commandcore_offer_workspace_ui import render_offer_workspace
 from cfh_disposition.commandcore_ux import (
@@ -31,7 +32,7 @@ DEAL_TAB_LABELS = [
     "Messages",
     "Offers & Approval",
     "Documents & Closing",
-    "History",
+    "Deal Timeline",
 ]
 
 
@@ -301,11 +302,31 @@ related = {
 }
 deal_summary = build_deal_summary(related)
 approval_statuses = build_deal_approval_status(related["offers"], related["documents"])
+next_action = build_deal_next_action(deal, related)
+timeline = build_deal_timeline(deal, related)
+
+st.markdown("### What Happens Next")
+next_summary = st.columns(3)
+next_summary[0].metric("Current stage", next_action.current_stage)
+next_summary[1].metric("What is waiting", next_action.waiting_for)
+next_summary[2].metric("Responsible", next_action.responsible_person)
+st.write(f"**Recommended next action:** {next_action.recommended_action}")
+next_details = st.columns(3)
+next_details[0].write(f"**Due:** {next_action.due_date}")
+next_details[1].write(f"**Blocker:** {next_action.blocker}")
+next_details[2].write(f"**Approval needed:** {'Yes' if next_action.approval_needed else 'No'}")
+if next_action.approval_needed:
+    st.page_link(
+        "pages/48_CommandCore_Owner_Approvals.py",
+        label="Review approval",
+        use_container_width=True,
+    )
+st.caption("Read-only guidance from existing Deal records. No task, status, assignment, or approval was changed.")
 
 pending_tab = text(st.session_state.pop("commandcore_deal_pending_tab", ""))
 if pending_tab in DEAL_TAB_LABELS:
     st.session_state["commandcore_deal_tabs"] = pending_tab
-overview, next_step_tab, tasks_tab, messages_tab, offers_tab, closing_tab, history_tab = st.tabs(
+overview, next_step_tab, tasks_tab, messages_tab, offers_tab, closing_tab, timeline_tab = st.tabs(
     DEAL_TAB_LABELS,
     key="commandcore_deal_tabs",
 )
@@ -436,7 +457,7 @@ with overview:
         key=f"deal_quick_history_{deal_id}",
         use_container_width=True,
     ):
-        open_deal_tab("History")
+        open_deal_tab("Deal Timeline")
     if latest_activity:
         action_index += 1
 
@@ -648,9 +669,20 @@ with closing_tab:
     st.markdown("### Closing / Transactions")
     show_related_table("transactions", related["transactions"])
 
-with history_tab:
-    st.markdown("### Complete activity history")
-    show_related_table("activities", related["activities"])
+with timeline_tab:
+    st.markdown("### Deal Timeline")
+    st.caption("Chronological history built only from records already linked to this Deal.")
+    if not timeline:
+        st.info("No dated Deal history is available yet.")
+    else:
+        for event in timeline:
+            with st.container(border=True):
+                st.markdown(f"**{event.occurred_at_label} · {event.title}**")
+                st.write(event.detail)
+                st.caption(event.category)
+                with st.expander("Advanced details", expanded=False):
+                    st.caption(f"Source record type: {event.source_entity}")
+                    st.caption(f"Source record ID: {event.source_record_id or 'Not recorded'}")
 
 st.divider()
 st.caption(

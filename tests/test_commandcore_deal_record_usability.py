@@ -35,7 +35,7 @@ def test_closing_and_transactions_are_grouped_with_documents() -> None:
     source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
 
     closing_start = source.index("with closing_tab:")
-    history_start = source.index("with history_tab:")
+    history_start = source.index("with timeline_tab:")
     closing_block = source[closing_start:history_start]
     history_block = source[history_start:]
 
@@ -76,7 +76,7 @@ def test_deal_summary_quick_actions_open_existing_workflows_only() -> None:
         '"View Communications"',
         'open_deal_tab("Messages")',
         '"View Recent Activity"',
-        'open_deal_tab("History")',
+        'open_deal_tab("Deal Timeline")',
         '"Review Offers"',
         '"Start Offer Review"',
         'open_deal_tab("Offers & Approval")',
@@ -94,6 +94,27 @@ def test_deal_summary_quick_actions_open_existing_workflows_only() -> None:
     assert 'if latest_activity and action_columns' in overview
     assert 'if deal_summary.approval_count:' in overview
     assert 'if property_record and action_columns' in overview
+
+
+def test_deal_workspace_shows_read_only_next_action_and_canonical_timeline() -> None:
+    source = Path("pages/45_CommandCore_Deal_Record.py").read_text(encoding="utf-8")
+
+    for marker in (
+        'st.markdown("### What Happens Next")',
+        'metric("Current stage"',
+        'metric("What is waiting"',
+        'metric("Responsible"',
+        '"**Recommended next action:**',
+        '"**Due:**',
+        '"**Blocker:**',
+        '"**Approval needed:**',
+        'st.markdown("### Deal Timeline")',
+        'with st.expander("Advanced details", expanded=False):',
+        "build_deal_next_action(deal, related)",
+        "build_deal_timeline(deal, related)",
+        "No task, status, assignment, or approval was changed.",
+    ):
+        assert marker in source
 
 
 def test_deal_overview_shows_read_only_owner_approval_status() -> None:
