@@ -18,6 +18,7 @@ from cfh_disposition.commandcore_phone_system import (
     RoutingCategory,
     RoutingPlan,
     StaffPhoneAssignment,
+    normalize_phone_planning_crm_response,
     offline_provider_catalog,
     summarize_phone_plan,
 )
@@ -56,10 +57,7 @@ def get_supabase():
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
-    if isinstance(response, dict):
-        return response
-    data = getattr(response, "data", None)
-    return data if isinstance(data, dict) else {}
+    return normalize_phone_planning_crm_response(response)
 
 
 require_password()

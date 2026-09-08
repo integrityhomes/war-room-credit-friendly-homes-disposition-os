@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -311,6 +312,34 @@ _PROHIBITED_CREDENTIAL_VALUES = re.compile(
 
 class PhonePlanningStorageError(RuntimeError):
     """Raised when private planning persistence fails safely."""
+
+
+def normalize_phone_planning_crm_response(response: Any) -> dict[str, Any]:
+    """Normalize supported CRM client responses without exposing record contents."""
+    if isinstance(response, dict):
+        return response
+
+    if not isinstance(response, (bytes, bytearray)):
+        try:
+            response = response.data
+        except Exception:
+            raise PhonePlanningStorageError(
+                "Private phone planning storage returned an unsupported response"
+            ) from None
+
+    if isinstance(response, (bytes, bytearray)):
+        try:
+            response = json.loads(response.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise PhonePlanningStorageError(
+                "Private phone planning storage returned an invalid response"
+            ) from None
+
+    if not isinstance(response, dict):
+        raise PhonePlanningStorageError(
+            "Private phone planning storage returned an unsupported response"
+        )
+    return response
 
 
 class CrmCall(Protocol):

@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -9,6 +10,7 @@ from cfh_disposition.commandcore_phone_system import (
     OperationalStatus,
     PhoneNumberRecord,
     PhonePlanningDocumentStore,
+    PhonePlanningStorageError,
     PhoneProvider,
     PhoneProviderPool,
     PhonePurpose,
@@ -18,6 +20,7 @@ from cfh_disposition.commandcore_phone_system import (
     RoutingCategory,
     RoutingPlan,
     StaffPhoneAssignment,
+    normalize_phone_planning_crm_response,
     offline_provider_catalog,
     summarize_phone_plan,
 )
@@ -104,6 +107,30 @@ class FakePrivateCrm:
         record = dict(payload["record"])  # type: ignore[arg-type]
         self.documents[str(record["id"])] = record
         return {"ok": True, "record": record}
+
+
+def test_phone_planning_crm_response_accepts_successful_byte_encoded_json() -> None:
+    response = b'{"ok":true,"records":[]}'
+
+    assert normalize_phone_planning_crm_response(response) == {"ok": True, "records": []}
+
+
+def test_phone_planning_crm_response_keeps_dictionary_support() -> None:
+    response = {"ok": True, "records": []}
+
+    assert normalize_phone_planning_crm_response(response) is response
+
+
+def test_phone_planning_crm_response_accepts_object_data() -> None:
+    response = SimpleNamespace(data={"ok": True, "records": []})
+
+    assert normalize_phone_planning_crm_response(response) == {"ok": True, "records": []}
+
+
+@pytest.mark.parametrize("response", [b"not-json", bytearray(b"[]")])
+def test_phone_planning_crm_response_fails_closed(response: bytes | bytearray) -> None:
+    with pytest.raises(PhonePlanningStorageError, match="invalid|unsupported"):
+        normalize_phone_planning_crm_response(response)
 
 
 def test_private_persistence_survives_a_new_store_session_and_keeps_audit_history() -> None:
