@@ -70,10 +70,7 @@ on:
       - "supabase/functions/commandcore-operator-state/**"
       - "supabase/functions/commandcore-aging-escalation/**"
       - "supabase/functions/commandcore-owner-routing/**"
-      - "src/cfh_disposition/market_seo_public.py"
-      - "app.py"
-      - ".github/workflows/deploy-commandcore-receiver.yml"
-      - "tests/test_market_seo_publication.py"
+      - "supabase/functions/_shared/**"
 
 jobs:
   validate:
