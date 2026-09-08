@@ -48,6 +48,7 @@ def render_commandcore_sidebar() -> None:
 
         st.markdown("#### Management")
         sidebar_link("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals", "✅")
+        sidebar_link("pages/49_CommandCore_Phone_System_Setup.py", "Phone System Setup", "☎️")
         sidebar_link("pages/39_CommandCore_Operations_Hub.py", "Operations", "🧭")
 
 
@@ -114,6 +115,7 @@ pages = {
     ],
     "Management": [
         st.Page("pages/48_CommandCore_Owner_Approvals.py", title="Owner Approvals", icon="✅"),
+        st.Page("pages/49_CommandCore_Phone_System_Setup.py", title="Phone System Setup", icon="☎️"),
         st.Page("pages/50_CommandCore_Contract_Templates.py", title="Contract Templates", icon="📄"),
         st.Page("pages/39_CommandCore_Operations_Hub.py", title="Operations", icon="🧭"),
         st.Page("pages/36_CommandCore_Coverage.py", title="Coverage"),
