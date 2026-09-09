@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from cfh_disposition.corepilot_orchestrator import run_corepilot
 from cfh_disposition.corepilot_tools import CorePilotActionClass
 
@@ -83,8 +85,55 @@ def test_attention_request_has_useful_empty_state() -> None:
     records = {entity: [] for entity in ("contacts", "properties", "deals", "activities", "communications", "tasks", "offers", "documents", "transactions")}
     result = run_corepilot("What needs my attention?", records)
     assert result.status == "complete"
-    assert "No open assigned work was found." in result.what_i_found
-    assert "0 inbound communications are available." in result.what_i_found
-    assert "0 items are waiting for approval." in result.needs_attention
+    assert result.what_i_found == ("You're caught up.",)
+    assert result.needs_attention == ("Nothing needs your attention right now.",)
+    assert result.recommended_next_step == "No action is required. CorePilot will surface new work here when something needs attention."
     assert result.records_written == 0
     assert result.external_actions_started == 0
+
+
+def test_attention_recommends_only_overdue_work_when_that_is_all() -> None:
+    records = _records()
+    records["tasks"] = [{"title": "Past due task", "status": "open", "due_date": (date.today() - timedelta(days=1)).isoformat()}]
+    result = run_corepilot("What needs my attention?", records)
+    assert result.what_i_found == ("1 overdue task",)
+    assert result.recommended_next_step == "Review the overdue task first."
+
+
+def test_attention_recommends_only_owner_approval_when_that_is_all() -> None:
+    records = _records()
+    records["tasks"] = []
+    records["offers"] = [{"status": "needs_owner_approval"}]
+    result = run_corepilot("What needs my attention?", records)
+    assert result.what_i_found == ("1 owner approval",)
+    assert result.recommended_next_step == "Review the waiting owner approval first."
+
+
+def _protected_message(message: str) -> dict[str, object]:
+    return {
+        "id": "fictional-message",
+        "direction": "inbound",
+        "channel": "sms",
+        "message_text": message,
+        "received_at": "2026-09-08T12:00:00Z",
+    }
+
+
+def test_attention_prioritizes_protected_communication() -> None:
+    records = _records()
+    records["tasks"] = []
+    records["communications"] = [_protected_message("STOP")]
+    result = run_corepilot("What needs my attention?", records)
+    assert "1 STOP / consent communication" in result.what_i_found
+    assert result.recommended_next_step == "Review the STOP / consent communication first."
+
+
+def test_attention_uses_correct_priority_across_multiple_real_categories() -> None:
+    records = _records()
+    records["tasks"] = [{"title": "Past due task", "status": "open", "due_date": (date.today() - timedelta(days=1)).isoformat()}]
+    records["offers"] = [{"status": "needs_owner_approval"}]
+    records["communications"] = [_protected_message("STOP")]
+    result = run_corepilot("What needs my attention?", records)
+    assert "1 owner approval" in result.what_i_found
+    assert "1 overdue task" in result.what_i_found
+    assert result.recommended_next_step == "Review the STOP / consent communication first."

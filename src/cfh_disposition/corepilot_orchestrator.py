@@ -124,6 +124,75 @@ def _communications_result(records: Mapping[str, Sequence[Mapping[str, Any]]], c
     )
 
 
+def _attention_result(
+    records: Mapping[str, Sequence[Mapping[str, Any]]],
+    current_user: str,
+) -> CorePilotResult:
+    open_tasks = [
+        task
+        for task in records.get("tasks", ())
+        if _text(task.get("status")).casefold() not in {"done", "completed", "closed", "cancelled", "canceled"}
+        and (not current_user or current_user.casefold() in _text(task.get("assigned_to") or task.get("assigned_worker")).casefold())
+    ]
+    today = date.today().isoformat()
+    overdue = sum(bool(due := _text(task.get("due_date") or task.get("due_at"))) and due[:10] < today for task in open_tasks)
+    due_today = sum(_text(task.get("due_date") or task.get("due_at"))[:10] == today for task in open_tasks)
+    blocked = sum(_text(task.get("status")).casefold() == "blocked" or bool(_text(task.get("blocker") or task.get("blocked_reason"))) for task in open_tasks)
+    inbox = build_nevaeh_inbox(
+        records.get("communications", ()),
+        contacts=records.get("contacts", ()),
+        properties=records.get("properties", ()),
+        deals=records.get("deals", ()),
+        assigned_to=current_user,
+    )
+    stop_consent = sum(NevaehInboxCategory.STOP_CONSENT in item.categories for item in inbox)
+    money_legal = sum(NevaehInboxCategory.MONEY_LEGAL in item.categories for item in inbox)
+    communications = sum(NevaehInboxCategory.NEEDS_REVIEW in item.categories for item in inbox)
+    owner_approvals = sum(
+        1
+        for entity in ("offers", "documents")
+        for item in records.get(entity, ())
+        if "approval" in _text(item.get("status")).casefold() or _text(item.get("status")).casefold() in {"pending", "requested"}
+    )
+
+    counts = (
+        (stop_consent, "STOP / consent communication", "Review the STOP / consent communication first."),
+        (money_legal, "money / legal communication", "Review the money / legal communication first."),
+        (owner_approvals, "owner approval", "Review the waiting owner approval first."),
+        (overdue, "overdue task", "Review the overdue task first."),
+        (due_today, "task due today", "Review the task due today first."),
+        (blocked, "blocked task", "Review the blocked task first."),
+        (communications, "communication needing attention", "Review the communication needing attention first."),
+    )
+    actionable = [(count, label, recommendation) for count, label, recommendation in counts if count > 0]
+    capabilities = _tool_names(
+        "read_assigned_work",
+        "overdue_work",
+        "due_today_work",
+        "blocked_work",
+        "attention_messages",
+        "consent_messages",
+        "money_legal_messages",
+        "owner_approvals",
+    )
+    if not actionable:
+        return CorePilotResult(
+            "complete",
+            ("You're caught up.",),
+            ("Nothing needs your attention right now.",),
+            "No action is required. CorePilot will surface new work here when something needs attention.",
+            capability_names=capabilities,
+        )
+    found = tuple(f"{count} {label}{'' if count == 1 else 's'}" for count, label, _ in actionable)
+    return CorePilotResult(
+        "complete",
+        found,
+        (f"{sum(count for count, _, _ in actionable)} actionable items need attention.",),
+        actionable[0][2],
+        capability_names=capabilities,
+    )
+
+
 def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]], *, current_deal_id: str = "", current_user: str = "") -> CorePilotResult:
     """Answer from supplied canonical records without mutation or external execution."""
     query = " ".join(request.split())
@@ -144,21 +213,7 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
     if "communication" in lower or "message" in lower or "inbox" in lower:
         return _communications_result(records, current_user)
     if "needs my attention" in lower:
-        work = _work_result(query, records, current_user)
-        messages = _communications_result(records, current_user)
-        pending = sum(
-            1
-            for entity in ("offers", "documents")
-            for item in records.get(entity, ())
-            if "approval" in _text(item.get("status")).casefold() or _text(item.get("status")).casefold() in {"pending", "requested"}
-        )
-        return CorePilotResult(
-            "complete",
-            work.what_i_found[:5] + messages.what_i_found,
-            work.needs_attention + messages.needs_attention + (f"{pending} items are waiting for approval.",),
-            "Review protected communications first, then overdue work and owner approvals.",
-            capability_names=work.capability_names + messages.capability_names + _tool_names("owner_approvals"),
-        )
+        return _attention_result(records, current_user)
     if "my work" in lower or "assigned work" in lower or "overdue" in lower or "due today" in lower:
         return _work_result(query, records, current_user)
     if "approval" in lower:
