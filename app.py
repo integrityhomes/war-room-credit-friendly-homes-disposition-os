@@ -39,6 +39,7 @@ EVERYDAY_NAVIGATION = (
         (
             NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"),
             NavigationItem("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Work Queue"),
+            NavigationItem("pages/52_CommandCore_Property_Sync_Preview.py", "Property Sync Preview"),
         ),
     ),
     NavigationSection(
@@ -151,6 +152,8 @@ pages = {
     "Deals": [
         st.Page("pages/45_CommandCore_Deal_Record.py", title="Deal Workspace", icon="📂"),
         st.Page("pages/47_CommandCore_Deal_Workflow_Queue.py", title="Deal Work Queue", icon="🔄"),
+        st.Page("pages/52_CommandCore_Property_Sync_Preview.py", title="Property Sync Preview", icon="🔎"),
+        st.Page("pages/53_CommandCore_Property_Baseline.py", title="Final Property Baseline", icon="📋"),
     ],
     "Tasks & Follow-Up": [
         st.Page("pages/35_CommandCore_My_Work.py", title="My Work", icon="👤"),

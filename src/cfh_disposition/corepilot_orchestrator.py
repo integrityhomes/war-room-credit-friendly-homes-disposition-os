@@ -52,6 +52,8 @@ def _find_deals(query: str, records: Mapping[str, Sequence[Mapping[str, Any]]]) 
         links = _links(deal)
         related = [properties.get(_text(links.get("property_id") or deal.get("property_id")), {}), contacts.get(_text(links.get("contact_id") or deal.get("contact_id")), {})]
         candidates = [_label(deal, ""), *(_label(item, "") for item in related)]
+        # Display names must not hide the canonical address embedded in a request.
+        candidates.extend(_text(item.get(field)) for item in (deal, related[0]) for field in ("address", "property_address"))
         if any(candidate and len(candidate) >= 3 and candidate.casefold() in needle for candidate in candidates):
             matches.append(deal)
     return matches
@@ -267,7 +269,7 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
 
     intent = parse_ops_intent(query)
     deal_terms = ("deal", "property", "closing", "next step", "timeline", "block", "offer", "contract", "marketing")
-    if intent or any(term in lower for term in deal_terms):
+    if intent or any(term in lower for term in deal_terms) or _find_deals(query, records):
         deal, question = _choose_deal(query, records, current_deal_id)
         if not deal:
             return CorePilotResult("needs_context", (), (), "Provide one identifying detail.", clarification=question, capability_names=_tool_names("find_deal"))

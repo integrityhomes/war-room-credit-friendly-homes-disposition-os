@@ -10,7 +10,7 @@ from cfh_disposition.commandcore_ux import advanced_settings, render_page_header
 from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
-from supabase import create_client
+from supabase import ClientOptions, create_client
 
 st.set_page_config(page_title="CorePilot", page_icon="🤖", layout="wide")
 
@@ -68,11 +68,13 @@ def get_supabase():
     key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("CommandCore storage is not configured.")
-    return create_client(url, key)
+    # Canonical list reads download each JSON record; a populated inventory can
+    # exceed the SDK's short default function timeout.
+    return create_client(url, key, ClientOptions(function_client_timeout=60))
 
 
 def response_dictionary(response: object) -> dict[str, Any]:
-    value = response if isinstance(response, dict) else getattr(response, "data", None)
+    value = response if isinstance(response, (dict, bytes, bytearray)) else getattr(response, "data", None)
     if isinstance(value, (bytes, bytearray)):
         try:
             value = json.loads(bytes(value).decode("utf-8"))

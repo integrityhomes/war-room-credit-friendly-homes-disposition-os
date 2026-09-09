@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+import pytest
+
 from cfh_disposition.corepilot_orchestrator import run_corepilot
 from cfh_disposition.corepilot_tools import CorePilotActionClass
 
@@ -46,6 +48,46 @@ def test_ambiguous_deal_fails_closed_with_one_question() -> None:
     assert result.status == "needs_context"
     assert result.clarification.endswith("?")
     assert result.records_written == 0
+
+
+@pytest.mark.parametrize("address_field", ["address", "property_address"])
+@pytest.mark.parametrize("question", [
+    "{address}",
+    "What is holding up the closing on {address}?",
+    "For {address}, what is the next step?",
+    "Can you look up {address} for me?",
+    "{address} — what is blocking closing?",
+    "Find the property at {address}",
+])
+def test_address_in_request_resolves_canonical_records(question: str, address_field: str) -> None:
+    records = _records()
+    address = "101 Example Lane, Example City, IL 60000"
+    records["properties"][0] = {"id": "property-fictional", "name": "Fictional home", address_field: address}
+    before = repr(records)
+    result = run_corepilot(question.format(address=address), records)
+    assert result.status == "complete"
+    assert not result.clarification
+    if question.startswith("Find the property"):
+        assert result.what_i_found == ("Property: Fictional home",)
+    else:
+        assert result.what_i_found[0] == "Deal: Example Lane deal"
+        assert "Confirm fictional title update" in result.recommended_next_step
+    assert result.records_written == result.external_actions_started == 0
+    assert repr(records) == before
+
+
+def test_embedded_address_keeps_multiple_linked_deals_ambiguous() -> None:
+    records = _records()
+    records["deals"].append({"id": "deal-fictional-2", "title": "Other fictional deal", "links": {"property_id": "property-fictional"}})
+    result = run_corepilot("What is holding up the closing on 101 Example Lane?", records)
+    assert result.status == "needs_context"
+    assert "more than one matching deal" in result.clarification
+
+
+def test_unknown_embedded_address_does_not_select_a_deal() -> None:
+    result = run_corepilot("What is holding up the closing on 999 Unknown Lane?", _records())
+    assert result.status == "needs_context"
+    assert result.clarification == "Which deal or property do you mean?"
 
 
 def test_prepare_is_preview_only_and_external_action_is_zero() -> None:
