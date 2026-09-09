@@ -11,7 +11,7 @@ def test_report_redacts_nested_secrets_but_executor_receives_original_payload() 
         production_executor=lambda action, payload: calls.append((action, payload)),
     )
     deal = {"id": "FIXTURE-DEAL", "internal_only": False, "external_action_started": True}
-    approval = {"status": "approved", "approved": True}
+    approval = {"status": "approved", "approved": True, "deal_id": deal["id"]}
     payload = {
         "to": "fixture@example.invalid",
         "access_token": "fixture-access-token",
