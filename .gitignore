@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local scheduled-check state and private derived change evidence
+.commandcore-runtime/

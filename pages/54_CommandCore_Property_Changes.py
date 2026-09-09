@@ -4,7 +4,7 @@ import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.property_change_detection import CHANGE_TYPES
-from cfh_disposition.property_change_runtime import read_property_changes
+from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
 
 st.set_page_config(page_title="Property Changes", page_icon="🔎", layout="wide")
 if not st.session_state.get("authenticated"):
@@ -20,13 +20,13 @@ if not st.session_state.get("authenticated"):
 st.title("Property Changes")
 st.caption("Changes to review against CommandCore's recorded properties. Nothing is applied automatically.")
 refresh = st.button("Check for changes", key="check_property_changes")
-if refresh or "property_detection" not in st.session_state:
-    st.session_state.pop("property_detection", None)
-    try:
-        with st.spinner("Checking the sheet and existing properties…"):
-            st.session_state.property_detection = read_property_changes(st.secrets)
-    except Exception:
-        st.error("The complete check could not finish. No checkpoint was advanced and nothing was changed. Try again.")
+# Read shared local evidence on each run; only refresh or first use reads providers.
+st.session_state.pop("property_detection", None)
+try:
+    with st.spinner("Loading the latest property check…"):
+        st.session_state.property_detection = read_property_changes(st.secrets, force=refresh)
+except Exception:
+    st.error("The complete check could not finish. No checkpoint was advanced and nothing was changed. Try again.")
 
 result = st.session_state.get("property_detection")
 if result is not None:
@@ -50,5 +50,24 @@ if result is not None:
                 st.caption(f"Source tab: {change.evidence.tab or 'Not matched'} · Row: {change.evidence.row} · Event: {change.event_id}")
                 st.write(change.evidence.reason)
                 st.dataframe([{"Field": item.field, "Recorded": item.current, "Sheet": item.proposed} for item in change.evidence.changes], hide_index=True)
-    st.caption("Scheduling is not active. Repeat alerts are suppressed in this running server; restart-safe tracking needs an approved checkpoint store.")
+    st.caption("Scheduled checks share a local checkpoint across restarts. Only derived change evidence is cached; canonical properties stay in CommandCore.")
     st.caption("Records changed: 0 · Google writes: 0 · Deals created: 0 · External actions: 0")
+
+
+@st.fragment(run_every=60)
+def watch_scheduled_check():
+    # Poll local evidence only; this timer never calls Google or CRM.
+    try:
+        status = latest_property_check(st.secrets)
+    except Exception:
+        st.warning("The local check status could not be read.")
+        return
+    if status.get("error"):
+        st.warning(status["error"])
+    previous = st.session_state.get("property_check_attempt")
+    st.session_state.property_check_attempt = status.get("last_attempt_at")
+    if previous and previous != status.get("last_attempt_at"):
+        st.rerun()
+
+
+watch_scheduled_check()

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
-def reader(monkeypatch):
+def reader(monkeypatch, tmp_path):
     calls = []
     fail = [False]
 
@@ -29,7 +29,7 @@ def reader(monkeypatch):
 
     monkeypatch.setattr(runtime, "load_baseline_source", source)
     monkeypatch.setattr("supabase.create_client", lambda *args: SimpleNamespace(storage=SimpleNamespace(from_=lambda name: Bucket())))
-    monkeypatch.setattr(runtime, "_states", {})
+    monkeypatch.setattr("cfh_disposition.property_change_cache.RUNTIME_ROOT", tmp_path)
     return calls, fail
 
 
@@ -37,7 +37,7 @@ def test_page_checks_on_open_and_preserves_checkpoint_on_failed_read(reader):
     calls, fail = reader
     page = AppTest.from_file(str(ROOT / "pages/54_CommandCore_Property_Changes.py"))
     page.session_state.authenticated = True
-    page.secrets.update(SUPABASE_URL="fictional", SUPABASE_SERVICE_ROLE_KEY="fictional")
+    page.secrets.update(GOOGLE_SHEET_ID="fictional-sheet", SUPABASE_URL="fictional", SUPABASE_SERVICE_ROLE_KEY="fictional")
     page.run()
     assert not page.exception and not page.error
     assert calls == ["sheet read", "canonical read"]
@@ -47,18 +47,18 @@ def test_page_checks_on_open_and_preserves_checkpoint_on_failed_read(reader):
     page.button(key="check_property_changes").click().run()
     assert len(calls) == 4
     assert any("0 newly detected events" in caption.value for caption in page.caption)
-    checkpoint = dict(runtime._states)
+    checkpoint = runtime.latest_property_check(page.secrets)["result"]
     fail[0] = True
     page.button(key="check_property_changes").click().run()
-    assert page.error and not page.metric
-    assert not page.exception and runtime._states == checkpoint
-    assert "PRIVATE" not in page.error[0].value
+    assert any("check failed" in warning.value for warning in page.warning)
+    assert not page.exception and runtime.latest_property_check(page.secrets)["result"] == checkpoint
+    assert all("PRIVATE" not in warning.value for warning in page.warning)
 
 
 def test_checkpoint_shared_across_callers_but_scope_isolated(reader):
-    first = runtime.read_property_changes({"SUPABASE_URL": "first"})
-    repeat = runtime.read_property_changes({"SUPABASE_URL": "first"})
-    other = runtime.read_property_changes({"SUPABASE_URL": "other"})
+    first = runtime.read_property_changes({"SUPABASE_URL": "first", "GOOGLE_SHEET_ID": "fictional"}, force=True)
+    repeat = runtime.read_property_changes({"SUPABASE_URL": "first", "GOOGLE_SHEET_ID": "fictional"}, force=True)
+    other = runtime.read_property_changes({"SUPABASE_URL": "other", "GOOGLE_SHEET_ID": "fictional"}, force=True)
     assert len(first.new_events) == len(other.new_events) == 1
     assert not repeat.new_events
 
@@ -81,7 +81,7 @@ def test_corepilot_real_form_uses_detector_and_exposes_changes(reader, monkeypat
     try:
         page = AppTest.from_file(str(ROOT / "pages/49_CommandCore_Command_Bot.py"))
         page.session_state.authenticated = True
-        page.secrets.update(APP_PASSWORD="fictional", SUPABASE_URL="fictional", SUPABASE_SERVICE_ROLE_KEY="fictional")
+        page.secrets.update(APP_PASSWORD="fictional", GOOGLE_SHEET_ID="fictional-sheet", SUPABASE_URL="fictional", SUPABASE_SERVICE_ROLE_KEY="fictional")
         page.run()
         page.text_input(key="corepilot_request").set_value("What new properties were added?")
         page.button(key="FormSubmitter:corepilot_request_form-Ask CorePilot").click().run()

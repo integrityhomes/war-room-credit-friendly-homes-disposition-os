@@ -11,7 +11,7 @@ from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilo
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
 from cfh_disposition.property_change_detection import is_property_change_question
-from cfh_disposition.property_change_runtime import read_property_changes
+from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
 from supabase import ClientOptions, create_client
 
 st.set_page_config(page_title="CorePilot", page_icon="🤖", layout="wide")
@@ -154,6 +154,9 @@ if submitted:
         if is_property_change_question(request) or "needs my attention" in request.casefold():
             try:
                 property_changes = read_property_changes(st.secrets)
+                st.caption(f"Property evidence last checked: {property_changes.checked_at}")
+                if latest_property_check(st.secrets).get("error"):
+                    st.warning("The last property check failed. Showing the last successful evidence; it may be out of date.")
             except Exception as exc:
                 source_errors["property changes"] = type(exc).__name__
         result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
