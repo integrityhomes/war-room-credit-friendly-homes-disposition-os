@@ -11,6 +11,7 @@ from .command_agent import dispatch_command, is_dev_command, parse_ops_intent
 from .commandcore_deal_timeline import build_deal_next_action, build_deal_timeline
 from .commandcore_nevaeh_inbox import NevaehInboxCategory, build_nevaeh_inbox
 from .corepilot_tools import CorePilotActionClass, get_corepilot_tool
+from .property_change_detection import DetectionResult, is_property_change_question, selected_changes
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +130,7 @@ def _communications_result(records: Mapping[str, Sequence[Mapping[str, Any]]], c
 def _attention_result(
     records: Mapping[str, Sequence[Mapping[str, Any]]],
     current_user: str,
+    property_changes: DetectionResult | None = None,
 ) -> CorePilotResult:
     open_tasks = [
         task
@@ -165,6 +167,7 @@ def _attention_result(
         (due_today, "task due today", "Review the task due today first."),
         (blocked, "blocked task", "Review the blocked task first."),
         (communications, "communication needing attention", "Review the communication needing attention first."),
+        (len(property_changes.changes) if property_changes else 0, "property change needing review", "Open Property Changes to review source facts; no update is authorized."),
     )
     actionable = [(count, label, recommendation) for count, label, recommendation in counts if count > 0]
     capabilities = _tool_names(
@@ -195,7 +198,8 @@ def _attention_result(
     )
 
 
-def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]], *, current_deal_id: str = "", current_user: str = "") -> CorePilotResult:
+def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]], *, current_deal_id: str = "", current_user: str = "",
+                  property_changes: DetectionResult | None = None) -> CorePilotResult:
     """Answer from supplied canonical records without mutation or external execution."""
     query = " ".join(request.split())
     lower = query.casefold()
@@ -212,10 +216,17 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
             capability_names=_tool_names("send_communication", "record_owner_decision"),
             action_class=CorePilotActionClass.APPROVAL_REQUIRED,
         )
+    if is_property_change_question(query):
+        if property_changes is None:
+            return CorePilotResult("needs_context", (), ("Property changes have not been checked successfully.",), "Open Property Changes and run a complete check.")
+        changes = selected_changes(query, property_changes)
+        return CorePilotResult("complete", tuple(f"{change.evidence.address}: {', '.join(change.categories)}" for change in changes) or ("No matching property changes were detected.",),
+                               ("Sheet status does not verify a closing; missing properties require review.",) if changes else (),
+                               "Open Property Changes to inspect the source evidence. Nothing has been applied.")
     if "communication" in lower or "message" in lower or "inbox" in lower:
         return _communications_result(records, current_user)
     if "needs my attention" in lower:
-        return _attention_result(records, current_user)
+        return _attention_result(records, current_user, property_changes)
     if "my work" in lower or "assigned work" in lower or "overdue" in lower or "due today" in lower:
         return _work_result(query, records, current_user)
     if "approval" in lower:

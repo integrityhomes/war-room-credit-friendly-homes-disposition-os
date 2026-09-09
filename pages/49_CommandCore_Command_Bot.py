@@ -10,6 +10,8 @@ from cfh_disposition.commandcore_ux import advanced_settings, render_page_header
 from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
+from cfh_disposition.property_change_detection import is_property_change_question
+from cfh_disposition.property_change_runtime import read_property_changes
 from supabase import ClientOptions, create_client
 
 st.set_page_config(page_title="CorePilot", page_icon="🤖", layout="wide")
@@ -148,7 +150,14 @@ if submitted:
     except (RuntimeError, ValueError):
         show_error("CorePilot could not safely read CommandCore records.", next_step="Check the app connection and try again.")
     else:
-        result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")), current_user=str(st.session_state.get("commandcore_worker_name", "")))
+        property_changes = None
+        if is_property_change_question(request) or "needs my attention" in request.casefold():
+            try:
+                property_changes = read_property_changes(st.secrets)
+            except Exception as exc:
+                source_errors["property changes"] = type(exc).__name__
+        result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
+                               current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes)
         render_result(result)
         if source_errors:
             st.warning("CorePilot couldn't check one part of CommandCore right now. Nothing was changed.")
