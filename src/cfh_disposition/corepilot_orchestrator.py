@@ -220,6 +220,18 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
         if property_changes is None:
             return CorePilotResult("needs_context", (), ("Property changes have not been checked successfully.",), "Open Property Changes and run a complete check.")
         changes = selected_changes(query, property_changes)
+        if "what changed on" in lower:
+            linked = next((deal for deal in records.get("deals", ()) if deal.get("id") == current_deal_id), {})
+            context_id = _text(_links(linked).get("property_id") or linked.get("property_id"))
+            if "this property" in lower:
+                if not context_id:
+                    return CorePilotResult("needs_context", (), (), "Provide a property address or open its deal first.", clarification="Which property should I review?")
+                changes = tuple(change for change in changes if change.evidence.property_id == context_id)
+            else:
+                matches = _find_entities(query, records.get("properties", ()), ("address", "property_address", "name"))
+                if len(matches) != 1:
+                    return CorePilotResult("needs_context", (), (), "Provide one complete identifying address.", clarification="Which property should I review?")
+                changes = tuple(change for change in changes if change.evidence.property_id == matches[0].get("id"))
         return CorePilotResult("complete", tuple(f"{change.evidence.address}: {', '.join(change.categories)}" for change in changes) or ("No matching property changes were detected.",),
                                ("Sheet status does not verify a closing; missing properties require review.",) if changes else (),
                                "Open Property Changes to inspect the source evidence. Nothing has been applied.")

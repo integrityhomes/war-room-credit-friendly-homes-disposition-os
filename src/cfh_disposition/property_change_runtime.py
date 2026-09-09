@@ -36,5 +36,9 @@ def read_property_changes(secrets, *, force=False):
             save_cache(path, {**cached, "version": 1, "last_attempt_at": attempted,
                               "error": "The complete property check failed. Last successful evidence was retained."})
             raise
-        save_cache(path, {"version": 1, "last_attempt_at": attempted, "error": "", "result": encode_result(result)})
+        encoded = encode_result(result)
+        archive = cached.get("change_evidence", {})
+        for item in encoded["changes"]:
+            archive.setdefault(item["event_id"], {"detected_at": result.checked_at, "evidence": item})
+        save_cache(path, {**cached, "version": 1, "last_attempt_at": attempted, "error": "", "result": encoded, "change_evidence": archive})
         return result

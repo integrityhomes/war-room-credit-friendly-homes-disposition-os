@@ -118,10 +118,13 @@ def detect_property_changes(rows, properties, *, source_reference: str, previous
 
 def is_property_change_question(request: str) -> bool:
     text = request.casefold()
-    return any(term in text for term in ("properties changed", "new properties", "prices changed", "became sold", "became unavailable", "returned to active"))
+    return any(term in text for term in ("properties changed", "new properties", "prices changed", "price changes", "became sold", "became unavailable",
+                                         "returned to active", "came back active", "what needs property review", "what changed on"))
 
 
 def selected_changes(request: str, result: DetectionResult):
     text = request.casefold()
-    category = NEW if "new properties" in text else PRICE if "prices" in text else RETURNED if "returned to active" in text else SOLD_CHANGE if "sold" in text or "unavailable" in text else None
+    category = (NEW if "new properties" in text else PRICE if "price" in text else
+                RETURNED if "returned to active" in text or "came back active" in text else
+                SOLD_CHANGE if "sold" in text or "unavailable" in text else None)
     return tuple(change for change in result.changes if category is None or category in change.categories)
