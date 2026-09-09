@@ -7,10 +7,10 @@ import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
+from cfh_disposition.corepilot_conversation import property_question
 from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
-from cfh_disposition.property_change_detection import is_property_change_question
 from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
 from supabase import ClientOptions, create_client
 
@@ -87,8 +87,13 @@ def response_dictionary(response: object) -> dict[str, Any]:
 
 def list_records(entity: str) -> list[dict[str, Any]]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": {"action": "list", "entity": entity, "limit": 500}})
-    records = response_dictionary(response).get("records", [])
-    return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+    payload = response_dictionary(response)
+    records = payload.get("records")
+    if payload.get("ok") is False or not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
+        raise ValueError("Canonical read did not return a valid record list")
+    if len(records) >= 500:
+        raise ValueError("Canonical read may be truncated; complete answers are unavailable")
+    return records
 
 
 def load_corepilot_records() -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
@@ -123,6 +128,9 @@ def render_result(result: CorePilotResult) -> None:
         st.write(f"Action class: {result.action_class.value}")
         st.write(f"Records changed: {result.records_written}")
         st.write(f"External actions started: {result.external_actions_started}")
+        st.caption("Recorded facts above; next steps are recommendations, not completed actions.")
+        for evidence in result.evidence:
+            st.write(evidence)
         if result.capability_names:
             st.write("Capabilities used: " + ", ".join(result.capability_names))
 
@@ -130,6 +138,7 @@ def render_result(result: CorePilotResult) -> None:
 render_mobile_styles()
 require_password()
 if st.sidebar.button("Log out", key="corepilot_logout"):
+    st.session_state.pop("corepilot_context", None)
     st.session_state.authenticated = False
     st.rerun()
 
@@ -151,7 +160,7 @@ if submitted:
         show_error("CorePilot could not safely read CommandCore records.", next_step="Check the app connection and try again.")
     else:
         property_changes = None
-        if is_property_change_question(request) or "needs my attention" in request.casefold():
+        if property_question(request) or "needs my attention" in request.casefold():
             try:
                 property_changes = read_property_changes(st.secrets)
                 st.caption(f"Property evidence last checked: {property_changes.checked_at}")
@@ -160,7 +169,13 @@ if submitted:
             except Exception as exc:
                 source_errors["property changes"] = type(exc).__name__
         result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
-                               current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes)
+                               current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes,
+                               context=st.session_state.get("corepilot_context", {}))
+        st.session_state["corepilot_context"] = dict(result.context)
+        if source_errors:
+            result = CorePilotResult("safe_failure", (), ("Some canonical sources could not be read; a complete answer cannot be verified.",),
+                                     "Try again after source access is restored. No records were changed.")
+            st.session_state.pop("corepilot_context", None)
         render_result(result)
         if source_errors:
             st.warning("CorePilot couldn't check one part of CommandCore right now. Nothing was changed.")

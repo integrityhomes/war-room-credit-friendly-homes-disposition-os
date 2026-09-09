@@ -23,6 +23,8 @@ class CorePilotResult:
     clarification: str = ""
     capability_names: tuple[str, ...] = ()
     action_class: CorePilotActionClass = CorePilotActionClass.READ
+    context: tuple[tuple[str, str], ...] = ()
+    evidence: tuple[str, ...] = ()
     records_written: int = 0
     external_actions_started: int = 0
 
@@ -99,7 +101,7 @@ def _work_result(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]
         owner = between or current_user
     open_tasks = [task for task in records.get("tasks", ()) if _text(task.get("status")).casefold() not in {"done", "completed", "closed", "cancelled", "canceled"}]
     if owner:
-        open_tasks = [task for task in open_tasks if owner.casefold() in _text(task.get("assigned_to") or task.get("assigned_worker")).casefold()]
+        open_tasks = [task for task in open_tasks if owner.casefold() == _text(task.get("assigned_to") or task.get("assigned_worker")).casefold()]
     today = date.today().isoformat()
     overdue = [task for task in open_tasks if (due := _text(task.get("due_date") or task.get("due_at"))) and due[:10] < today]
     due_today = [task for task in open_tasks if _text(task.get("due_date") or task.get("due_at"))[:10] == today]
@@ -116,7 +118,7 @@ def _communications_result(records: Mapping[str, Sequence[Mapping[str, Any]]], c
     attention = [item for item in items if NevaehInboxCategory.NEEDS_REVIEW in item.categories]
     stop = [item for item in items if NevaehInboxCategory.STOP_CONSENT in item.categories]
     protected = [item for item in items if NevaehInboxCategory.MONEY_LEGAL in item.categories]
-    found = (f"{len(items)} inbound communications are available.",)
+    found = (f"{len(items)} inbound communications are available.", *(f"{item.person}: {item.recommended_next_step}" for item in attention[:12]))
     needs = (f"{len(attention)} need attention.", f"{len(stop)} include STOP or consent concerns.", f"{len(protected)} involve money or legal topics.")
     return CorePilotResult(
         "complete",
@@ -198,7 +200,7 @@ def _attention_result(
     )
 
 
-def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]], *, current_deal_id: str = "", current_user: str = "",
+def _run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]], *, current_deal_id: str = "", current_user: str = "",
                   property_changes: DetectionResult | None = None) -> CorePilotResult:
     """Answer from supplied canonical records without mutation or external execution."""
     query = " ".join(request.split())
@@ -320,3 +322,10 @@ def run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any]
         )
 
     return CorePilotResult("needs_context", (), (), "Try one of the quick actions or name a deal, message, task, or approval.", clarification="What would you like CorePilot to find or explain?")
+
+
+def run_corepilot(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None):
+    """Existing read-only operator with session-scoped natural-language resolution."""
+    from .corepilot_conversation import answer
+    return answer(request, records, current_deal_id=current_deal_id, current_user=current_user,
+                  property_changes=property_changes, context=context)
