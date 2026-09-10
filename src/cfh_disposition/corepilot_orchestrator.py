@@ -25,6 +25,7 @@ class CorePilotResult:
     action_class: CorePilotActionClass = CorePilotActionClass.READ
     context: tuple[tuple[str, str], ...] = ()
     evidence: tuple[str, ...] = ()
+    prepared_action: Any = None
     records_written: int = 0
     external_actions_started: int = 0
 

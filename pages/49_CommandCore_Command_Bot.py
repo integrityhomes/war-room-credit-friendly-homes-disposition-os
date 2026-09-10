@@ -9,6 +9,7 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.corepilot_conversation import property_question
 from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
+from cfh_disposition.corepilot_preparation import preparation_intent
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
 from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
@@ -123,6 +124,20 @@ def render_result(result: CorePilotResult) -> None:
         st.caption("Nothing additional was flagged from the records reviewed.")
     st.markdown("### Recommended next step")
     st.info(result.recommended_next_step)
+    if result.prepared_action:
+        action = result.prepared_action
+        st.markdown("### Prepared action")
+        st.write(f"**What:** {action.what}")
+        st.write(f"**Who / Property / Deal:** {action.subject}")
+        st.write(f"**Draft or proposed action:** {action.proposal}")
+        if action.what == "Proposed task":
+            st.write(f"**Proposed assignee:** {action.assignee}")
+            st.write(f"**Due timing:** {action.due_timing}")
+        st.write(f"**Why:** {action.why}")
+        st.info(action.status)
+        with st.expander("Source facts used"):
+            for fact in action.source_facts:
+                st.write(fact)
     with advanced_settings():
         st.caption("CorePilot safety summary")
         st.write(f"Action class: {result.action_class.value}")
@@ -160,7 +175,7 @@ if submitted:
         show_error("CorePilot could not safely read CommandCore records.", next_step="Check the app connection and try again.")
     else:
         property_changes = None
-        if property_question(request) or "needs my attention" in request.casefold():
+        if property_question(request) or preparation_intent(request) == "Proposed property update" or "needs my attention" in request.casefold():
             try:
                 property_changes = read_property_changes(st.secrets)
                 st.caption(f"Property evidence last checked: {property_changes.checked_at}")
@@ -168,14 +183,16 @@ if submitted:
                     st.warning("The last property check failed. Showing the last successful evidence; it may be out of date.")
             except Exception as exc:
                 source_errors["property changes"] = type(exc).__name__
-        result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
-                               current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes,
-                               context=st.session_state.get("corepilot_context", {}))
-        st.session_state["corepilot_context"] = dict(result.context)
         if source_errors:
+            # A failed read is not a request to forget the selected record.
+            # Keep identifiers only; do not answer or prepare using partial facts.
             result = CorePilotResult("safe_failure", (), ("Some canonical sources could not be read; a complete answer cannot be verified.",),
                                      "Try again after source access is restored. No records were changed.")
-            st.session_state.pop("corepilot_context", None)
+        else:
+            result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
+                                   current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes,
+                                   context=st.session_state.get("corepilot_context", {}))
+            st.session_state["corepilot_context"] = dict(result.context)
         render_result(result)
         if source_errors:
             st.warning("CorePilot couldn't check one part of CommandCore right now. Nothing was changed.")

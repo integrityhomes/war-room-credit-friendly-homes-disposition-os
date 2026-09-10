@@ -19,10 +19,12 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
     query = " ".join(request.split())
     lower = query.casefold()
     ctx = dict(context or {})
-    prepare = bool(re.match(r"(?:prepare|draft|suggest)\b", lower))
+    from .corepilot_preparation import preparation_intent, prepare_action
+    prepare = bool(preparation_intent(query))
     if not prepare and re.search(r"\b(send|text|call|approve|reject|sign|delete|update|apply|edit|create|pay|spend|publish|deploy|transfer)\b", lower):
         return CorePilotResult(
-            "approval_required", (), ("Write, send, and apply actions are disabled here.",), "Ask for a read-only explanation or draft.", action_class=CorePilotActionClass.APPROVAL_REQUIRED
+            "approval_required", (), ("Write, send, and apply actions are disabled here.",), "Ask for a read-only explanation or draft.",
+            action_class=CorePilotActionClass.APPROVAL_REQUIRED, context=tuple(ctx.items())
         )
 
     properties = _find_entities(query, records.get("properties", ()), ("address", "property_address", "name"))
@@ -62,6 +64,9 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
 
     def finish(result):
         return replace(result, context=tuple(ctx.items()), evidence=result.evidence or tuple(f"{key}: {value}" for key, value in ctx.items()))
+
+    if prepare:
+        return finish(prepare_action(query, records, ctx, property_changes))
 
     followup = any(t in lower for t in ("this deal", "this property", "this seller", " it", "last", "holding", "waiting on", "do next", "messages", "title company"))
     if property_question(query):
@@ -116,6 +121,9 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
             rows = dated[:1]
         else:
             rows = dated + [m for m in rows if not _timestamp(dict(m))]
+        ctx.pop("communication_id", None)
+        if len(rows) == 1 and rows[0].get("id"):
+            ctx["communication_id"] = rows[0]["id"]
         return finish(
             CorePilotResult(
                 "complete",
@@ -123,19 +131,6 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
                 (),
                 "Review the original communication before preparing a response.",
                 evidence=tuple(f"communications:{m.get('id')} · {_timestamp(dict(m)) or 'Date not recorded'}" for m in rows[:10]),
-            )
-        )
-    if prepare:
-        if not ctx:
-            return finish(CorePilotResult("needs_context", (), (), "Identify a deal, property, or person first.", clarification="What should this draft relate to?"))
-        recommendation = build_deal_next_action(dict(deal), _related(deal, records)).recommended_action if deal else "Review the existing property or contact record and confirm the next step."
-        return finish(
-            CorePilotResult(
-                "prepared",
-                (f"Draft for review: Could you please share an update? Suggested task: {recommendation}",),
-                ("This is a proposed draft, not a verified commitment. Nothing was saved or sent.",),
-                "Review and edit this private draft in the appropriate workflow.",
-                action_class=CorePilotActionClass.PREPARE,
             )
         )
     if properties and "find the property" in lower:
