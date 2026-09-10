@@ -107,6 +107,9 @@ def portfolio_answer(query, records, observations, *, today=None, history=()):
 
     plans = portfolio(records, observations, today=today, history=history)
     q = query.casefold()
+    for phrase, threshold in (("hit 10 days", 10), ("at 14 days", 14), ("at 21 days", 21)):
+        if phrase in q:
+            plans = [p for p in plans if p["days"] >= threshold]
     if "price adjustment" in q or "need a price change" in q:
         plans = [p for p in plans if "price" in p["categories"]]
     elif "payment problems" in q or "need better terms" in q:

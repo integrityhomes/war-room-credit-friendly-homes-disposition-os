@@ -61,12 +61,13 @@ def manage_work(query, records, context, updater, *, current_user="", today=None
     work = re.fullmatch(r"what work does (.+?) have", q, re.I)
     select = re.fullmatch(r"(?:select|review) task (.+)", q, re.I)
     move = re.fullmatch(r"(?:move|reschedule) (?:that|it|this task) to (.+)", q, re.I)
-    assign = re.fullmatch(r"(?:give|reassign) (?:it|that|this task) to (.+)", q, re.I)
+    assign = re.fullmatch(r"(?:give|reassign) (?:it|that|this|this task) to (.+)", q, re.I)
     note = re.fullmatch(r"add (?:a )?note(?: that)? (.+)", q, re.I)
     done = re.fullmatch(r"(?:mark (?:it|that|this task) (?:done|complete)|complete (?:it|that|this task))", q, re.I)
     retrieve = re.fullmatch(r"(?:show|retrieve|open) (?:my |the |that )?(?:private )?draft(?: (.+))?", q, re.I)
     revise = re.fullmatch(r"(?:revise|replace) (?:that |the )?draft(?: with| to|:)\s+(.+)", q, re.I)
-    if not any((work, select, move, assign, note, done, retrieve, revise)):
+    empty_note = bool(re.fullmatch(r"add (?:a )?note", q, re.I))
+    if not any((work, select, move, assign, note, empty_note, done, retrieve, revise)):
         return None
 
     def answer(text, *, question="", changed=0, evidence=()):
@@ -100,6 +101,8 @@ def manage_work(query, records, context, updater, *, current_user="", today=None
                       f"{selected.get('title')} · {selected.get('assigned_to')} · Due: {selected.get('due_date')} · Status: {selected.get('status')}",
                       evidence=(json.dumps(selected.get("internal_history", [])),))
     selected = next((r for r in rows if r.get("id") == ctx.get(key)), None)
+    if empty_note:
+        return answer("", question="What should the private note say?" if selected else "Which task should the note belong to?")
     if not selected:
         return answer("", question="Which existing internal task or private draft should I use? Select it first.")
     if selected.get("internal_only") is not True:
@@ -117,8 +120,17 @@ def manage_work(query, records, context, updater, *, current_user="", today=None
             return answer("", question="Which valid date should I use?")
         patch = {"due_date": due}
     elif assign:
-        names = {str(r.get(k)).strip() for group in records.values() for r in group for k in ("assigned_to", "assigned_worker") if r.get(k)}
-        matches = [n for n in names if n.casefold() == assign[1].casefold()]
+        from .staff_profiles import resolve_member
+        if 'team_members' in records:
+            member = resolve_member(assign[1], records)
+            from .staff_profiles import requested_function
+            function = requested_function(selected.get('title', ''))
+            if member and function and function not in member['profile']['functions'] and not member['profile'].get('universal_staff_backup'):
+                return answer('', question='That work is outside this staff profile. Choose an authorized worker or approved backup.')
+            matches = [member['name']] if member else []
+        else:  # Backward-compatible isolated callers without the registry adapter.
+            names = {str(r.get(k)).strip() for group in records.values() for r in group for k in ("assigned_to", "assigned_worker") if r.get(k)}
+            matches = [n for n in names if n.casefold() == assign[1].casefold()]
         if len(matches) != 1:
             return answer("", question="Which verified CommandCore assignee should I use? That name is not uniquely recorded in current assignments.")
         patch = {"assigned_to": matches[0]}
@@ -142,5 +154,7 @@ def manage_work(query, records, context, updater, *, current_user="", today=None
         changed = updater(entity, selected, patch, current_user)
     except Exception:
         return answer("The save could not be verified. Read the record again before retrying; nothing was sent.")
+    if assign:
+        ctx["assignee"] = patch["assigned_to"]
     return answer("DONE — internal record updated." if changed else "Already recorded — no duplicate change.", changed=int(changed),
                   evidence=(json.dumps({"before": {k: selected.get(k) for k in patch}, "proposed": patch}),))

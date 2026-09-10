@@ -179,21 +179,26 @@ def test_property_task_then_reply_preserves_real_page_context(monkeypatch, inter
         ask("Find 101 Example Lane.")
         ask("Have Sabrina follow up tomorrow.")
         assert any("SAVED INTERNALLY / NOT SENT" in x.value for x in page.info)
-        assert page.session_state.corepilot_context == {"property_id": "fictional-property"}
+        assert page.session_state.corepilot_context["property_id"] == "fictional-property"
+        assert page.session_state.corepilot_context["task_id"].startswith("corepilot-")
         if interruption == "source_failure":
             failing = True
             ask("Draft a reply.")
             assert any("complete answer cannot be verified" in x.value for x in page.warning)
-            assert page.session_state.corepilot_context == {"property_id": "fictional-property"}
+            assert page.session_state.corepilot_context["property_id"] == "fictional-property"
+            assert page.session_state.corepilot_context["task_id"].startswith("corepilot-")
             failing = False
         elif interruption == "blocked_send":
             ask("Send a reply.")
-            assert page.session_state.corepilot_context == {"property_id": "fictional-property"}
+            assert page.session_state.corepilot_context["property_id"] == "fictional-property"
+            assert page.session_state.corepilot_context["task_id"].startswith("corepilot-")
         ask("Draft a reply.")
         assert any("Still working with 101 Example Lane" in x.value and "message and recipient" in x.value for x in page.info)
         assert not any("Which property, deal" in x.value for x in page.info)
-        assert page.session_state.corepilot_context == {"property_id": "fictional-property"}
+        assert page.session_state.corepilot_context["property_id"] == "fictional-property"
+        assert page.session_state.corepilot_context["task_id"].startswith("corepilot-")
         ask("Draft a reply.")
-        assert page.session_state.corepilot_context == {"property_id": "fictional-property"}
+        assert page.session_state.corepilot_context["property_id"] == "fictional-property"
+        assert page.session_state.corepilot_context["task_id"].startswith("corepilot-")
     finally:
         st.cache_resource.clear()

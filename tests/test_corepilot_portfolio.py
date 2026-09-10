@@ -127,7 +127,10 @@ def test_actual_streamlit_portfolio_attention_and_no_writes(monkeypatch):
             assert not page.exception
             captions = " ".join(item.value for item in page.caption)
             assert "12 yellow source candidates" in captions
-            assert "Only 4 validated canonical properties" in captions
+            assert "Current canonical properties: 6" in captions
+            assert "Current yellow / marketed: 4" in captions
+            assert "Valid marketing clocks: 4" in captions
+            assert "Only 4 validated canonical properties" not in captions
             shown = " ".join(str(x.value) for group in (page.markdown, page.info) for x in group)
             assert all(p + " Fictional Lane" in shown for p in ("ten", "fourteen", "urgent"))
             assert "PROPOSED PLAN" in shown

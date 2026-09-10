@@ -13,7 +13,8 @@ from .corepilot_orchestrator import CorePilotResult, _label, _links, _related
 def priority_question(query):
     return bool(re.fullmatch(
         r"(?:what should (?:we|my team) work on first|what is the most important thing right now|"
-        r"prioritize today['’]s work|what needs to happen first)[?.!]*", query.strip(), re.I))
+        r"prioritize today['’]s work|what needs to happen first|what are (?:our|my) priorities(?: today)?|"
+        r"what should i (?:work on|do) first|show (?:our|my|team) priorities)[?.!]*", query.strip(), re.I))
 
 
 def priority_answer(records, property_changes=None, inventory_evidence=None, *, today=None):

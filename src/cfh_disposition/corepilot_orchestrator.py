@@ -108,7 +108,8 @@ def _work_result(request: str, records: Mapping[str, Sequence[Mapping[str, Any]]
     overdue = [task for task in open_tasks if (due := _text(task.get("due_date") or task.get("due_at"))) and due[:10] < today]
     due_today = [task for task in open_tasks if _text(task.get("due_date") or task.get("due_at"))[:10] == today]
     blocked = [task for task in open_tasks if _text(task.get("status")).casefold() == "blocked" or _text(task.get("blocker") or task.get("blocked_reason"))]
-    found = tuple(_label(task, "Untitled task") for task in open_tasks[:12]) or ("No open assigned work was found.",)
+    selected = overdue if "overdue" in lower else due_today if "due today" in lower or "due-today" in lower else open_tasks
+    found = tuple(_label(task, "Untitled task") for task in selected[:12]) or ("No open assigned work was found.",)
     attention = tuple([f"{len(overdue)} overdue", f"{len(due_today)} due today", f"{len(blocked)} blocked"])
     return CorePilotResult("complete", found, attention, "Review the most urgent recorded task.", capability_names=_tool_names("read_assigned_work", "overdue_work", "due_today_work", "blocked_work"))
 

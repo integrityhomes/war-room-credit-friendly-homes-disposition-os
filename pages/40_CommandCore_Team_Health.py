@@ -136,6 +136,22 @@ exception_result = call_commandcore(
 
 members = team_result.get("members") if isinstance(team_result.get("members"), list) else []
 members = [item for item in members if isinstance(item, dict)]
+for member in members:
+    profile = member.get('profile')
+    if not isinstance(profile, dict):
+        continue
+    with st.expander(f"{member.get('name', 'Team member')} — {profile.get('title', 'Staff profile')}"):
+        for responsibility in profile.get('responsibilities', ()):
+            st.write(responsibility)
+        st.write('Systems: ' + ', '.join(profile.get('systems', ())))
+        st.write('Communication authority: ' + profile.get('communication_authority', 'Not configured'))
+        st.write('Owner escalation: ' + ', '.join(profile.get('escalation', ())))
+        for limit in profile.get('approval_limits', ()):
+            st.caption(limit)
+        st.write('Universal staff backup: ' + ('Yes — owner authority excluded' if profile.get('universal_staff_backup') else 'No'))
+        st.write('Handoffs:', profile.get('handoffs', {}))
+        st.text_area('Original questionnaire — private source evidence', profile.get('questionnaire', ''),
+                     disabled=True, key=f"staff-source-{member.get('id')}", height=200)
 exceptions = exception_result.get("exceptions") if isinstance(exception_result.get("exceptions"), list) else []
 exceptions = [
     item

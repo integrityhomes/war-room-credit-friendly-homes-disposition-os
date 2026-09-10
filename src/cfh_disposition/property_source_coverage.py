@@ -131,7 +131,9 @@ def source_coverage(worksheets, rows):
 
 
 def reconcile_coverage(coverage, rows, properties):
+    from .property_marketing_eligibility import compare_source_identity
     from .property_sync_preview import HISTORY
+    identities = compare_source_identity(rows, properties)
     preview = compare_properties(rows, properties)
     canonical_keys = {address_key(prop) for prop in properties}
     return {**coverage, "canonical_properties": len(properties),
@@ -145,9 +147,8 @@ def reconcile_coverage(coverage, rows, properties):
             "property_candidate_review_rows": sum(REVIEW in item.categories and
                                                   bool(re.match(r"^\d+\s+", text(row.fields.get("address"))))
                                                   for row, item in zip(rows, preview.items, strict=False)),
-            "eligible_canonical_yellow": sum(bool(item.property_id) and REVIEW not in item.categories and
-                                             row.marketing_status == "yellow" and row.fields.get("availability") == "Available"
-                                             for row, item in zip(rows, preview.items, strict=False)),
+            "eligible_canonical_yellow": len({item.property_id for row, item in zip(rows, identities.items, strict=False)
+                                               if item.property_id and REVIEW not in item.categories and row.tab in REGIONAL_TABS and row.marketing_status == 'yellow'}),
             "accepted_new": sum("NEW PROPERTY" in item.categories and REVIEW not in item.categories for item in preview.items),
             "needs_review": sum(REVIEW in item.categories for item in preview.items)}
 
@@ -157,7 +158,7 @@ def coverage_lines(coverage):
         return ("Full-workbook source coverage has not yet been verified in this checkpoint.",)
     return (
         f"Workbook coverage: {coverage['tab_count']} tabs inspected; {coverage['source_colors'].get('yellow', 0)} yellow source candidates. "
-        f"Only {coverage.get('eligible_canonical_yellow', 0)} validated canonical properties are eligible for marketing-age tracking.",
+        "Source candidates include repeated and unresolved rows; they are not the current marketed-property count.",
         f"{coverage['unresolved_address_rows']} source rows have unresolved addresses. Source totals are not import approval or verified unique inventory totals.",
         "Historical SOLD occurrences do not override verified current yellow/white inventory; competing current rows still require review.",
     )

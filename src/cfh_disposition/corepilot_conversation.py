@@ -15,7 +15,56 @@ def property_question(query):
     return is_property_change_question(query) or "properties that changed" in query.casefold() or "what changed on it" in query.casefold()
 
 
+def property_details_question(query):
+    return any(t in query.casefold() for t in ("who owns", "current terms", "down payment", "monthly payment", "insurance", "everything related")) and not property_question(query)
+
+
+def property_details(prop, records, observations):
+    """Project existing facts and links; never infer ownership from a seller role."""
+    from .corepilot_inventory import inventory_items
+    from .property_sync_preview import FIELD_ALIASES, first
+    pid = prop["id"]
+    found = [f"Property: {_label(prop, 'Recorded property')}"]
+    for field in ("asking_or_sale_price", "down_payment", "monthly_payment", "interest_rate", "monthly_taxes", "monthly_insurance"):
+        value = first(prop, FIELD_ALIASES[field])
+        found.append(f"Recorded {field.replace('_', ' ')}: {value if value not in (None, '') else 'Not recorded'}")
+    item = next(iter(inventory_items([prop], observations)), None)
+    if item:
+        found.append({"yellow": "Actively marketed", "white": "Not ready to market"}.get(item["marketing_status"], "Marketing status is unverified"))
+    meta = prop.get("sync_metadata") or {}
+    fields = meta.get("source_fields") or ()
+    warnings = [str(w) for w in meta.get("field_warnings", ())]
+    for field in ("seller_entity", "marketing_client", "monthly_insurance", "financing_terms"):
+        cells = [c for c in fields if c.get("field") == field]
+        if len(cells) == 1 and not cells[0].get("review") and cells[0].get("normalized") is not None:
+            found.append(f"Recorded source {field.replace('_', ' ')}: {cells[0]['normalized']}")
+        elif cells:
+            warnings.append(f"{field.replace('_', ' ')} needs review; no value inferred.")
+    found.append("Recorded seller/client relationships do not independently verify current legal ownership.")
+    deals = [d for d in records.get("deals", ()) if (_links(d).get("property_id") or d.get("property_id")) == pid]
+    deal_ids = {d['id'] for d in deals}
+    contact_ids = {_links(d).get("contact_id") or d.get("contact_id") for d in deals}
+    contact_ids.add(_links(prop).get("contact_id") or prop.get("contact_id"))
+    evidence = []
+    for entity in ("deals", "contacts", "tasks", "communications", "offers", "documents", "transactions", "activities"):
+        linked = [r for r in records.get(entity, ()) if not r.get("archived") and (
+            (_links(r).get("property_id") or r.get("property_id")) == pid
+            or (_links(r).get("deal_id") or r.get("deal_id")) in deal_ids
+            or (entity == "contacts" and r.get("id") in contact_ids))]
+        found.append(f"Linked {entity}: {len(linked)} recorded")
+        evidence.extend(f"{entity}:{r.get('id')} · {_label(r, 'Recorded item')}" for r in linked)
+    from .property_change_attention import public_evidence
+    codes = tuple(str(p['lockbox_code']) for p in records.get('properties', ()) if p.get('lockbox_code'))
+    return CorePilotResult("complete", tuple(public_evidence(v, codes) for v in found), tuple(public_evidence(v, codes) for v in warnings),
+                           "Review the recorded evidence; missing facts need verification.", evidence=tuple(public_evidence(v, codes) for v in evidence))
+
+
 def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None):
+    from .corepilot_staff import staff_answer
+    staff = staff_answer(request, records, context)
+    if staff is not None:
+        return staff
+    records = {key: [r for r in group if not r.get('archived')] for key, group in records.items()}
     query = " ".join(request.split())
     lower = query.casefold()
     from .corepilot_priority import priority_answer, priority_question
@@ -25,7 +74,8 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
     from .corepilot_inventory import answer_inventory, inventory_items, inventory_question
     from .corepilot_preparation import preparation_intent, prepare_action
     prepare = bool(preparation_intent(query))
-    if not prepare and re.search(r"\b(send|text|call|approve|reject|sign|delete|update|apply|edit|create|pay|spend|publish|deploy|transfer)\b", lower):
+    approval_explanation = bool(re.fullmatch(r"what happens if i approve (?:this|that)[?.!]*", lower))
+    if not prepare and not approval_explanation and re.search(r"\b(send|text|call|approve|reject|sign|delete|update|apply|edit|create|pay|spend|publish|deploy|transfer)\b", lower):
         return CorePilotResult(
             "approval_required", (), ("Write, send, and apply actions are disabled here.",), "Ask for a read-only explanation or draft.",
             action_class=CorePilotActionClass.APPROVAL_REQUIRED, context=tuple(ctx.items())
@@ -101,6 +151,26 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
     if prepare:
         return finish(prepare_action(query, records, ctx, property_changes))
 
+    if property_details_question(query):
+        prop = next((p for p in records.get("properties", ()) if p.get("id") == ctx.get("property_id")), None)
+        if not prop:
+            return finish(CorePilotResult("needs_context", (), (), "Identify the property first.", clarification="Which property should I review?"))
+        return finish(property_details(prop, records, inventory_evidence))
+
+    if any(t in lower for t in ("communications need", "messages need", "communications needing")):
+        from .commandcore_nevaeh_inbox import NevaehInboxCategory, build_nevaeh_inbox
+        inbox = build_nevaeh_inbox(records.get("communications", ()), contacts=records.get("contacts", ()), properties=records.get("properties", ()), deals=records.get("deals", ()))
+        response_ids = {m.get('id') for m in records.get('communications', ()) if m.get('status') in {'needs_response', 'awaiting_response'} and m.get('direction') == 'inbound'}
+        items = [i for i in inbox if NevaehInboxCategory.NEEDS_REVIEW in i.categories or i.communication_id in response_ids]
+        ctx.pop("communication_id", None)
+        if len(items) == 1:
+            message = next(m for m in records.get("communications", ()) if m.get("id") == items[0].communication_id)
+            ctx = {k: v for k in ("property_id", "deal_id", "contact_id") if (v := _links(message).get(k) or message.get(k))}
+            ctx["communication_id"] = message['id']
+        return finish(CorePilotResult("complete", tuple(f"{i.person}: {i.recommended_next_step}" for i in items) or ("No recorded messages need response review.",), (),
+                                     "Review consent and the original message before preparing a private reply.",
+                                     clarification="Which message should I select?" if len(items) > 1 else ""))
+
     followup = any(t in lower for t in ("this deal", "this property", "this seller", " it", "last", "holding", "waiting on", "do next", "messages", "title company"))
     if property_question(query):
         if property_changes is None:
@@ -125,9 +195,21 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
     worker = re.search(r"what (?:work does (.+?) have|does (.+?) need to handle)", lower)
     if worker:
         return finish(_work_result("Show my work", records, (worker[1] or worker[2]).strip(" ?.")))
-    if "approval" in lower:
+    if any(t in lower for t in ("team workload", "who has the most work", "how is work assigned")):
+        from collections import Counter
+        counts = Counter(_text(t.get('assigned_to') or t.get('assigned_worker')) or 'Unassigned' for t in records.get('tasks', ())
+                         if _text(t.get('status')).casefold() not in {'done', 'completed', 'closed', 'cancelled', 'canceled'})
+        return finish(CorePilotResult('complete', tuple(f'{name}: {count} open canonical tasks' for name, count in counts.most_common()) or ('No open canonical tasks.',),
+                                      ('Task counts alone do not establish capacity or overload.',), 'Review due dates and blockers before reassigning existing tasks.'))
+    if "work" in lower and ("overdue" in lower or "due today" in lower or "due-today" in lower):
+        return finish(_work_result(query, records, current_user if "my" in lower else ""))
+    if "approval" in lower or approval_explanation:
         approvals = build_deal_approval_status(list(records.get("offers", ())), list(records.get("documents", ())))
         pending = [a for a in approvals if a.actionable]
+        if approval_explanation:
+            return finish(CorePilotResult("complete" if len(pending) == 1 else "needs_context", tuple(a.next_step for a in pending) if len(pending) == 1 else (),
+                                          ("No approval, signature, sending, or legal effect is performed here.",), "Review the exact item in Owner Approvals.",
+                                          clarification="Which offer or document should I explain?" if len(pending) != 1 else ""))
         return finish(
             CorePilotResult(
                 "complete",
@@ -136,14 +218,20 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
                 "Review waiting items in Owner Approvals; no approval is granted here.",
             )
         )
-    if "deals" in lower and "stuck" in lower:
+    if "deals" in lower and ("stuck" in lower or "need attention" in lower):
         stuck = []
+        matching = []
         for d in records.get("deals", ()):
             action = build_deal_next_action(dict(d), _related(d, records))
             if action.blocker != "No blocker recorded":
                 stuck.append(f"{_label(d, 'Deal')}: {action.blocker}")
+                matching.append(d)
+        if len(matching) == 1:
+            ctx = {**_links(matching[0]), "deal_id": matching[0]['id']}
+        elif len(matching) > 1:
+            ctx = {}
         return finish(CorePilotResult("complete", tuple(stuck) or ("No recorded deal blockers were found.",), (), "Review the recorded blockers; unrecorded delays cannot be verified."))
-    messages = any(t in lower for t in ("conversation", "messages", "title company", "seller say"))
+    messages = any(t in lower for t in ("conversation", "messages", "last message", "title company", "seller say"))
     if messages:
         if not ctx:
             return finish(CorePilotResult("needs_context", (), (), "Identify a deal, property, or contact.", clarification="Whose conversation should I find?"))

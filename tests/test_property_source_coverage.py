@@ -94,7 +94,8 @@ def test_source_totals_are_separate_from_validation_and_sold_precedence(color):
     assert coverage["candidate_rows"] == 2 and coverage["sold_candidate_rows"] == 1
     assert coverage["source_colors"][color] >= 1
     assert rows[0].issues
-    assert "Only 0 validated canonical" in coverage_lines(coverage)[0]
+    assert "not the current marketed-property count" in coverage_lines(coverage)[0]
+    assert "eligible for marketing-age" not in coverage_lines(coverage)[0]
     assert all("lockbox" not in str(value).lower() for value in coverage.values())
 
 

@@ -55,6 +55,20 @@ def run_internal_command(request, records, *, writer, updater=None, context=None
     if managed is not None:
         return managed
     query = " ".join(request.split()).strip()
+    # Staff task requests still use the same canonical task executor and its
+    # context/due-date checks. Naming a list import never executes an import.
+    routed_task = re.fullmatch(r"(?:give|assign) (.+?) to (.+?)[.!]?", query, re.I)
+    import_task = re.fullmatch(r"have (.+?) import (.+?)[.!]?", query, re.I)
+    if 'team_members' in records and (routed_task or import_task):
+        from .staff_profiles import resolve_member
+        requested_name = routed_task[2] if routed_task else import_task[1]
+        member = resolve_member(requested_name, records)
+        if not member:
+            return CorePilotResult('needs_context', (), (), 'Nothing was saved.',
+                                   clarification='Which configured staff member should receive this internal task?',
+                                   context=tuple((context or {}).items()))
+        subject = routed_task[1] if routed_task else 'import preparation for ' + import_task[2]
+        query = f"Have {member['name']} review {subject}"
     delegated_followup = re.fullmatch(r"give that follow-up to (.+?)[.!]?", query, re.I)
     if delegated_followup:
         names = {str(r.get(k)).strip() for group in records.values() for r in group
@@ -117,6 +131,16 @@ def run_internal_command(request, records, *, writer, updater=None, context=None
     if task:
         if not assignee:
             return clarify("What name should I assign your task to? Your signed-in worker name is not set.")
+        if 'team_members' in records:
+            from .staff_profiles import resolve_member
+            member = resolve_member(assignee, records)
+            if not member:
+                return clarify("That staff identity is not configured. Select a verified assignee; nothing was saved.")
+            from .staff_profiles import requested_function
+            function = requested_function(query)
+            if function and function not in member['profile']['functions'] and not member['profile'].get('universal_staff_backup'):
+                return clarify("That work is outside the selected staff profile. Choose an authorized worker or prepare a backup handoff.")
+            assignee = member['name']
         try:
             due = due_date(timing, today)
         except ValueError:
@@ -164,6 +188,11 @@ def run_internal_command(request, records, *, writer, updater=None, context=None
             return replace(result, status="safe_failure", prepared_action=None, what_i_found=(),
                            needs_attention=("The save result could not be verified. Check existing records before retrying; the same request uses duplicate protection.",),
                            recommended_next_step="Review My Work or Communications. Nothing was sent.")
-    return replace(result, status="internal_done", what_i_found=(label if created else "Already saved — duplicate prevented.",),
+    saved_context = dict(result.context)
+    if entity == "tasks":
+        saved_context.update(task_id=record["id"], assignee=assignee)
+    elif entity == "communications":
+        saved_context["draft_id"] = record["id"]
+    return replace(result, context=tuple(saved_context.items()), status="internal_done", what_i_found=(label if created else "Already saved — duplicate prevented.",),
                    needs_attention=tuple(record["safety_warnings"]), recommended_next_step="Review it in My Work, Communications, or the deal timeline. Nothing was sent.",
                    prepared_action=replace(action, status="SAVED INTERNALLY / NOT SENT"), records_written=int(created), action_class=internal_class)

@@ -78,6 +78,9 @@ function normalizeMember(member: TeamMember): TeamMember {
     channels: cleanList(member.channels),
     max_load: Number.isFinite(maxLoadRaw) && maxLoadRaw > 0 ? maxLoadRaw : 20,
     current_load: Number.isFinite(currentLoadRaw) && currentLoadRaw >= 0 ? currentLoadRaw : 0,
+    ...(member.profile && typeof member.profile === "object" && !Array.isArray(member.profile)
+      ? { profile: member.profile } : {}),
+    ...(Array.isArray(member.profile_history) ? { profile_history: member.profile_history } : {}),
     updated_at: new Date().toISOString(),
   };
 }
@@ -153,6 +156,7 @@ Deno.serve(async (req) => {
       external_execution_enabled: false,
       availability_tracking_enabled: true,
       shift_coverage_enabled: true,
+      profile_preservation_enabled: true,
     });
   }
   if (req.method !== "POST") return jsonResponse(405, { ok: false, error: "method_not_allowed" });
@@ -183,7 +187,18 @@ Deno.serve(async (req) => {
     if (!body.member || typeof body.member !== "object" || Array.isArray(body.member)) {
       return jsonResponse(422, { ok: false, error: "member_required" });
     }
-    const normalized = normalizeMember(body.member as TeamMember);
+    const incoming = body.member as TeamMember;
+    if ("profile" in incoming && (!incoming.profile || typeof incoming.profile !== "object" || Array.isArray(incoming.profile))) {
+      return jsonResponse(422, { ok: false, error: "valid_profile_required" });
+    }
+    const existing = (await listMembers(supabaseUrl, serviceKey)).find((member) => memberId(member) === memberId(incoming));
+    // Availability/workload updates must not erase the private questionnaire or
+    // approved profile. Omitted fields preserve the existing canonical record.
+    const merged = { ...existing, ...incoming };
+    if (existing?.profile && incoming.profile) {
+      merged.profile = { ...(existing.profile as TeamMember), ...(incoming.profile as TeamMember) };
+    }
+    const normalized = normalizeMember(merged);
     if (!memberId(normalized)) return jsonResponse(422, { ok: false, error: "member_id_required" });
     await writeMember(supabaseUrl, serviceKey, normalized);
     return jsonResponse(200, {

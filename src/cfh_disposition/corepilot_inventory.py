@@ -21,9 +21,12 @@ def inventory_question(query):
     return any(
         t in q
         for t in (
+            "how many properties are currently being marketed", "how many marketed properties have tracking clocks",
             "stale",
             "for sale more than",
             "isn't this property selling",
+            "isn't it selling", "isn't this selling", "get these properties sold",
+            "hit 10 days", "at 14 days", "at 21 days",
             "is not this property selling",
             "sell this one",
             "need a price change",
@@ -37,6 +40,28 @@ def inventory_question(query):
             "what would make this sell", "what should we change",
         )
     )
+
+
+def foundation_summary(properties, observations):
+    """Current canonical inventory projected from the existing marketing observations."""
+    from collections import Counter
+
+    from .property_sync_preview import address_key
+    items = inventory_items(properties, observations)
+    yellow = [i for i in items if i['marketing_status'] == 'yellow']
+    white = [i for i in items if i['marketing_status'] == 'white']
+    by_id = {p['id']: p for p in properties if p.get('id') and not p.get('archived')}
+    keys = Counter(address_key(by_id[i['property_id']]) for i in yellow)
+    valid = [i for i in yellow if i['days_active'] is not None and (observations or {}).get(i['property_id'], {}).get('marketing_observed_since')]
+    return {'canonical_properties': len(by_id), 'current_yellow': len(yellow), 'valid_clocks': len(valid),
+            'missing_clocks': len(yellow)-len(valid), 'duplicate_clocks': sum(n-1 for k, n in keys.items() if k),
+            'current_white': len(white), 'white_clocks': sum(bool((observations or {}).get(i['property_id'], {}).get('marketing_observed_since')) for i in white)}
+
+
+def foundation_lines(properties, observations):
+    counts = foundation_summary(properties, observations)
+    return (f"Current canonical properties: {counts['canonical_properties']} · Current yellow / marketed: {counts['current_yellow']} · Current white: {counts['current_white']}",
+            f"Valid marketing clocks: {counts['valid_clocks']} · Missing: {counts['missing_clocks']} · Duplicates: {counts['duplicate_clocks']} · White-property clocks: {counts['white_clocks']}")
 
 
 def observe_inventory(rows, properties, previous=None, *, checked_at=None, history=None):
@@ -189,6 +214,18 @@ def advise_property(prop, records, item):
         facts.append(f"Recorded {field.replace('_', ' ')}: {value if value not in (None, '') else 'Missing'}")
     facts += [f"Linked buyer inquiries: {len(inquiries)} recorded; coverage may be incomplete.", f"Linked marketing activities: {len(marketing)} recorded; reach/conversion not established."]
     missing = []
+    # Read existing field evidence without letting optional warnings suppress identity or age.
+    from .property_change_attention import public_evidence
+    metadata = prop.get('sync_metadata') or {}
+    codes = (str(prop['lockbox_code']),) if prop.get('lockbox_code') else ()
+    missing.extend(public_evidence(str(w), codes) for w in metadata.get('field_warnings', ()))
+    for cell in metadata.get('source_fields', ()):
+        if cell.get('field') in {'seller_entity', 'marketing_client', 'monthly_insurance', 'financing_terms'}:
+            if cell.get('review'):
+                missing.append(f"{cell['field'].replace('_', ' ')} needs review.")
+            elif cell.get('normalized') is not None:
+                facts.append(public_evidence(f"Recorded source {cell['field'].replace('_', ' ')}: {cell['normalized']}", codes))
+    facts.append('Seller/client records do not independently verify legal ownership.')
     if not inquiries:
         missing.append("Buyer-response evidence is missing; zero recorded inquiries does not prove zero interest.")
     if not marketing:
@@ -250,8 +287,16 @@ def answer_inventory(query, records, ctx, observations=None, *, today=None, prop
 
     items = inventory_items(records.get("properties", ()), observations, today=today)
     q = query.casefold().replace("’", "'")
+    if q.startswith('how many'):
+        if observations is None:
+            return CorePilotResult('needs_context', (), ('Current marketing evidence is unavailable.',), 'Read the latest property checkpoint before counting.')
+        counts = foundation_summary(records.get('properties', ()), observations)
+        headline = (f"{counts['valid_clocks']} marketed properties have valid tracking clocks." if 'tracking clocks' in q
+                    else f"{counts['current_yellow']} properties are currently being marketed.")
+        return CorePilotResult('complete', (headline, *foundation_lines(records.get('properties', ()), observations)), (),
+                               'Counts use canonical properties and the latest verified marketing observations; source candidate rows are separate.')
     by_id = {p.get("id"): p for p in records.get("properties", ())}
-    specific = any(t in q for t in ("this property", "this one", "what would make this sell", "what should we change"))
+    specific = any(t in q for t in ("this property", "this one", "isn't it selling", "isn't this selling", "what would make this sell", "what should we change"))
     if specific:
         pid = ctx.get("property_id")
         if not pid:

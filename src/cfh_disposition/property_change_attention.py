@@ -202,7 +202,7 @@ def change_lines(result, query=""):
                 continue
             if "price" in q and field != "asking_or_sale_price":
                 continue
-            if "monthly payment" in q and field != "monthly_payment":
+            if ("monthly payment" in q or "changed payment" in q) and field != "monthly_payment":
                 continue
             if "down payment" in q and field != "down_payment":
                 continue
@@ -210,7 +210,7 @@ def change_lines(result, query=""):
                 continue
             if ("sold" in q or "unavailable" in q) and SOLD_CHANGE not in event.categories:
                 continue
-            if "back active" in q and RETURNED not in event.categories:
+            if ("back active" in q or "back available" in q) and RETURNED not in event.categories:
                 continue
             description = "Lockbox code changed." if field == "lockbox_code" else f"{field.replace('_', ' ')}: {display(field, change.current)} → {display(field, change.proposed)}"
             lines.append(f"{event.evidence.address} · {event.priority} priority · {', '.join(event.categories)} · {description} · "

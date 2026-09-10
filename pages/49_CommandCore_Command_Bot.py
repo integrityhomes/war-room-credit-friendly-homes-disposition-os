@@ -9,7 +9,7 @@ import streamlit as st
 from cfh_disposition import corepilot_internal
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
-from cfh_disposition.corepilot_conversation import property_question
+from cfh_disposition.corepilot_conversation import property_details_question, property_question
 from cfh_disposition.corepilot_inventory import inventory_question
 from cfh_disposition.corepilot_orchestrator import CorePilotResult
 from cfh_disposition.corepilot_preparation import preparation_intent
@@ -111,6 +111,13 @@ def load_corepilot_records() -> tuple[dict[str, list[dict[str, Any]]], dict[str,
         except Exception as exc:  # UI safety boundary: never expose provider tracebacks.
             records[entity] = []
             errors[entity] = type(exc).__name__
+    from cfh_disposition.staff_profiles import read_team
+    try:
+        team = read_team(get_supabase())
+        if team:
+            records['team_members'] = team
+    except Exception:
+        pass  # Legacy read-only callers remain usable; no staff identity is invented.
     return records, errors
 
 
@@ -188,16 +195,22 @@ if submitted:
     else:
         property_changes = None
         inventory_evidence = None
-        if (priority_question(request) or inventory_question(request) or property_question(request)
+        if (priority_question(request) or inventory_question(request) or property_question(request) or property_details_question(request)
                 or preparation_intent(request) in {"Proposed property update", "Price/terms proposal", "Marketing preparation"}
                 or "needs my attention" in request.casefold()):
             try:
                 property_changes = read_property_changes(st.secrets)
                 st.caption(f"Property evidence last checked: {property_changes.checked_at}")
                 checkpoint = latest_property_check(st.secrets)
-                from cfh_disposition.property_source_coverage import coverage_lines
-                for line in coverage_lines(checkpoint.get("source_coverage")):
+                from cfh_disposition.property_change_review import current_attention_changes
+                property_changes = current_attention_changes(property_changes, checkpoint.get("review_decisions", {}), records.get('properties', ()))
+                from cfh_disposition.corepilot_inventory import foundation_lines
+                for line in foundation_lines(records.get('properties', ()), checkpoint.get('inventory_observations')):
                     st.caption(line)
+                with st.expander('Workbook source coverage details'):
+                    from cfh_disposition.property_source_coverage import coverage_lines
+                    for line in coverage_lines(checkpoint.get('source_coverage')):
+                        st.caption(line)
                 inventory_evidence = checkpoint.get("inventory_observations")
                 if checkpoint.get("error"):
                     st.warning("The last property check failed. Showing the last successful evidence; it may be out of date.")

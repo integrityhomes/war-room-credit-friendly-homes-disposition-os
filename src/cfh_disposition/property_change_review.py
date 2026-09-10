@@ -1,7 +1,7 @@
 """Exact property patch proposals and local review decisions. Live Apply is disabled."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -109,13 +109,38 @@ def record_review_decision(secrets, event_id, decision):
     path = cache_path(secrets)
     with exclusive_check(path):
         cached = read_cache(path)
-        if event_id not in {item["event_id"] for item in cached.get("result", {}).get("changes", [])}:
+        if event_id not in {item["event_id"] for group in ("changes", "observed_changes") for item in cached.get("result", {}).get(group, [])}:
             raise ValueError("Change is no longer in the latest queue.")
         if cached.get("review_decisions", {}).get(event_id) == decision:
             return
         cached.setdefault("review_decisions", {})[event_id] = decision
         cached.setdefault("review_history", []).append({"event_id": event_id, "decision": decision, "at": datetime.now(UTC).isoformat()})
         save_cache(path, cached)
+
+
+def current_attention_changes(result, decisions, properties=()):
+    """Honor existing review decisions in current answers; retain stored history."""
+    def unresolved(event):
+        if decisions.get(event.event_id) == 'Ignored':
+            return False
+        if NEW not in event.categories or REVIEW in event.categories or event.evidence.review_reasons:
+            return True
+        # An old NEW alert has no canonical ID. Match its complete address using
+        # the same identity parser as the importer, never a street-only guess.
+        from .property_sync_preview import sheet_address_parts
+        parts = sheet_address_parts(event.evidence.address)
+        if not all(parts.values()):
+            return True
+        key = address_key(parts)
+        matches = [p for p in properties if not p.get('archived') and address_key(p) == key]
+        if len(matches) != 1:
+            return True
+        prop = matches[0]
+        metadata = prop.get('sync_metadata') or {}
+        imported = prop.get('source') == 'cfh-google-sheet' and metadata.get('normalized_address') == key
+        return not imported
+    return replace(result, **{group: tuple(event for event in getattr(result, group) if unresolved(event))
+                              for group in ("changes", "new_events", "observed_changes", "observed_new_events")})
 
 
 def apply_property_update(*args, **kwargs):
