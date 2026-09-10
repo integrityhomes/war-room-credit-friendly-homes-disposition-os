@@ -181,8 +181,15 @@ def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False)
     from .google_property_runtime_bridge import resolve_read_only_google_access
 
     credentials, sheet_id = resolve_read_only_google_access(secrets, build_read_only_google_credentials)
-    names = (*INVENTORY_TABS, "_REIBB_CACHE")
     with AuthorizedSession(credentials) as session:
+        metadata = session.get(
+            f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}",
+            params={"fields": "sheets(properties(title,hidden),merges,basicFilter)"}, timeout=120,
+        )
+        metadata.raise_for_status()
+        names = tuple(sheet["properties"]["title"] for sheet in metadata.json().get("sheets", []))
+        if not names or len(names) != len(set(names)) or not set(INVENTORY_TABS).issubset(names):
+            raise ValueError("Incomplete workbook inventory")
         response = session.get(
             f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values:batchGet",
             params=[("ranges", "'" + name.replace("'", "''") + "'") for name in names] + [("valueRenderOption", "FORMATTED_VALUE")], timeout=120,
@@ -195,7 +202,9 @@ def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False)
         rows = regional_sheet_properties(worksheets, sheet_id)
         if include_marketing:
             from .google_property_marketing import attach_highlights, read_row_highlights
-            rows = attach_highlights(rows, read_row_highlights(session, sheet_id, worksheets[:-1]))
+            rows = attach_highlights(rows, read_row_highlights(session, sheet_id, tuple(ws for ws in worksheets if ws.tab_name != "_REIBB_CACHE")))
+        from .property_source_coverage import CoveredRows, source_coverage
+        rows = CoveredRows(rows, source_coverage(worksheets, rows))
     return rows, hashlib.sha256(sheet_id.encode()).hexdigest()
 
 

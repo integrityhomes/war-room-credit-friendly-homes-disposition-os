@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.property_change_attention import change_lines, public_evidence
 from cfh_disposition.property_change_detection import CHANGE_TYPES
 from cfh_disposition.property_change_review import read_review_proposal, record_review_decision
 from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
@@ -31,6 +32,17 @@ except Exception:
 
 result = st.session_state.get("property_detection")
 if result is not None:
+    from cfh_disposition.property_source_coverage import coverage_lines
+    coverage = latest_property_check(st.secrets).get("source_coverage", {})
+    for line in coverage_lines(coverage):
+        st.caption(line)
+    with st.expander("Workbook source coverage"):
+        st.dataframe(coverage.get("tabs", []), hide_index=True)
+    if result.observed_changes:
+        st.subheader("Observed source changes — review only")
+        st.caption(f"{len(result.observed_new_events)} new source transitions this check; unchanged events are retained without duplicate alerts.")
+        for line in change_lines(result):
+            st.write(line)
     st.caption(f"Last checked: {result.checked_at}. Check again for a fresh view.")
     for start in (0, 4):
         for column, kind in zip(st.columns(4), CHANGE_TYPES[start:start + 4], strict=True):
@@ -70,7 +82,7 @@ if result is not None:
                     st.warning(error)
                 if proposal.new_property:
                     st.info("New property passed baseline validation. Creation remains disabled.")
-                    st.json(proposal.new_property)
+                    st.json(public_evidence(proposal.new_property))
                 elif not proposal.errors:
                     st.info("Exact proposed patch only. It has not been applied.")
                     st.json({"property_id": proposal.property_id, "expected_values": proposal.expected_values,

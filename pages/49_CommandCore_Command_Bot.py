@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import json
+from inspect import signature
 from typing import Any
 
 import streamlit as st
 
+from cfh_disposition import corepilot_internal
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.corepilot_conversation import property_question
-from cfh_disposition.corepilot_internal import create_internal_record, run_internal_command
 from cfh_disposition.corepilot_inventory import inventory_question
 from cfh_disposition.corepilot_orchestrator import CorePilotResult
 from cfh_disposition.corepilot_preparation import preparation_intent
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
+from cfh_disposition.corepilot_work import update_internal_record
 from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
 from supabase import ClientOptions, create_client
 
@@ -192,6 +194,9 @@ if submitted:
                 property_changes = read_property_changes(st.secrets)
                 st.caption(f"Property evidence last checked: {property_changes.checked_at}")
                 checkpoint = latest_property_check(st.secrets)
+                from cfh_disposition.property_source_coverage import coverage_lines
+                for line in coverage_lines(checkpoint.get("source_coverage")):
+                    st.caption(line)
                 inventory_evidence = checkpoint.get("inventory_observations")
                 if checkpoint.get("error"):
                     st.warning("The last property check failed. Showing the last successful evidence; it may be out of date.")
@@ -202,8 +207,12 @@ if submitted:
             # Keep identifiers only; do not answer or prepare using partial facts.
             result = CorePilotResult("safe_failure", (), ("Some canonical sources could not be read; a complete answer cannot be verified.",),
                                      "Try again after source access is restored. No records were changed.")
+        elif "updater" not in signature(corepilot_internal.run_internal_command).parameters:
+            result = CorePilotResult("safe_failure", (), ("Restart CommandCore to load the current internal-work runtime. Nothing was changed.",),
+                                     "Retry after restarting the app.", context=tuple(st.session_state.get("corepilot_context", {}).items()))
         else:
-            result = run_internal_command(request, records, writer=lambda entity, record: create_internal_record(get_supabase(), entity, record),
+            result = corepilot_internal.run_internal_command(request, records, writer=lambda entity, record: corepilot_internal.create_internal_record(get_supabase(), entity, record),
+                                   updater=lambda entity, expected, patch, actor: update_internal_record(get_supabase(), entity, expected, patch, actor),
                                    pending=st.session_state.get("corepilot_pending"), current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
                                    current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes,
                                    context=st.session_state.get("corepilot_context", {}), inventory_evidence=inventory_evidence)
@@ -222,4 +231,4 @@ if submitted:
         if result.action_class is CorePilotActionClass.APPROVAL_REQUIRED:
             st.caption("CorePilot stopped before the protected action. No approval was granted and nothing was executed.")
 
-st.caption("CorePilot can create requested internal tasks, save private drafts and record proposed next actions. It cannot send, sign, approve, publish, spend, or change property/deal facts.")
+st.caption("CorePilot can manage internal tasks and private drafts with history. It cannot send, sign, approve, publish, spend, delete, or change property/deal facts.")

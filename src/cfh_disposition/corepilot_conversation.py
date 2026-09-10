@@ -70,13 +70,24 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
         return finish(answer_inventory(query, records, ctx, inventory_evidence, property_changes=property_changes))
     if "needs my attention" in lower:
         result = _run_corepilot(query, records, current_user=current_user, property_changes=property_changes)
+        if property_changes:
+            from .property_change_attention import change_lines
+            critical = change_lines(property_changes)
+            if critical:
+                result = replace(result, what_i_found=tuple(x for x in result.what_i_found if x != "You're caught up.") + critical,
+                                 needs_attention=tuple(x for x in result.needs_attention if "Nothing needs" not in x)
+                                 + ("Property changes require review; source SOLD/unavailable is not proof of closing.",),
+                                 recommended_next_step="Review the recorded property changes. " + result.recommended_next_step.replace("No action is required.", ""))
         stale = [item for item in inventory_items(records.get("properties", ()), inventory_evidence) if item["priority"]]
         unknown = sum(item["days_active"] is None and item["marketing_status"] != "white" for item in inventory_items(records.get("properties", ()), inventory_evidence))
         if stale:
+            from .corepilot_portfolio import portfolio_answer
+            disposition = portfolio_answer(query, records, inventory_evidence, history=property_changes.changes if property_changes else ())
             return finish(replace(result, what_i_found=tuple(x for x in result.what_i_found if x != "You're caught up.")
-                                  + tuple(f"{i['address']}: {i['priority']} ({i['age_basis']} for {i['days_active']} days)" for i in stale),
+                                  + disposition.what_i_found,
                                   needs_attention=tuple(x for x in result.needs_attention if "Nothing needs" not in x) + (f"{len(stale)} stale properties need review.",),
-                                  recommended_next_step="Review the oldest active property and its buyer/marketing evidence. " + result.recommended_next_step.replace("No action is required.", "")))
+                                  recommended_next_step=disposition.recommended_next_step + "\n\n" + result.recommended_next_step.replace("No action is required.", ""),
+                                  evidence=disposition.evidence, inventory_causes=disposition.inventory_causes))
         if unknown:
             return finish(replace(result, what_i_found=tuple(x for x in result.what_i_found if x != "You're caught up."),
                                   needs_attention=tuple(x for x in result.needs_attention if "Nothing needs" not in x)
@@ -92,6 +103,8 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
         if property_changes is None:
             return finish(CorePilotResult("needs_context", (), ("Property change evidence is unavailable.",), "Open Property Changes to check the source evidence."))
         changes = selected_changes(query, property_changes)
+        from .property_change_attention import change_lines
+        detail = change_lines(property_changes, query)
         if "changed on" in lower:
             if not ctx.get("property_id"):
                 return finish(CorePilotResult("needs_context", (), (), "Identify a property first.", clarification="Which property should I review?"))
@@ -99,7 +112,8 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
         return finish(
             CorePilotResult(
                 "complete",
-                tuple(f"{c.evidence.address}: {', '.join(c.categories)}" for c in changes) or ("No matching property changes were detected.",),
+                (tuple(f"{c.evidence.address}: {', '.join(c.categories)}" for c in changes) if "changed on" in lower else detail)
+                or ("No matching property changes were detected.",),
                 (),
                 "Review source evidence in Property Changes. Sheet classification does not verify a closing.",
                 evidence=tuple(f"{c.event_id}: {c.evidence.changes}" for c in changes),

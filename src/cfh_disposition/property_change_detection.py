@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from .property_sync_preview import (
@@ -39,15 +39,16 @@ def digest(value) -> str:
 class DetectionState:
     source_fingerprint: str = ""
     seen_ids: frozenset[str] = frozenset()
+    source_states: dict = field(default_factory=dict)
 
     def checkpoint(self) -> dict:
-        return {"version": 1, "source_fingerprint": self.source_fingerprint, "seen_ids": sorted(self.seen_ids)}
+        return {"version": 1, "source_fingerprint": self.source_fingerprint, "seen_ids": sorted(self.seen_ids), "source_states": self.source_states}
 
     @classmethod
     def from_checkpoint(cls, value):
         if value.get("version") != 1 or not isinstance(value.get("seen_ids"), list):
             raise ValueError("Unsupported detection checkpoint")
-        return cls(value["source_fingerprint"], frozenset(value["seen_ids"]))
+        return cls(value["source_fingerprint"], frozenset(value["seen_ids"]), value.get("source_states", {}))
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,8 @@ class PropertyChange:
     event_id: str
     categories: tuple[str, ...]
     evidence: PreviewItem
+    detected_at: str = ""
+    priority: str = "Normal"
 
 
 @dataclass(frozen=True)
@@ -67,13 +70,15 @@ class DetectionResult:
     unchanged: int
     records_written: int = 0
     external_actions_started: int = 0
+    observed_changes: tuple[PropertyChange, ...] = ()
+    observed_new_events: tuple[PropertyChange, ...] = ()
 
     @property
     def counts(self):
         return {kind: sum(kind in change.categories for change in self.changes) for kind in CHANGE_TYPES}
 
 
-def detect_property_changes(rows, properties, *, source_reference: str, previous: DetectionState | None = None) -> DetectionResult:
+def detect_property_changes(rows, properties, *, source_reference: str, previous: DetectionState | None = None, lockbox_key="") -> DetectionResult:
     if not source_reference:
         raise ValueError("Source identity is required")
     previous = previous or DetectionState()
@@ -111,15 +116,19 @@ def detect_property_changes(rows, properties, *, source_reference: str, previous
     )])
     fresh = tuple(change for change in changes if change.event_id not in previous.seen_ids)
     state = DetectionState(source_fingerprint, previous.seen_ids | frozenset(change.event_id for change in changes))
-    return DetectionResult(tuple(changes), fresh, state, datetime.now(UTC).isoformat(),
+    result = DetectionResult(tuple(changes), fresh, state, datetime.now(UTC).isoformat(),
                            sum(REVIEW in item.categories for item in preview.items[:len(rows)]),
                            sum(not item.categories for item in preview.items))
+    from .property_change_attention import observe_changes
+    return observe_changes(result, rows, properties, preview, previous, source_reference, lockbox_key)
 
 
 def is_property_change_question(request: str) -> bool:
     text = request.casefold()
     return any(term in text for term in ("properties changed", "new properties", "prices changed", "price changes", "became sold", "became unavailable",
-                                         "returned to active", "came back active", "what needs property review", "what changed on"))
+                                         "returned to active", "came back active", "what needs property review", "what changed on", "what changed today",
+                                         "prices change", "monthly payments change", "down payments change", "lockbox codes change", "properties sold",
+                                         "what changed with our marketed", "important property changes"))
 
 
 def selected_changes(request: str, result: DetectionResult):

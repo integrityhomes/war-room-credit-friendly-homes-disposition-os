@@ -33,6 +33,9 @@ def test_preimport_page_executes_real_pipeline_with_only_batch_and_canonical_rea
             pass
 
         def get(self, url, *, params, timeout):
+            if not url.endswith("/values:batchGet"):
+                return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+                    "sheets": [{"properties": {"title": name}} for name in (*INVENTORY_TABS, "_REIBB_CACHE")]})
             calls.append("sheet batch read")
             assert url.endswith("/values:batchGet")
             assert len([value for key, value in params if key == "ranges"]) == len(INVENTORY_TABS) + 1

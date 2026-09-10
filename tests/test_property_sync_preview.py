@@ -137,11 +137,12 @@ def test_restriction_tabs_and_unknown_tabs_do_not_launch_inventory():
     sheets = worksheets(extra={"SOLD": [row]})
     sheets.append(ReadOnlyWorksheetValues("Sheet36", [row]))
     rows = regional_sheet_properties(sheets, "fictional-sheet")
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert rows[1].fields["availability"] == "Sold / Unavailable"
+    assert rows[2].issues  # Previously skipped tab is now visible for review only.
     sheets[-2] = ReadOnlyWorksheetValues("DO NOT SELL LIST", [sheets[0][0], row])
     rows = regional_sheet_properties(sheets, "fictional-sheet")
-    assert rows[-1].fields["availability"] == "Paused"
+    assert next(row for row in rows if row.tab == "DO NOT SELL LIST").fields["availability"] == "Paused"
 
 
 def test_incomplete_sheet_read_fails_instead_of_reporting_missing():

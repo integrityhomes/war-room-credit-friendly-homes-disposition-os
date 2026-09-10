@@ -31,6 +31,10 @@ def inventory_question(query):
             "make this property move",
             "oldest active",
             "no meaningful change",
+            "need help selling", "marketed more than", "worst properties", "properties should we work on",
+            "property should we fix first", "hardest to sell", "get these sold", "plan for every stale",
+            "price adjustment", "payment problems", "need better marketing", "property should we attack first",
+            "what would make this sell", "what should we change",
         )
     )
 
@@ -130,6 +134,7 @@ def inventory_items(properties, observations=None, *, today=None, thresholds=STA
                 "days_since_change": (today - changed).days if changed and changed <= today else None,
                 "unchanged_observed_days": (today - unchanged).days if unchanged and unchanged <= today else None,
                 "attention_id": digest([pid, start.isoformat() if start else "", priority]) if priority else "",
+                "attention_item_id": digest([pid, start.isoformat() if start else ""]),
             }
         )
     return sorted(items, key=lambda i: (-(i["days_active"] if i["days_active"] is not None else -1), i["property_id"]))
@@ -229,11 +234,12 @@ def advise_property(prop, records, item):
 
 def answer_inventory(query, records, ctx, observations=None, *, today=None, property_changes=None):
     from .corepilot_orchestrator import CorePilotResult
+    from .corepilot_portfolio import diagnose, portfolio_answer
 
     items = inventory_items(records.get("properties", ()), observations, today=today)
     q = query.casefold().replace("’", "'")
     by_id = {p.get("id"): p for p in records.get("properties", ())}
-    specific = any(t in q for t in ("this property", "this one"))
+    specific = any(t in q for t in ("this property", "this one", "what would make this sell", "what should we change"))
     if specific:
         pid = ctx.get("property_id")
         if not pid:
@@ -247,35 +253,11 @@ def answer_inventory(query, records, ctx, observations=None, *, today=None, prop
             return CorePilotResult("complete", (item["address"], "Not ready to market — white source row; stale aging is stopped."), (),
                                    "Review pre-marketing readiness. This is not a sold classification and no record change is proposed.")
         advice = advise_property(by_id[pid], records, item)
+        diagnosis = diagnose(by_id[pid], records, item, property_changes.changes if property_changes else ())
         recent = tuple(f"Recorded source change: {c.evidence.changes}" for c in property_changes.changes if c.evidence.property_id == pid) if property_changes else ()
         return CorePilotResult(
-            "complete", (item["address"], *advice["facts"], *recent), advice["missing"], "\n\n".join(advice["recommendations"]), evidence=advice["evidence"], inventory_causes=advice["causes"]
+            "complete", (item["address"], *advice["facts"], *recent), advice["missing"],
+            "PROPOSED PLAN:\n\n" + "\n\n".join(f"{n}. {step}" for n, step in enumerate(diagnosis["plan"], 1)) + "\n\n" + "\n\n".join(diagnosis["options"]),
+            evidence=diagnosis["evidence"], inventory_causes=advice["causes"]
         )
-    if "price change" in q or "better terms" in q:
-        category = "price" if "price change" in q else "terms"
-        chosen = [i for i in items if i["marketing_status"] == "yellow" and category in advise_property(by_id[i["property_id"]], records, i)["categories"]]
-        return CorePilotResult(
-            "complete",
-            tuple(i["address"] for i in chosen) or ("No recorded buyer objection supports that specific change recommendation.",),
-            ("Age alone does not establish that price or terms are wrong.",),
-            "Review buyer evidence before proposing any numbers; no changes are applied.",
-        )
-    if "no meaningful change" in q:
-        chosen = [
-            i
-            for i in items
-            if i["marketing_status"] == "yellow"
-            and ((i["days_since_change"] is not None and i["days_since_change"] >= 14) or (i["unchanged_observed_days"] is not None and i["unchanged_observed_days"] >= 14))
-        ]
-    elif "oldest" in q:
-        chosen = [i for i in items if i["days_active"] is not None][:10]
-    else:
-        chosen = [i for i in items if i["priority"] and ("more than" not in q or i["days_active"] > 10)]
-    found = tuple(f"{i['address']} · {i['age_basis']} for {i['days_active']} days · {i['priority'] or 'Below attention threshold'}" for i in chosen)
-    unknown = sum(i["days_active"] is None and i["marketing_status"] != "white" for i in items)
-    return CorePilotResult(
-        "complete",
-        found or ("No qualifying stale inventory is verified by the available dates.",),
-        (f"{sum(i['marketing_status'] == 'white' for i in items)} properties: Not ready to market. {unknown} properties: Marketing age cannot yet be verified.",),
-        "Select a property and ask why it isn't selling. Verify buyer and marketing evidence before changing price or terms.",
-    )
+    return portfolio_answer(query, records, observations, today=today, history=property_changes.changes if property_changes else ())

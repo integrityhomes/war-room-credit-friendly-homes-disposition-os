@@ -46,9 +46,14 @@ def create_internal_record(client, entity, record):
     return True
 
 
-def run_internal_command(request, records, *, writer, context=None, current_user="", pending=None, today=None, **kwargs):
+def run_internal_command(request, records, *, writer, updater=None, context=None, current_user="", pending=None, today=None,
+                         current_deal_id="", property_changes=None, inventory_evidence=None):
     """UI runtime boundary. Pure read/preparation remains compatible for other callers."""
     today = today or date.today()
+    from .corepilot_work import manage_work
+    managed = manage_work(request, records, context, updater, current_user=current_user, today=today)
+    if managed is not None:
+        return managed
     query = " ".join(request.split()).strip()
     task = re.fullmatch(r"(?:have (.+?) (?:to )?|give (.+?) a task to |make (me) a task to )(follow up|check|review|call|contact)(.*)", query, re.I)
     saving = bool(re.fullmatch(r"save (?:that|the) (?:reply|response) as a draft[.!]?", query, re.I))
@@ -71,7 +76,8 @@ def run_internal_command(request, records, *, writer, context=None, current_user
         effective = "Draft a reply."
     if next_action:
         effective = "Prepare the next step."
-    result = run_corepilot(effective, records, context=context, current_user=current_user, **kwargs)
+    result = run_corepilot(effective, records, context=context, current_user=current_user, current_deal_id=current_deal_id,
+                          property_changes=property_changes, inventory_evidence=inventory_evidence)
     action = result.prepared_action
     execute_draft = action and action.what == "Communication draft" and (saving or bool(re.match(r"^(draft|prepare|write)\b", query, re.I)))
     if not (task or next_action or execute_draft) or not action or result.clarification:

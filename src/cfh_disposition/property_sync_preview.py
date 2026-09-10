@@ -40,6 +40,7 @@ FIELD_ALIASES = {
 TERM_FIELDS = frozenset(("down_payment", "monthly_payment", "interest_rate", "monthly_principal_interest", "monthly_insurance", "monthly_taxes", "insurance_included"))
 NUMERIC_FIELDS = (TERM_FIELDS - {"insurance_included"}) | {"asking_or_sale_price", "bedrooms", "bathrooms", "square_feet"}
 HEADER_FIELDS = {
+    "property": "property_address", "address": "property_address", "property address": "property_address",
     "beds": "beds", "bedrooms": "beds", "baths": "baths", "bathrooms": "baths", "sq ft": "square_feet",
     "down payment": "down_payment", "monthly": "total_monthly_payment", "monthly payment": "total_monthly_payment",
     "sales price": "sales_price", "interest rate": "interest_rate", "monthly payment principal": "monthly_principal_interest",
@@ -47,6 +48,7 @@ HEADER_FIELDS = {
     "photo folder": "photo_link", "link to photos": "photo_link", "photos": "photo_link",
     "legal description": "legal_description", "parcel": "parcel_number", "notes": "notes",
     "date added to sheet": "date_added", "last update": "last_update",
+    "lockbox": "lockbox_code", "lockbox code": "lockbox_code", "lock box": "lockbox_code", "lock box code": "lockbox_code",
 }
 
 
@@ -141,6 +143,7 @@ class SheetProperty:
     external_id: str = ""
     issues: tuple[str, ...] = ()
     marketing_status: str = "unknown"
+    lockbox_observed: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,13 +202,16 @@ def regional_sheet_properties(worksheets: Sequence[Any], source_reference: str) 
                   and cache_addresses[address_key(row)] == 1}
     cache_identity_fields = {address_key(row): row for row in cache_rows if address_key(row) and cache_addresses[address_key(row)] == 1}
     results = []
-    for tab in INVENTORY_TABS:
+    for tab in tabs:
+        if tab == "_REIBB_CACHE":
+            continue  # Identity cache is not another inventory source.
         context = V14PropertySourceContext(source_type=V14PropertySourceType.DIRECT_GOOGLE_SHEET, source_reference=source_reference, tab_name=tab)
         header_map: dict[str, int] = {}
         for number, values in enumerate(tabs[tab], 1):
             if not any(text(value) for value in values):
                 continue
-            leading = text(values[0])
+            address_column = header_map.get("property_address", 0)
+            leading = text(values[address_column]) if address_column < len(values) else ""
             labels = [header_key(value) for value in values]
             if sum(label in {"beds", "bedrooms", "baths", "bathrooms", "sales price", "purchase price", "down payment", "monthly", "monthly payment"} for label in labels) >= 3:
                 header_map = {HEADER_FIELDS[label]: index for index, label in enumerate(labels) if label in HEADER_FIELDS}
@@ -218,6 +224,8 @@ def regional_sheet_properties(worksheets: Sequence[Any], source_reference: str) 
             if not leading:
                 continue  # Blank address cells are separators or ancillary notes, not inventory.
             if not re.match(r"^\d+\s+", leading):
+                if tab not in INVENTORY_TABS:
+                    continue  # Unknown non-property text is never promoted to inventory.
                 results.append(SheetProperty(tab, number, {"address": "Unrecognized source row"}, issues=("Row layout needs review; no property facts inferred.",)))
                 continue
             if not header_map:
@@ -237,10 +245,12 @@ def regional_sheet_properties(worksheets: Sequence[Any], source_reference: str) 
             cache_match = cache_identity_fields.get(header_key(leading))
             if cache_match:
                 mapped.update({key: cache_match.get(key) for key in ("address", "city", "state", "zip")})
-            mapped["availability"] = "Sold / Unavailable" if tab == "SOLD" else "Paused" if tab == "DO NOT SELL LIST" else "Available"
+            mapped["availability"] = "Sold / Unavailable" if tab == "SOLD" else "Paused" if tab == "DO NOT SELL LIST" else "Available" if tab in REGIONAL_TABS else "Unknown"
             mapped["last_update"], date_issue = _normalize_source_date(mapped.get("last_update"))
             normalized = adapt_v14_property_row(mapped, context=context, sheet_row_number=number)
             layout_issues = () if "sales_price" in header_map else ("Sales price column is not confirmed; purchase price is not assumed to be asking price.",)
+            if tab not in INVENTORY_TABS:
+                layout_issues += ("Source tab availability has not been verified; review only.",)
             errors = normalized.errors
             if not all(_address_parts(mapped).values()):
                 address_errors = {"Stable source record ID is required; a row number is not sufficient.",
@@ -255,7 +265,7 @@ def regional_sheet_properties(worksheets: Sequence[Any], source_reference: str) 
                 # Retain identity even when a separate fact is malformed. This
                 # prevents an existing property from also appearing as missing.
                 fields = _address_parts(mapped)
-            results.append(SheetProperty(tab, number, fields, identities.get(address_key(fields), ""), issues))
+            results.append(SheetProperty(tab, number, fields, identities.get(address_key(fields), ""), issues, lockbox_observed="lockbox_code" in header_map))
     return tuple(results)
 
 
@@ -336,7 +346,7 @@ def compare_properties(
 
 def read_canonical_records(client: Any, entity: str) -> list[dict[str, Any]]:
     """Read the existing CRM bucket completely, without bucket creation or writes."""
-    if entity not in {"properties", "deals"}:
+    if entity not in {"properties", "deals", "contacts", "communications", "tasks", "activities"}:
         raise ValueError("Unsupported preview source")
     bucket = client.storage.from_("commandcore-crm-core")
     records = []

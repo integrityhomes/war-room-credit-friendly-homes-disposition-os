@@ -15,7 +15,18 @@ def highlight_status(cell, default_format=None):
 
 def read_row_highlights(session, sheet_id, worksheets):
     """One bounded metadata GET; verify row identity across the two read snapshots."""
-    params = [("ranges", "'" + ws.tab_name.replace("'", "''") + f"'!A1:A{max(1, len(ws))}") for ws in worksheets]
+    from .property_source_coverage import address_columns
+
+    columns = {ws.tab_name: address_columns(ws) for ws in worksheets}
+
+    def letter(index):
+        result = ""
+        while index >= 0:
+            result = chr(65 + index % 26) + result
+            index = index // 26 - 1
+        return result
+
+    params = [("ranges", "'" + ws.tab_name.replace("'", "''") + f"'!A1:{letter(max(columns[ws.tab_name].values(), default=0))}{max(1, len(ws))}") for ws in worksheets]
     params.append(("fields", "properties(defaultFormat),sheets(properties(title),data(startRow,startColumn,rowData(values(formattedValue,effectiveFormat(backgroundColor,backgroundColorStyle)))))"))
     response = session.get(f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}", params=params, timeout=120)
     response.raise_for_status()
@@ -32,16 +43,18 @@ def read_row_highlights(session, sheet_id, worksheets):
             for offset, row in enumerate(grid.get("rowData", []), grid.get("startRow", 0) + 1):
                 values = row.get("values", [])
                 if values:
-                    cells[title, offset] = values[0]
+                    col = columns.get(title, {}).get(offset, 0)
+                    cells[title, offset] = values[col] if col < len(values) else {}
     statuses = {}
     for ws in worksheets:
         if ws.tab_name not in names:
             raise ValueError("Incomplete highlight read")
         for row, values in enumerate(ws, 1):
-            if not values or not str(values[0]).strip():
+            col = columns[ws.tab_name][row]
+            if col >= len(values) or not str(values[col]).strip():
                 continue
             cell = cells.get((ws.tab_name, row), {})
-            if str(cell.get("formattedValue", "")) != str(values[0]):
+            if str(cell.get("formattedValue", "")) != str(values[col]):
                 raise ValueError("Source rows changed during highlight read; retry the complete read")
             statuses[ws.tab_name, row] = highlight_status(cell, default)
     return statuses

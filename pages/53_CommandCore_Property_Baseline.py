@@ -7,6 +7,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import render_page_header
 from cfh_disposition.property_baseline import load_baseline_preview
+from cfh_disposition.property_change_attention import public_evidence
 
 st.set_page_config(page_title="Final Property Baseline", page_icon="📋", layout="wide")
 
@@ -78,7 +79,7 @@ if plan is not None:
         selected = st.selectbox("Inspect a proposed property", range(len(plan.properties)), format_func=lambda index: plan.properties[index].address)
         item = plan.properties[selected]
         with st.expander("Exact proposed canonical record", expanded=True):
-            st.json(item.record)
+            st.json(public_evidence(item.record))
     st.caption("Snapshot fingerprint: " + plan.snapshot_hash)
     st.caption("This identifies the exact proposed content. Matching totals alone do not authorize an import.")
     st.button("Import baseline — disabled", disabled=True, key="baseline_import_disabled")
