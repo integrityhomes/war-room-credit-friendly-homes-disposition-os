@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.canonical_work_view import render_canonical_work
 from cfh_disposition.commandcore_property_source_diagnostics import (
     run_property_source_diagnostic,
     safe_property_diagnostic_failure,
@@ -643,6 +644,7 @@ with st.expander("Property Source Diagnostics", expanded=False):
             )
 
 try:
+    render_canonical_work(get_supabase())
     queue_items = load_queue_items()
     operator_states = load_operator_states()
     human_escalations = load_human_escalations(queue_items, operator_states)

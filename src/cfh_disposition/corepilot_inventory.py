@@ -3,7 +3,7 @@
 from datetime import UTC, date, datetime
 
 from .property_change_detection import digest
-from .property_sync_preview import FIELD_ALIASES, REVIEW, TERM_FIELDS, comparable, compare_properties, first
+from .property_sync_preview import FIELD_ALIASES, REVIEW, TERM_FIELDS, comparable, first
 
 STALE_THRESHOLDS = (10, 14, 21)
 PRICE_TERMS = TERM_FIELDS | {"asking_or_sale_price"}
@@ -49,8 +49,13 @@ def observe_inventory(rows, properties, previous=None, *, checked_at=None, histo
         pid = prop.get("id")
         if pid and (pid in prior or prop.get("source") == "cfh-google-sheet"):
             observations[pid] = {**prior.get(pid, {}), "status": "Needs review", "checked_at": checked_at, "marketing_status": "unknown", "marketing_observed_since": ""}
-    preview = compare_properties(rows, properties)
+    from .property_sync_preview import HISTORY, address_key
+    history_keys = [address_key(prop) for prop in properties if prior.get(prop.get("id"), {}).get("historical_occurrences")]
+    from .property_marketing_eligibility import compare_source_identity
+    preview = compare_source_identity(rows, properties, known_history_keys=history_keys)
     for row, item in zip(rows, preview.items, strict=False):
+        if HISTORY in item.categories:
+            continue
         if item.property_id and item.property_id not in observations:
             observations[item.property_id] = {"status": "Needs review", "checked_at": checked_at, "marketing_status": "unknown", "marketing_observed_since": ""}
         if not item.property_id or REVIEW in item.categories:
@@ -61,13 +66,15 @@ def observe_inventory(rows, properties, previous=None, *, checked_at=None, histo
         fingerprint = digest(values)
         marketed = status == "available" and row.marketing_status == "yellow"
         continuous = old.get("status") == "available" and old.get("marketing_status") == "yellow"
+        historical_return = bool(item.historical_occurrences) and not continuous
         marketing_since = old.get("marketing_observed_since", "") if continuous else ""
         observations[item.property_id] = {
             "status": status,
             "checked_at": checked_at,
             "marketing_status": row.marketing_status,
             "marketing_observed_since": (marketing_since or checked_at) if marketed else "",
-            "marketing_restarted": old.get("marketing_restarted", False) or bool(marketed and old.get("marketing_status") and not continuous),
+            "marketing_restarted": historical_return or old.get("marketing_restarted", False) or bool(marketed and old.get("marketing_status") and not continuous),
+            "historical_occurrences": item.historical_occurrences or old.get("historical_occurrences", ()),
             "price_terms_hash": fingerprint,
             "last_change_observed_at": checked_at if old.get("price_terms_hash") and old["price_terms_hash"] != fingerprint else old.get("last_change_observed_at", ""),
             "unchanged_observed_since": old.get("unchanged_observed_since", checked_at) if old.get("price_terms_hash") == fingerprint else checked_at,

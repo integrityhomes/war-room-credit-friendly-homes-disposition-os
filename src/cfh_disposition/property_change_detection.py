@@ -82,11 +82,15 @@ def detect_property_changes(rows, properties, *, source_reference: str, previous
     if not source_reference:
         raise ValueError("Source identity is required")
     previous = previous or DetectionState()
-    preview = compare_properties(rows, properties)
+    from .property_sync_preview import HISTORY
+    history_keys = [address_key(prop) for prop in properties if previous.source_states.get(prop.get("id"), {}).get("source_history")]
+    preview = compare_properties(rows, properties, known_history_keys=history_keys)
     managed_ids = {prop.get("id") for prop in properties if prop.get("source") == "cfh-google-sheet"
                    and (prop.get("sync_metadata") or {}).get("source_reference_hash") == source_reference}
     changes = []
     for index, item in enumerate(preview.items):
+        if HISTORY in item.categories:
+            continue
         # Invalid/duplicate rows stay excluded. Unmatched canonical records are
         # review only, including when invalid sheet rows prevent proving absence.
         missing = index >= len(rows) and bool(item.property_id)

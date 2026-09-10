@@ -13,6 +13,7 @@ from cfh_disposition.corepilot_conversation import property_question
 from cfh_disposition.corepilot_inventory import inventory_question
 from cfh_disposition.corepilot_orchestrator import CorePilotResult
 from cfh_disposition.corepilot_preparation import preparation_intent
+from cfh_disposition.corepilot_priority import priority_question
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
 from cfh_disposition.corepilot_work import update_internal_record
@@ -187,7 +188,7 @@ if submitted:
     else:
         property_changes = None
         inventory_evidence = None
-        if (inventory_question(request) or property_question(request)
+        if (priority_question(request) or inventory_question(request) or property_question(request)
                 or preparation_intent(request) in {"Proposed property update", "Price/terms proposal", "Marketing preparation"}
                 or "needs my attention" in request.casefold()):
             try:

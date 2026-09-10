@@ -22,6 +22,14 @@ class AppCompletion:
 
 
 APP_COMPLETION: tuple[AppCompletion, ...] = (
+    AppCompletion("pages/52_CommandCore_Property_Sync_Preview.py", "Properties", AppCompletionState.SUPPORT_TOOL,
+                  "Read-only canonical property comparison."),
+    AppCompletion("pages/53_CommandCore_Property_Baseline.py", "Properties", AppCompletionState.SUPPORT_TOOL,
+                  "Pre-import baseline review; live import disabled."),
+    AppCompletion("pages/54_CommandCore_Property_Changes.py", "Properties", AppCompletionState.SUPPORT_TOOL,
+                  "Property change review and read-only evidence."),
+    AppCompletion("pages/55_CommandCore_Business_Simulator.py", "Simulation", AppCompletionState.DIAGNOSTIC,
+                  "Offline synthetic business scenarios and whole-app coverage; production failures remain visible."),
     AppCompletion("pages/00_CommandCore.py", "Shell", AppCompletionState.COMPLETE, "Canonical six-area CommandCore shell."),
     AppCompletion(
         "pages/01_Record_Manager.py",

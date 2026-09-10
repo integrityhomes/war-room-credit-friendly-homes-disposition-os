@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from streamlit.testing.v1 import AppTest
 
-from cfh_disposition import google_property_readonly_loader, google_property_runtime_bridge
+from cfh_disposition import google_property_runtime_bridge
 from cfh_disposition.google_property_readonly_loader import ReadOnlyWorksheetValues
 from cfh_disposition.property_sync_preview import INVENTORY_TABS
 from supabase import __name__ as _supabase_name
@@ -38,7 +38,29 @@ def test_page_submits_through_real_adapter_comparison_and_read_only_storage(monk
         return Bucket()
 
     monkeypatch.setattr(google_property_runtime_bridge, "resolve_read_only_google_access", lambda *args: (object(), "fictional-sheet"))
-    monkeypatch.setattr(google_property_readonly_loader, "load_all_read_only_worksheet_values", read_sheet)
+    class ReadOnlySession:
+        def __init__(self, credentials):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, *, params, timeout):
+            if url.endswith("/values:batchGet"):
+                self.worksheets = read_sheet()
+                data = {"valueRanges": [{"values": list(ws)} for ws in self.worksheets]}
+            elif isinstance(params, list):
+                data = {"sheets": [{"properties": {"title": ws.tab_name}, "data": [{"rowData": [
+                    {"values": [{"formattedValue": str(value), "effectiveFormat": {"backgroundColor": {"red": 1, "green": 1}}}
+                                for value in row]} for row in ws]}]} for ws in self.worksheets]}
+            else:
+                data = {"sheets": [{"properties": {"title": name}, "data": []} for name in INVENTORY_TABS]}
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: data)
+
+    monkeypatch.setattr("google.auth.transport.requests.AuthorizedSession", ReadOnlySession)
     monkeypatch.setattr(f"{_supabase_name}.create_client", lambda *args: SimpleNamespace(storage=SimpleNamespace(from_=from_bucket)))
     app = AppTest.from_string(
         "import streamlit as st\n"

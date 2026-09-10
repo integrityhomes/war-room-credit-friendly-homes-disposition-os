@@ -7,6 +7,7 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.canonical_work_view import render_canonical_work
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Workload Balance", page_icon="⚖️", layout="wide")
@@ -106,7 +107,7 @@ if st.sidebar.button("Log out", key="commandcore_workload_balance_logout"):
 
 st.title("CommandCore Workload Balance")
 st.caption(
-    "Finds overloaded team members, recommends the safest internal moves, and revalidates every move before applying it."
+    "Review canonical internal task workload and campaign dispatch workload. Automatic move recommendations below cover dispatch work only; use Command Bot to reassign an internal task."
 )
 
 try:
@@ -115,12 +116,14 @@ except Exception as exc:
     st.error(f"Open work could not be loaded: {exc}")
     st.stop()
 
+render_canonical_work(get_supabase())
+
 result = call_commandcore("commandcore-workload-balance-advisor", {"items": open_items})
 recommendations = result.get("recommendations") if isinstance(result.get("recommendations"), list) else []
 recommendations = [item for item in recommendations if isinstance(item, dict)]
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Open Work", int(result.get("open_items", len(open_items)) or 0))
+c1.metric("Open dispatch work", int(result.get("open_items", len(open_items)) or 0))
 c2.metric("Overloaded Team Members", int(result.get("overloaded_team_members", 0) or 0))
 c3.metric("Safe Moves Recommended", len(recommendations))
 

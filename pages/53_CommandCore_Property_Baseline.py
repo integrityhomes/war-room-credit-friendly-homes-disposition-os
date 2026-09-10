@@ -8,6 +8,7 @@ from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import render_page_header
 from cfh_disposition.property_baseline import load_baseline_preview
 from cfh_disposition.property_change_attention import public_evidence
+from cfh_disposition.property_import_reconciliation_ui import render_import_reconciliation
 
 st.set_page_config(page_title="Final Property Baseline", page_icon="📋", layout="wide")
 
@@ -34,6 +35,7 @@ def require_password() -> None:
 require_password()
 render_page_header("Final Property Baseline", "Inspect the exact property records proposed for the first CommandCore load.")
 st.info("Import is disabled. This screen reads and prepares a summary only. No properties or deals are saved.")
+render_import_reconciliation()
 st.caption(
     "Prior validation reference: 155 properties — 29 active, 126 source-classified sold/unavailable, and 300 Needs Review rows excluded. "
     "Build the summary to verify the current source; these reference counts are not a live read."

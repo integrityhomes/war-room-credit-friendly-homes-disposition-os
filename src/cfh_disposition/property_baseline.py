@@ -173,7 +173,7 @@ def import_baseline(*args: Any, **kwargs: Any) -> None:
     raise PermissionError("Baseline import is disabled. No records were written.")
 
 
-def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False) -> tuple[tuple[SheetProperty, ...], str]:
+def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False, verified_format_recovery=False) -> tuple[tuple[SheetProperty, ...], str]:
     """Read the existing validated inventory adapter from one live sheet batch."""
     from google.auth.transport.requests import AuthorizedSession
 
@@ -187,7 +187,7 @@ def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False)
             params={"fields": "sheets(properties(title,hidden),merges,basicFilter)"}, timeout=120,
         )
         metadata.raise_for_status()
-        names = tuple(sheet["properties"]["title"] for sheet in metadata.json().get("sheets", []))
+        names = tuple(sheet["properties"]["title"] for sheet in metadata.json().get("sheets", []) if sheet["properties"]["title"] != "Sheet36")
         if not names or len(names) != len(set(names)) or not set(INVENTORY_TABS).issubset(names):
             raise ValueError("Incomplete workbook inventory")
         response = session.get(
@@ -199,7 +199,7 @@ def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False)
         if len(ranges) != len(names):
             raise ValueError("Incomplete inventory batch read")
         worksheets = tuple(ReadOnlyWorksheetValues(name, part.get("values", [])) for name, part in zip(names, ranges, strict=True))
-        rows = regional_sheet_properties(worksheets, sheet_id)
+        rows = regional_sheet_properties(worksheets, sheet_id, verified_format_recovery=verified_format_recovery)
         if include_marketing:
             from .google_property_marketing import attach_highlights, read_row_highlights
             rows = attach_highlights(rows, read_row_highlights(session, sheet_id, tuple(ws for ws in worksheets if ws.tab_name != "_REIBB_CACHE")))

@@ -8,6 +8,7 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.canonical_work_view import render_canonical_work
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error, show_warning
 from supabase import create_client
 
@@ -125,6 +126,8 @@ except Exception:
     )
     st.stop()
 
+canonical_tasks = render_canonical_work(get_supabase())
+
 team_result = call_commandcore("commandcore-team-registry", {"action": "list"})
 exception_result = call_commandcore(
     "commandcore-coverage-exception-ledger",
@@ -139,6 +142,18 @@ exceptions = [
     for item in exceptions
     if isinstance(item, dict) and text(item.get("status")).lower() != "resolved"
 ]
+
+# Resolve only unique, verified registry names; do not invent registry IDs.
+if canonical_tasks is None:
+    st.stop()
+for task in canonical_tasks:
+    if str(task.get("status", "")).casefold() in {"done", "completed", "closed", "cancelled", "canceled"}:
+        continue
+    matches = [m for m in members if text(m.get("name")).casefold() == text(task.get("assigned_to") or task.get("assigned_worker")).casefold()]
+    if len(matches) == 1:
+        queue_items.append({"owner_id": matches[0]["id"], "readiness": "BLOCKED" if task.get("status") == "blocked" else "HOLD", "priority": task.get("priority", ""), "canonical_task_id": task["id"]})
+    else:
+        st.warning("An internal task assignee is not uniquely matched to the team registry. Its workload remains visible above; verify registry matching before balancing work.")
 
 assigned: dict[str, list[dict[str, Any]]] = defaultdict(list)
 for item in queue_items:

@@ -45,14 +45,30 @@ def event_from_dict(value):
     item["changes"] = tuple(FieldChange(**x) for x in item["changes"])
     for key in ("categories", "linked_deals", "review_reasons"):
         item[key] = tuple(item[key])
+    item["historical_occurrences"] = tuple(tuple(pair) for pair in item.get("historical_occurrences", ()))
     return PropertyChange(value["event_id"], tuple(value["categories"]), PreviewItem(**item), value.get("detected_at", ""), value.get("priority", "Normal"))
 
 
 def observe_changes(result, rows, properties, preview, previous, source, secret):
+    from .property_sync_preview import HISTORY
     states = dict(previous.source_states)
     by_id = {p.get("id"): p for p in properties}
     current_events, fresh = [], []
     for row, item in zip(rows, preview.items, strict=False):
+        if HISTORY in item.categories:
+            if item.property_id:
+                saved = dict(states.get(item.property_id, {}))
+                evidence = dict(saved.get("source_history", {}))
+                key = digest([source, item.property_id, "source-classified sold/unavailable"])
+                previous_history = evidence.get(key, {})
+                occurrences = [list(pair) for pair in previous_history.get("occurrences", [])]
+                if [row.tab, row.row] not in occurrences:
+                    occurrences.append([row.tab, row.row])
+                evidence[key] = {"classification": "source-classified sold/unavailable", "closing_verified": False,
+                                 "first_observed_at": previous_history.get("first_observed_at", result.checked_at),
+                                 "occurrences": occurrences}
+                states[item.property_id] = {**saved, "source_history": evidence}
+            continue
         if not item.property_id or REVIEW in item.categories:
             continue
         prop = by_id[item.property_id]
@@ -134,7 +150,7 @@ def observe_changes(result, rows, properties, preview, previous, source, secret)
                                    "High" if LOCKBOX in kinds or SOLD_CHANGE in kinds or major else "Normal")
             saved = asdict(event)
             fresh.append(event)
-        states[item.property_id] = {"values": values, "lockbox_fingerprint": current_lock, "revision": revision, "event": saved}
+        states[item.property_id] = {**old, "values": values, "lockbox_fingerprint": current_lock, "revision": revision, "event": saved}
         if saved:
             current_events.append(event_from_dict(saved))
     codes = [str(p["lockbox_code"]) for p in (*properties, *(r.fields for r in rows)) if p.get("lockbox_code") not in (None, "")]

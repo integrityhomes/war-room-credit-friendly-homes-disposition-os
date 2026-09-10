@@ -40,6 +40,7 @@ EVERYDAY_NAVIGATION = (
             NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"),
             NavigationItem("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Work Queue"),
             NavigationItem("pages/52_CommandCore_Property_Sync_Preview.py", "Property Sync Preview"),
+            NavigationItem("pages/53_CommandCore_Property_Baseline.py", "Final Property Baseline"),
             NavigationItem("pages/54_CommandCore_Property_Changes.py", "Property Changes"),
         ),
     ),
@@ -81,6 +82,7 @@ ADMIN_ADVANCED_NAVIGATION = (
             NavigationItem("pages/32_Go_Live_Connection_Center.py", "Connections"),
             NavigationItem("pages/31_16_Channel_Completion_Audit.py", "Marketing Setup Status"),
             NavigationItem(DIAGNOSTIC_PAGE, "Internal Connection Check"),
+            NavigationItem("pages/55_CommandCore_Business_Simulator.py", "Business Simulator"),
         ),
     ),
     NavigationSection(
@@ -156,6 +158,7 @@ pages = {
         st.Page("pages/52_CommandCore_Property_Sync_Preview.py", title="Property Sync Preview", icon="🔎"),
         st.Page("pages/53_CommandCore_Property_Baseline.py", title="Final Property Baseline", icon="📋"),
         st.Page("pages/54_CommandCore_Property_Changes.py", title="Property Changes", icon="🔎"),
+        st.Page("pages/55_CommandCore_Business_Simulator.py", title="Business Simulator", icon="🧪"),
     ],
     "Tasks & Follow-Up": [
         st.Page("pages/35_CommandCore_My_Work.py", title="My Work", icon="👤"),

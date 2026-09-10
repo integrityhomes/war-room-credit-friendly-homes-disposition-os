@@ -18,6 +18,9 @@ def property_question(query):
 def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None):
     query = " ".join(request.split())
     lower = query.casefold()
+    from .corepilot_priority import priority_answer, priority_question
+    if priority_question(query):
+        return priority_answer(records, property_changes, inventory_evidence)
     ctx = dict(context or {})
     from .corepilot_inventory import answer_inventory, inventory_items, inventory_question
     from .corepilot_preparation import preparation_intent, prepare_action

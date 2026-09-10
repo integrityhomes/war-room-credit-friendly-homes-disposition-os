@@ -98,7 +98,7 @@ def prepare_from_snapshot(event_id, rows, properties, source):
 
 def read_review_proposal(secrets, event_id):
     from supabase import create_client
-    rows, source = load_baseline_source(secrets)
+    rows, source = load_baseline_source(secrets, include_marketing=True)
     client = create_client(text(secrets.get("SUPABASE_URL")), text(secrets.get("SUPABASE_SERVICE_ROLE_KEY")))
     return prepare_from_snapshot(event_id, rows, read_canonical_records(client, "properties"), source)
 

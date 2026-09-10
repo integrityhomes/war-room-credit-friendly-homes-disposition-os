@@ -32,7 +32,7 @@ def test_decisions_and_first_evidence_survive_scheduled_runs(reader):
 
 
 def test_live_style_review_controls_are_preview_only(reader, monkeypatch):
-    monkeypatch.setattr("cfh_disposition.property_change_review.load_baseline_source", lambda secrets: (source_rows(), "fictional"))
+    monkeypatch.setattr("cfh_disposition.property_change_review.load_baseline_source", lambda secrets, *, include_marketing: (source_rows(), "fictional") if include_marketing else None)
     page = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages/54_CommandCore_Property_Changes.py"))
     page.secrets.update(SECRETS)
     page.session_state.authenticated = True

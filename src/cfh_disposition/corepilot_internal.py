@@ -55,6 +55,15 @@ def run_internal_command(request, records, *, writer, updater=None, context=None
     if managed is not None:
         return managed
     query = " ".join(request.split()).strip()
+    delegated_followup = re.fullmatch(r"give that follow-up to (.+?)[.!]?", query, re.I)
+    if delegated_followup:
+        names = {str(r.get(k)).strip() for group in records.values() for r in group
+                 for k in ("assigned_to", "assigned_worker") if r.get(k)}
+        matches = [n for n in names if n.casefold() == delegated_followup[1].casefold()]
+        if len(matches) != 1:
+            return CorePilotResult("needs_context", (), (), "Provide a verified assignee; nothing was saved.",
+                                   clarification="Which verified CommandCore assignee should I use?", context=tuple((context or {}).items()))
+        query = f"Have {matches[0]} follow up"
     task = re.fullmatch(r"(?:have (.+?) (?:to )?|give (.+?) a task to |make (me) a task to )(follow up|check|review|call|contact)(.*)", query, re.I)
     saving = bool(re.fullmatch(r"save (?:that|the) (?:reply|response) as a draft[.!]?", query, re.I))
     next_action = bool(re.fullmatch(r"(?:prepare|save|record) (?:the |a )?next (?:action|step)(?: for (?:this|the) (?:deal|property))?[.!]?", query, re.I))
@@ -112,7 +121,7 @@ def run_internal_command(request, records, *, writer, updater=None, context=None
             due = due_date(timing, today)
         except ValueError:
             return clarify("What valid due date should I use?")
-        if not due:
+        if not due and not delegated_followup:
             return clarify("When should this task be due?")
         if re.search(r"\b(and|then|send|approve|sign|pay|delete|publish|apply|transfer|change)\b", task_text, re.I):
             return clarify("Please give me one internal review or follow-up task. Consequential actions remain disabled.")

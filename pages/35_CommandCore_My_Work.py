@@ -7,6 +7,7 @@ from urllib import request
 import streamlit as st
 
 from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.canonical_work_view import render_canonical_work
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     queue_success,
@@ -277,7 +278,7 @@ def show_shift_brief(
         "What was inherited, what needs attention first, and what CommandCore says to do next."
     )
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Open Work", int(brief.get("total_open_work", 0) or 0))
+    c1.metric("Open dispatch work", int(brief.get("total_open_work", 0) or 0))
     c2.metric("Urgent", int(brief.get("urgent_count", 0) or 0))
     c3.metric("Inherited", int(brief.get("inherited_count", 0) or 0))
     c4.metric("Blocked", int(brief.get("blocked_count", 0) or 0))
@@ -320,6 +321,7 @@ render_page_header(
     "See your assigned work and handle the most important item first.",
 )
 show_queued_success()
+render_canonical_work(get_supabase())
 
 try:
     items = load_items()
@@ -360,7 +362,7 @@ reassigned_count = sum(
 )
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Open Work", len(filtered))
+c1.metric("Open dispatch work", len(filtered))
 c2.metric("High Priority", high_count)
 c3.metric("Unassigned", unassigned_count)
 with advanced_settings():

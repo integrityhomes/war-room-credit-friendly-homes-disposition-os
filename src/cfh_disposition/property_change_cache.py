@@ -33,6 +33,7 @@ def decode_result(payload):
         evidence["changes"] = tuple(FieldChange(**item) for item in evidence["changes"])
         for field in ("categories", "linked_deals", "review_reasons"):
             evidence[field] = tuple(evidence[field])
+        evidence["historical_occurrences"] = tuple(tuple(pair) for pair in evidence.get("historical_occurrences", ()))
         return PropertyChange(value["event_id"], tuple(value["categories"]), PreviewItem(**evidence), value.get("detected_at", ""), value.get("priority", "Normal"))
     return DetectionResult(tuple(event(item) for item in payload["changes"]), tuple(event(item) for item in payload["new_events"]),
                            DetectionState.from_checkpoint(payload["state"]), payload["checked_at"], payload["review_rows"], payload["unchanged"],
