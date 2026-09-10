@@ -78,7 +78,7 @@ def build_nevaeh_inbox(
     """Classify existing inbound records without writing, sending, or changing consent."""
     items: list[NevaehInboxItem] = []
     for communication in communications:
-        if _text(communication.get("direction")).casefold() == "outbound":
+        if _text(communication.get("direction")).casefold() in {"outbound", "outbound_draft"} or communication.get("status") == "draft":
             continue
         try:
             context = evaluate_commandcore_communication(

@@ -8,8 +8,9 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.corepilot_conversation import property_question
+from cfh_disposition.corepilot_internal import create_internal_record, run_internal_command
 from cfh_disposition.corepilot_inventory import inventory_question
-from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
+from cfh_disposition.corepilot_orchestrator import CorePilotResult
 from cfh_disposition.corepilot_preparation import preparation_intent
 from cfh_disposition.corepilot_sources import validated_crm_entities
 from cfh_disposition.corepilot_tools import CorePilotActionClass
@@ -111,6 +112,8 @@ def load_corepilot_records() -> tuple[dict[str, list[dict[str, Any]]], dict[str,
 
 
 def render_result(result: CorePilotResult) -> None:
+    if result.status == "internal_done":
+        st.success("DONE — saved internally. NOT SENT.")
     if result.clarification:
         st.info(result.clarification)
     st.markdown("### What I found")
@@ -159,6 +162,7 @@ render_mobile_styles()
 require_password()
 if st.sidebar.button("Log out", key="corepilot_logout"):
     st.session_state.pop("corepilot_context", None)
+    st.session_state.pop("corepilot_pending", None)
     st.session_state.authenticated = False
     st.rerun()
 
@@ -199,10 +203,15 @@ if submitted:
             result = CorePilotResult("safe_failure", (), ("Some canonical sources could not be read; a complete answer cannot be verified.",),
                                      "Try again after source access is restored. No records were changed.")
         else:
-            result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
+            result = run_internal_command(request, records, writer=lambda entity, record: create_internal_record(get_supabase(), entity, record),
+                                   pending=st.session_state.get("corepilot_pending"), current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
                                    current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes,
                                    context=st.session_state.get("corepilot_context", {}), inventory_evidence=inventory_evidence)
             st.session_state["corepilot_context"] = dict(result.context)
+            if result.prepared_action and result.prepared_action.what == "Communication draft":
+                st.session_state["corepilot_pending"] = result
+            elif dict(getattr(st.session_state.get("corepilot_pending"), "context", ())) != dict(result.context):
+                st.session_state.pop("corepilot_pending", None)
         render_result(result)
         if source_errors:
             st.warning("CorePilot couldn't check one part of CommandCore right now. Nothing was changed.")
@@ -213,4 +222,4 @@ if submitted:
         if result.action_class is CorePilotActionClass.APPROVAL_REQUIRED:
             st.caption("CorePilot stopped before the protected action. No approval was granted and nothing was executed.")
 
-st.caption("CorePilot reads existing CommandCore records and can create private preparation previews. It cannot send, sign, approve, publish, spend, or change records.")
+st.caption("CorePilot can create requested internal tasks, save private drafts and record proposed next actions. It cannot send, sign, approve, publish, spend, or change property/deal facts.")

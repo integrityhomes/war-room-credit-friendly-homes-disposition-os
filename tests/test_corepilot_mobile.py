@@ -7,7 +7,7 @@ def test_same_corepilot_page_serves_desktop_and_phone() -> None:
     assert "render_mobile_styles()" in PAGE
     assert "createBrowserTab" not in PAGE
     assert "native app" not in PAGE.casefold()
-    assert PAGE.count("run_corepilot(") == 1
+    assert PAGE.count("run_internal_command(") == 1
 
 
 def test_common_phone_widths_use_one_column_without_horizontal_scroll() -> None:

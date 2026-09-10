@@ -24,6 +24,9 @@ class PreparedAction:
     assignee: str = "Not proposed"
     due_timing: str = "Not specified"
     status: str = "NOT SENT / NOT SAVED"
+    communication_id: str = ""
+    contact_id: str = ""
+    channel: str = ""
 
 
 def preparation_intent(query):
@@ -129,7 +132,8 @@ def prepare_action(query, records, ctx, property_changes=None):
     if kind == "Communication draft":
         message = entities["communication_id"]
         scope = next((k for k in ("deal_id", "property_id", "contact_id") if ctx.get(k)), "")
-        candidates = [m for m in records.get("communications", ()) if scope and _text(_links(m).get(scope) or m.get(scope)) == ctx[scope]]
+        candidates = [m for m in records.get("communications", ()) if scope and _text(_links(m).get(scope) or m.get(scope)) == ctx[scope]
+                      and m.get("direction") == "inbound" and not m.get("archived")]
         if message and scope and message not in candidates:
             return clarify("The selected message does not belong to the current property or deal. Select its conversation again.")
         role = "title" if "title company" in lower else "seller" if "seller" in lower else ""
@@ -159,11 +163,14 @@ def prepare_action(query, records, ctx, property_changes=None):
                 "Existing Nevaeh safety checks require human review.",
                 (("A STOP record requires consent investigation." if stop_recorded else safety.decision.escalation_reason), f"Consent: {safety.consent_state.value}"),
             )
-        return preview(
+        result = preview(
             "Thank you for your message. Could you please share an update or clarify what you need next?",
             "A neutral draft based on the selected recorded communication; no unverified facts or promises added.",
             ("Consent is recorded, but channel-specific authorization must still be checked before any future send.",),
         )
+        from dataclasses import replace
+        return replace(result, prepared_action=replace(result.prepared_action, communication_id=str(message.get("id", "")),
+                                                       contact_id=str(contact_id or ""), channel=str(message.get("channel") or "unknown")))
     if kind == "Proposed property update":
         prop = entities["property_id"]
         if not prop or property_changes is None:
@@ -191,6 +198,9 @@ def prepare_action(query, records, ctx, property_changes=None):
         )
     if kind == "Proposed next action":
         if not deal:
+            if entities["property_id"]:
+                return preview("Review the property's verified facts and linked work before choosing a business action.",
+                               "Internal review recommendation only; no property facts or availability are changed.")
             return clarify("Which deal should I use to prepare its recorded next step?")
         action = build_deal_next_action(dict(deal), _related(deal, records))
         return preview(action.recommended_action, "Recommendation from existing deal tasks and approvals; not completed work.")

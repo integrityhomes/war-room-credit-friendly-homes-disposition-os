@@ -9,6 +9,7 @@ from enum import StrEnum
 class CorePilotActionClass(StrEnum):
     READ = "READ"
     PREPARE = "PREPARE"
+    INTERNAL = "INTERNAL"
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 
 

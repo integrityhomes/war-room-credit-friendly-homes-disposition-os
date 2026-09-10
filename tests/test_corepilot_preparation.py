@@ -10,6 +10,18 @@ from test_corepilot_conversation import records
 from cfh_disposition.corepilot_orchestrator import run_corepilot
 
 
+def private_test_storage():
+    saved = {}
+
+    def upload(path, payload, file_options):
+        assert file_options["upsert"] == "false" and path.split("/")[0] in {"tasks", "activities", "communications"}
+        if path in saved:
+            raise RuntimeError("Duplicate")
+        saved[path] = payload
+
+    return SimpleNamespace(from_=lambda name: SimpleNamespace(upload=upload, download=lambda path: saved[path]))
+
+
 def fixture_records():
     data = records()
     data["contacts"][0].update(relationship="seller", sms_consent=True, assigned_to="Fictional owner")
@@ -106,7 +118,8 @@ def test_real_streamlit_preparation_session(monkeypatch):
         calls.append(payload)
         return {"ok": True, "records": data.get(payload["entity"], [])}
 
-    monkeypatch.setattr("supabase.create_client", lambda *args: SimpleNamespace(functions=SimpleNamespace(invoke=invoke)))
+    storage = private_test_storage()
+    monkeypatch.setattr("supabase.create_client", lambda *args: SimpleNamespace(functions=SimpleNamespace(invoke=invoke), storage=storage))
     st.cache_resource.clear()
     try:
         page = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages/49_CommandCore_Command_Bot.py"))
@@ -149,7 +162,8 @@ def test_property_task_then_reply_preserves_real_page_context(monkeypatch, inter
             raise RuntimeError("Fictional temporary read failure")
         return {"ok": True, "records": data.get(body["entity"], [])}
 
-    monkeypatch.setattr("supabase.create_client", lambda *args: SimpleNamespace(functions=SimpleNamespace(invoke=invoke)))
+    storage = private_test_storage()
+    monkeypatch.setattr("supabase.create_client", lambda *args: SimpleNamespace(functions=SimpleNamespace(invoke=invoke), storage=storage))
     st.cache_resource.clear()
     try:
         page = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages/49_CommandCore_Command_Bot.py"))
@@ -164,7 +178,7 @@ def test_property_task_then_reply_preserves_real_page_context(monkeypatch, inter
 
         ask("Find 101 Example Lane.")
         ask("Have Sabrina follow up tomorrow.")
-        assert any("NOT SENT / NOT SAVED" in x.value for x in page.info)
+        assert any("SAVED INTERNALLY / NOT SENT" in x.value for x in page.info)
         assert page.session_state.corepilot_context == {"property_id": "fictional-property"}
         if interruption == "source_failure":
             failing = True
