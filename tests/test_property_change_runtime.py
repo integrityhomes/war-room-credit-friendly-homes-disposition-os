@@ -15,7 +15,7 @@ def reader(monkeypatch, tmp_path):
     calls = []
     fail = [False]
 
-    def source(secrets):
+    def source(secrets, **kwargs):
         calls.append("sheet read")
         if fail[0]:
             raise RuntimeError("PRIVATE PROVIDER DETAIL")

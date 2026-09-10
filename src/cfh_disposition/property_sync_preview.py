@@ -140,6 +140,7 @@ class SheetProperty:
     fields: Mapping[str, Any]
     external_id: str = ""
     issues: tuple[str, ...] = ()
+    marketing_status: str = "unknown"
 
 
 @dataclass(frozen=True)

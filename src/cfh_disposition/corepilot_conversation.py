@@ -15,10 +15,11 @@ def property_question(query):
     return is_property_change_question(query) or "properties that changed" in query.casefold() or "what changed on it" in query.casefold()
 
 
-def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None):
+def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None):
     query = " ".join(request.split())
     lower = query.casefold()
     ctx = dict(context or {})
+    from .corepilot_inventory import answer_inventory, inventory_items, inventory_question
     from .corepilot_preparation import preparation_intent, prepare_action
     prepare = bool(preparation_intent(query))
     if not prepare and re.search(r"\b(send|text|call|approve|reject|sign|delete|update|apply|edit|create|pay|spend|publish|deploy|transfer)\b", lower):
@@ -51,7 +52,7 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
                 value = _text(_links(deals[0]).get(field) or deals[0].get(field))
                 if value:
                     ctx[field] = value
-    elif re.search(r"\b\d+\s+[a-z]", lower) or lower.startswith("find "):
+    elif (re.search(r"\b\d+\s+[a-z]", lower) or lower.startswith("find ")) and not inventory_question(query):
         return CorePilotResult("needs_context", (), (), "Provide a recorded full address, deal name, or person.", clarification="Which deal or property do you mean?")
     elif not ctx and current_deal_id:
         ctx["deal_id"] = current_deal_id
@@ -65,6 +66,24 @@ def answer(request, records, *, current_deal_id="", current_user="", property_ch
     def finish(result):
         return replace(result, context=tuple(ctx.items()), evidence=result.evidence or tuple(f"{key}: {value}" for key, value in ctx.items()))
 
+    if inventory_question(query):
+        return finish(answer_inventory(query, records, ctx, inventory_evidence, property_changes=property_changes))
+    if "needs my attention" in lower:
+        result = _run_corepilot(query, records, current_user=current_user, property_changes=property_changes)
+        stale = [item for item in inventory_items(records.get("properties", ()), inventory_evidence) if item["priority"]]
+        unknown = sum(item["days_active"] is None and item["marketing_status"] != "white" for item in inventory_items(records.get("properties", ()), inventory_evidence))
+        if stale:
+            return finish(replace(result, what_i_found=tuple(x for x in result.what_i_found if x != "You're caught up.")
+                                  + tuple(f"{i['address']}: {i['priority']} ({i['age_basis']} for {i['days_active']} days)" for i in stale),
+                                  needs_attention=tuple(x for x in result.needs_attention if "Nothing needs" not in x) + (f"{len(stale)} stale properties need review.",),
+                                  recommended_next_step="Review the oldest active property and its buyer/marketing evidence. " + result.recommended_next_step.replace("No action is required.", "")))
+        if unknown:
+            return finish(replace(result, what_i_found=tuple(x for x in result.what_i_found if x != "You're caught up."),
+                                  needs_attention=tuple(x for x in result.needs_attention if "Nothing needs" not in x)
+                                  + (f"{unknown} properties have unverified marketing age; review yellow highlights and marketing dates.",),
+                                  recommended_next_step="Verify missing listing dates before assessing stale inventory. "
+                                  + (result.recommended_next_step if not result.recommended_next_step.startswith("No action") else "")))
+        return finish(result)
     if prepare:
         return finish(prepare_action(query, records, ctx, property_changes))
 

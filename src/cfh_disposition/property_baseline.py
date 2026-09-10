@@ -173,7 +173,7 @@ def import_baseline(*args: Any, **kwargs: Any) -> None:
     raise PermissionError("Baseline import is disabled. No records were written.")
 
 
-def load_baseline_source(secrets: Mapping[str, Any]) -> tuple[tuple[SheetProperty, ...], str]:
+def load_baseline_source(secrets: Mapping[str, Any], *, include_marketing=False) -> tuple[tuple[SheetProperty, ...], str]:
     """Read the existing validated inventory adapter from one live sheet batch."""
     from google.auth.transport.requests import AuthorizedSession
 
@@ -189,10 +189,14 @@ def load_baseline_source(secrets: Mapping[str, Any]) -> tuple[tuple[SheetPropert
         )
         response.raise_for_status()
         ranges = response.json().get("valueRanges", [])
-    if len(ranges) != len(names):
-        raise ValueError("Incomplete inventory batch read")
-    worksheets = tuple(ReadOnlyWorksheetValues(name, part.get("values", [])) for name, part in zip(names, ranges, strict=True))
-    return regional_sheet_properties(worksheets, sheet_id), hashlib.sha256(sheet_id.encode()).hexdigest()
+        if len(ranges) != len(names):
+            raise ValueError("Incomplete inventory batch read")
+        worksheets = tuple(ReadOnlyWorksheetValues(name, part.get("values", [])) for name, part in zip(names, ranges, strict=True))
+        rows = regional_sheet_properties(worksheets, sheet_id)
+        if include_marketing:
+            from .google_property_marketing import attach_highlights, read_row_highlights
+            rows = attach_highlights(rows, read_row_highlights(session, sheet_id, worksheets[:-1]))
+    return rows, hashlib.sha256(sheet_id.encode()).hexdigest()
 
 
 def load_baseline_preview(secrets: Mapping[str, Any]) -> BaselinePlan:

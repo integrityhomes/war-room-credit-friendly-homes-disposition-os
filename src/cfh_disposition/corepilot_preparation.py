@@ -10,7 +10,8 @@ from .commandcore_secretary_context import ConsentReadState, evaluate_commandcor
 from .commandcore_secretary_orchestrator import SecretaryIntent, _classify
 from .corepilot_orchestrator import CorePilotResult, _label, _links, _related, _text
 from .corepilot_tools import CorePilotActionClass
-from .property_change_review import prepare_patch
+from .property_change_review import prepare_patch, proposed_value
+from .property_sync_preview import FIELD_ALIASES, comparable, first
 
 
 @dataclass(frozen=True)
@@ -27,13 +28,17 @@ class PreparedAction:
 
 def preparation_intent(query):
     lower = query.casefold().strip()
-    requested = bool(re.match(r"(?:prepare|draft|write|suggest|have)\b", lower)) or any(t in lower for t in ("what should i say back", "give me the next action"))
+    requested = bool(re.match(r"(?:prepare|draft|write|suggest|have|propose)\b", lower)) or any(t in lower for t in ("what should i say back", "give me the next action"))
     if not requested:
         return ""
     if "task" in lower or lower.startswith("have "):
         return "Proposed task"
     if "approval" in lower or "offer" in lower:
         return "Owner-approval preparation"
+    if any(t in lower for t in ("price change", "down-payment change", "down payment change", "monthly-payment change", "monthly payment change", "terms change")):
+        return "Price/terms proposal"
+    if any(t in lower for t in ("marketing refresh", "listing", "ad copy")):
+        return "Marketing preparation"
     if "property" in lower and "update" in lower:
         return "Proposed property update"
     if any(t in lower for t in ("next step", "next action")):
@@ -72,6 +77,40 @@ def prepare_action(query, records, ctx, property_changes=None):
             return clarify("The selected record could not be found in the current read. Retry the read before preparing an action.")
         return clarify("Which property, deal, contact, or communication should this relate to?")
     deal = entities["deal_id"]
+    if kind in {"Price/terms proposal", "Marketing preparation"}:
+        prop = entities["property_id"]
+        if not prop or comparable("availability", first(prop, FIELD_ALIASES["availability"])) != "available":
+            return clarify("A verified active property is required. No sales or marketing proposal is prepared for unavailable inventory.")
+        source_statuses = [
+            item.proposed for c in (property_changes.changes if property_changes else ()) if c.evidence.property_id == prop.get("id") for item in c.evidence.changes if item.field == "availability"
+        ]
+        if any(comparable("availability", s) != "available" for s in source_statuses):
+            return clarify("The source reports this property is no longer active. Review its availability first.")
+        if kind == "Price/terms proposal":
+            field = "down_payment" if "down" in lower else "monthly_payment" if "monthly" in lower else "asking_or_sale_price" if "price" in lower else ""
+            target = re.search(r"\bto\s+\$?([\d,]+(?:\.\d+)?)\s*[.!]?\s*$", query, re.I)
+            if not field or not target:
+                return clarify("Which price or payment field and exact proposed value should I preview? Aging alone cannot establish a safe target or new legal terms.")
+            value = proposed_value(field, target[1])
+            old = first(prop, FIELD_ALIASES[field])
+            return preview(
+                f"{field}: {old if old not in (None, '') else 'Not recorded'} → {value}",
+                "New value is your unverified proposal, not a source fact or recommendation derived from aging. Owner review and fresh validation are required.",
+            )
+        if "refresh" in lower:
+            return preview(
+                "Verify current availability, price/payment facts, photos and buyer feedback; review existing listing channels and prepare refreshed copy.",
+                "Proposed review checklist only; missing exposure data does not prove insufficient marketing.",
+            )
+        required = ("asking_or_sale_price", "down_payment", "monthly_payment")
+        if any(first(prop, FIELD_ALIASES[field]) in (None, "") for field in required):
+            return clarify("Verify asking price, down payment and monthly payment before preparing listing copy.")
+        return preview(
+            f"Property at {prop.get('address') or prop.get('property_address')}. Recorded asking price: {first(prop, FIELD_ALIASES['asking_or_sale_price'])}. "
+            f"Recorded down payment: {prop.get('down_payment')}. Recorded monthly payment: {first(prop, FIELD_ALIASES['monthly_payment'])}. "
+            "Eligibility and terms require review; approval is not guaranteed. Confirm current availability and terms before use.",
+            "Private copy uses recorded facts only. Condition, market comparisons and financing promises were not inferred.",
+        )
     if kind == "Proposed task":
         match = re.search(r"(?:task for|have)\s+(.+?)\s+(?:to\s+)?(call|check|follow up|review|contact)\b(.*)", query, re.I)
         if not match:

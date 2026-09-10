@@ -2,6 +2,7 @@
 from datetime import UTC, datetime
 from threading import Lock
 
+from .corepilot_inventory import observe_inventory, stale_checkpoint
 from .property_baseline import load_baseline_source
 from .property_change_cache import cache_path, decode_result, encode_result, exclusive_check, read_cache, save_cache
 from .property_change_detection import detect_property_changes
@@ -28,7 +29,7 @@ def read_property_changes(secrets, *, force=False):
         previous = decode_result(cached["result"]).state if cached.get("result") else None
         attempted = datetime.now(UTC).isoformat()
         try:
-            rows, source = load_baseline_source(secrets)
+            rows, source = load_baseline_source(secrets, include_marketing=True)
             client = create_client(text(secrets.get("SUPABASE_URL")), text(secrets.get("SUPABASE_SERVICE_ROLE_KEY")))
             properties = read_canonical_records(client, "properties")
             result = detect_property_changes(rows, properties, source_reference=source, previous=previous)
@@ -40,5 +41,8 @@ def read_property_changes(secrets, *, force=False):
         archive = cached.get("change_evidence", {})
         for item in encoded["changes"]:
             archive.setdefault(item["event_id"], {"detected_at": result.checked_at, "evidence": item})
-        save_cache(path, {**cached, "version": 1, "last_attempt_at": attempted, "error": "", "result": encoded, "change_evidence": archive})
+        observations = observe_inventory(rows, properties, cached.get("inventory_observations"), checked_at=result.checked_at, history=archive)
+        stale = stale_checkpoint(properties, observations, cached.get("stale_inventory"))
+        save_cache(path, {**cached, "version": 1, "last_attempt_at": attempted, "error": "", "result": encoded,
+                          "change_evidence": archive, "inventory_observations": observations, "stale_inventory": stale})
         return result

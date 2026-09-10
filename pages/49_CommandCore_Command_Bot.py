@@ -8,6 +8,7 @@ import streamlit as st
 from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.corepilot_conversation import property_question
+from cfh_disposition.corepilot_inventory import inventory_question
 from cfh_disposition.corepilot_orchestrator import CorePilotResult, run_corepilot
 from cfh_disposition.corepilot_preparation import preparation_intent
 from cfh_disposition.corepilot_sources import validated_crm_entities
@@ -122,7 +123,11 @@ def render_result(result: CorePilotResult) -> None:
         st.warning(item)
     if not result.needs_attention:
         st.caption("Nothing additional was flagged from the records reviewed.")
-    st.markdown("### Recommended next step")
+    if result.inventory_causes:
+        st.markdown("### Why it may not be selling")
+        for cause in result.inventory_causes:
+            st.write(cause)
+    st.markdown("### What I recommend" if result.inventory_causes else "### Recommended next step")
     st.info(result.recommended_next_step)
     if result.prepared_action:
         action = result.prepared_action
@@ -175,11 +180,16 @@ if submitted:
         show_error("CorePilot could not safely read CommandCore records.", next_step="Check the app connection and try again.")
     else:
         property_changes = None
-        if property_question(request) or preparation_intent(request) == "Proposed property update" or "needs my attention" in request.casefold():
+        inventory_evidence = None
+        if (inventory_question(request) or property_question(request)
+                or preparation_intent(request) in {"Proposed property update", "Price/terms proposal", "Marketing preparation"}
+                or "needs my attention" in request.casefold()):
             try:
                 property_changes = read_property_changes(st.secrets)
                 st.caption(f"Property evidence last checked: {property_changes.checked_at}")
-                if latest_property_check(st.secrets).get("error"):
+                checkpoint = latest_property_check(st.secrets)
+                inventory_evidence = checkpoint.get("inventory_observations")
+                if checkpoint.get("error"):
                     st.warning("The last property check failed. Showing the last successful evidence; it may be out of date.")
             except Exception as exc:
                 source_errors["property changes"] = type(exc).__name__
@@ -191,7 +201,7 @@ if submitted:
         else:
             result = run_corepilot(request, records, current_deal_id=str(st.session_state.get("commandcore_selected_deal_id", "")),
                                    current_user=str(st.session_state.get("commandcore_worker_name", "")), property_changes=property_changes,
-                                   context=st.session_state.get("corepilot_context", {}))
+                                   context=st.session_state.get("corepilot_context", {}), inventory_evidence=inventory_evidence)
             st.session_state["corepilot_context"] = dict(result.context)
         render_result(result)
         if source_errors:

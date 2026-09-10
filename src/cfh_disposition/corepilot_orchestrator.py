@@ -25,6 +25,7 @@ class CorePilotResult:
     action_class: CorePilotActionClass = CorePilotActionClass.READ
     context: tuple[tuple[str, str], ...] = ()
     evidence: tuple[str, ...] = ()
+    inventory_causes: tuple[str, ...] = ()
     prepared_action: Any = None
     records_written: int = 0
     external_actions_started: int = 0
@@ -325,8 +326,8 @@ def _run_corepilot(request: str, records: Mapping[str, Sequence[Mapping[str, Any
     return CorePilotResult("needs_context", (), (), "Try one of the quick actions or name a deal, message, task, or approval.", clarification="What would you like CorePilot to find or explain?")
 
 
-def run_corepilot(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None):
+def run_corepilot(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None):
     """Existing read-only operator with session-scoped natural-language resolution."""
     from .corepilot_conversation import answer
     return answer(request, records, current_deal_id=current_deal_id, current_user=current_user,
-                  property_changes=property_changes, context=context)
+                  property_changes=property_changes, context=context, inventory_evidence=inventory_evidence)
