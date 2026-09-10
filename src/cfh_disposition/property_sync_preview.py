@@ -84,13 +84,17 @@ def sheet_address_parts(value: Any, *, verified_format_recovery: bool = False) -
     original = _address_parts({"property_address": value})
     if all(original.values()):
         return original
+    # A spelled-out state immediately before an explicit ZIP is the same address
+    # fact in scheduled reads and reconciliation. Street/city ambiguity checks
+    # below still apply; never obtain components from a tab or another row.
+    state_names = {"West Virginia": "WV", "Illinois": "IL", "Missouri": "MO", "Indiana": "IN", "Virginia": "VA",
+                   "Louisiana": "LA", "Ohio": "OH", "Michigan": "MI", "Mississippi": "MS"}
+    for name, code in state_names.items():
+        value = re.sub(rf"\b{name}(?=[,\s]+\d{{5}}(?:-\d{{4}})?$)", code, value, flags=re.IGNORECASE)
+    # A terminal state abbreviation period is punctuation, not a missing fact.
+    # Require an explicit, separately spaced ZIP; broader recovery stays opt-in.
+    value = re.sub(r"\b([A-Za-z]{2})\.(?=\s+\d{5}(?:-\d{4})?$)", r"\1", value)
     if verified_format_recovery:
-        # Normalize only components explicitly present in the address cell. Never
-        # borrow a city/state/ZIP from a tab name, seller address, or adjacent property.
-        state_names = {"West Virginia": "WV", "Illinois": "IL", "Missouri": "MO", "Indiana": "IN", "Virginia": "VA",
-                       "Louisiana": "LA", "Ohio": "OH", "Michigan": "MI", "Mississippi": "MS"}
-        for name, code in state_names.items():
-            value = re.sub(rf"\b{name}(?=[,\s]+\d{{5}}(?:-\d{{4}})?$)", code, value, flags=re.IGNORECASE)
         value = re.sub(r"\b([A-Za-z]{2})\.?\s*,?\s*(\d{5}(?:-\d{4})?)$", r"\1 \2", value)
         if value.count("|") == 1:
             value = re.sub(r"\s*\|\s*", ", ", value)

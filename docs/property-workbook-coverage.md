@@ -35,9 +35,16 @@ unclassified tabs. Unresolved addresses prevent certifying a final unique-proper
 total; duplicate occurrences and property-candidate review counts remain visible.
 Support entries and unresolved non-property text are not counted as properties.
 
+The normal scheduled reader and reconciliation both normalize an explicitly
+spelled-out supported state immediately before a complete ZIP. They use the
+same unique street/city split checks; missing components and ambiguous splits
+remain blocked. This does not enable financial-field recovery or persist clocks.
+An abbreviation's trailing period is also normalized when followed by a
+separately spaced complete ZIP. Broader spacing recovery remains opt-in.
+
 Reconciliation may opt into `verified_format_recovery=True` on
 `regional_sheet_properties` and `sheet_address_parts`. This normalizes explicit
-state-name/punctuation/ZIP spacing and a single address separator, and removes
+additional punctuation/ZIP spacing and a single address separator, and removes
 unambiguous square-foot or monthly unit suffixes. Missing components, combined
 addresses, alternatives, fees, responsibility notes and conflicting room counts
 remain unresolved. It does not use seller addresses or infer geography from a tab.
@@ -84,6 +91,11 @@ validation. `marketing_checkpoint_preview` uses the existing canonical identity
 matcher with identity-only projections and verified current yellow evidence.
 Financial/detail errors remain on the original source rows for import and
 analysis review; they do not suppress verified canonical marketing eligibility.
+If detail validation leaves parsed availability empty, the aging observer uses
+the verified yellow/white color of a legitimate current inventory row after
+unique canonical matching. Explicit availability is never overridden, and this
+fallback never applies to historical or unverified tabs. No property fact is
+changed by this in-memory aging decision.
 Unmatched yellow sources remain visible in reconciliation without becoming
 canonical properties or acquiring canonical marketing clocks.
 

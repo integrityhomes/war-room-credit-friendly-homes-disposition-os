@@ -184,7 +184,7 @@ def test_numeric_units_never_strip_qualifications(field,value,expected):
 
 def test_verified_format_recovery_requires_opt_in_and_preserves_scheduled_input():
     from cfh_disposition.property_sync_preview import sheet_address_parts
-    address = "101 Example Lane, Example City, Illinois 60000"
+    address = "101 Example Lane, Example City, IL60000"
     sheets = list(worksheets())
     sheets[0] = ReadOnlyWorksheetValues(INVENTORY_TABS[0], [HEADER, [address, *FIRST[1:]]])
     assert not all(sheet_address_parts(address).values())

@@ -53,3 +53,38 @@ def test_identity_color_and_current_row_safety_remain_required(case):
     else:
         rows = [replace(row, issues=("Address is incomplete or ambiguous; verify.",))]
     assert marketing_checkpoint_preview(rows, props, {}, observed_at="2026-09-10")["eligible_count"] == 0
+
+
+@pytest.mark.parametrize("warning", ["Fair cash value must be a number.", "Assessed value must be a number.", "Monthly payment must be a number."])
+def test_identity_and_yellow_age_without_optional_availability_projection(warning):
+    from datetime import date
+
+    from cfh_disposition.corepilot_inventory import inventory_items, observe_inventory
+
+    original = source_row()
+    fields = {k: v for k, v in original.fields.items() if k in {"address", "city", "state", "zip", "zip_code"}}
+    row = replace(original, fields=fields, marketing_status="yellow", issues=(warning,))
+    prop = property_record()
+    source_before = copy.deepcopy(row)
+    start = "2030-01-01T00:00:00+00:00"
+    first = observe_inventory([row], [prop], checked_at=start)
+    pid = prop["id"]
+    assert first[pid]["marketing_observed_since"] == start
+    for at in ("2030-01-01T02:00:00+00:00", "2030-01-01T04:00:00+00:00"):
+        first = observe_inventory([row], [prop], first, checked_at=at)
+        assert first[pid]["marketing_observed_since"] == start
+    for day, priority in ((11, "Needs attention"), (15, "Higher priority"), (22, "Urgent disposition review")):
+        item = inventory_items([prop], first, today=date(2030, 1, day))[0]
+        assert item["days_active"] == day - 1 and item["priority"] == priority
+    for stopped_row in (replace(row, marketing_status="white"),
+                        replace(row, fields={**fields, "availability": "Sold / Unavailable"}),
+                        replace(row, tab="SOLD")):
+        stopped = observe_inventory([stopped_row], [prop], first, checked_at="2030-02-01T00:00:00+00:00")
+        assert not stopped[pid]["marketing_observed_since"]
+        returned = observe_inventory([row], [prop], stopped, checked_at="2030-02-02T00:00:00+00:00")
+        assert returned[pid]["marketing_observed_since"] == "2030-02-02T00:00:00+00:00"
+        assert returned[pid]["marketing_restarted"]
+    for invalid in ([row, replace(row, row=999)], [replace(row, marketing_status="unknown")], [replace(row, tab="Unverified tab")]):
+        result = observe_inventory(invalid, [prop], checked_at=start)
+        assert not result.get(pid, {}).get("marketing_observed_since")
+    assert row == source_before and "availability" not in row.fields

@@ -49,7 +49,7 @@ def observe_inventory(rows, properties, previous=None, *, checked_at=None, histo
         pid = prop.get("id")
         if pid and (pid in prior or prop.get("source") == "cfh-google-sheet"):
             observations[pid] = {**prior.get(pid, {}), "status": "Needs review", "checked_at": checked_at, "marketing_status": "unknown", "marketing_observed_since": ""}
-    from .property_sync_preview import HISTORY, address_key
+    from .property_sync_preview import HISTORY, REGIONAL_TABS, address_key
     history_keys = [address_key(prop) for prop in properties if prior.get(prop.get("id"), {}).get("historical_occurrences")]
     from .property_marketing_eligibility import compare_source_identity
     preview = compare_source_identity(rows, properties, known_history_keys=history_keys)
@@ -62,6 +62,11 @@ def observe_inventory(rows, properties, previous=None, *, checked_at=None, histo
             continue
         old = prior.get(item.property_id, {})
         status = comparable("availability", row.fields.get("availability"))
+        # Detail validation can leave only address fields. Verified current-row
+        # color plus the unique canonical match above is sufficient for aging.
+        # Never override an explicit status or apply this to a historical tab.
+        if not status and row.tab in REGIONAL_TABS and row.marketing_status in {"yellow", "white"}:
+            status = "available"
         values = {key: comparable(key, row.fields.get(key)) for key in PRICE_TERMS}
         fingerprint = digest(values)
         marketed = status == "available" and row.marketing_status == "yellow"

@@ -276,3 +276,38 @@ def test_canonical_read_failure_is_not_an_empty_crm():
     client = SimpleNamespace(storage=SimpleNamespace(from_=lambda name: SimpleNamespace(list=lambda *args: None)))
     with pytest.raises(ValueError):
         read_canonical_records(client, "properties")
+
+
+@pytest.mark.parametrize("address", [
+    "101 N Example St Example City, Illinois 60000",
+    "101 N Example St., Example City, IL. 60000",
+    "101 N Example St, Example City, Illinois 60000",
+    "101 N Example St   Example City,   iLLiNoIs   60000",
+    "101 N Example St\nExample City Illinois 60000",
+    "101 N Example St Example City, IL 60000",
+])
+def test_scheduled_address_state_name_variants_match_same_physical_property(address):
+    from cfh_disposition.property_marketing_eligibility import compare_source_identity
+    sheets = worksheets(row=[address, "", "3", "2", "1200", "5000", "900", "100000"])
+    rows = regional_sheet_properties(sheets, "fictional-sheet")
+    prop = property_record(address="101 N Example St")
+    result = compare_source_identity(rows, [prop])
+    assert result.items[0].property_id == prop["id"]
+    assert REVIEW not in result.items[0].categories
+    # Same source under another spelling is still a duplicate, never a second property.
+    twice = compare_source_identity([rows[0], rows[0]], [prop])
+    assert all(REVIEW in item.categories for item in twice.items)
+    wrong = compare_source_identity(rows, [property_record(address="999 Different Lane")])
+    assert not wrong.items[0].property_id
+
+
+@pytest.mark.parametrize("address", [
+    "101 Example Lane Example City, Illinois",
+    "101 Example Lane Illinois 60000",
+    "101 Example St Charles Ave Example City Illinois 60000",
+    "101 Example Lane NW Example City Illinois 60000",
+    "101 Example Lane Apt 2 Example City Illinois 60000",
+    "101 Example Lane Example City ImaginaryState 60000",
+])
+def test_full_state_names_do_not_relax_ambiguity_or_missing_component_gates(address):
+    assert not all(sheet_address_parts(address).values())
