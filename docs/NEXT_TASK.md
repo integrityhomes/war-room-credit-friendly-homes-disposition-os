@@ -1,5 +1,27 @@
 # CommandCore next task
 
+## END-OF-DAY RESUME POINT — VALIDATE FACEBOOK MARKETPLACE SOURCE + INQUIRY ATTRIBUTION
+
+Stopped before Facebook authentication. On `Resume CommandCore`, read AGENTS.md, SESSION_STATE.md and this file, inspect git status/HEAD, and preserve all committed and private work. This entry supersedes older next-step wording below.
+
+Exact next step: open Facebook inside the Codex in-app browser; Shawn authenticates the existing profile owning the CFH Marketplace listings (reuse a valid session if already present); then perform READ-ONLY source/inquiry validation on an existing listing and inquiry against canonical CommandCore property/contact/deal evidence. No passwords or tokens in Codex. Authentication has NOT started in this Codex browser; the earlier owner-reported session elsewhere was not accessible. Do not claim live validation already passed.
+
+Completed and preserved: Command Bot/CorePilot final closeout, six verified activated staff profiles, existing Gordon local integration, canonical marketing attribution, and Dwelyx property identity. MLK/Delmar identities and live bindings are complete; all historical SOLD/unavailable protections and the documented verification-time limitation remain intact. Never rerun creation or binding to resume.
+
+No Marketplace messages, replies, listings, edits, publishing, boosting or spending occurred. No push/deployment. Preserve manual Marketplace operation, exact identity/duplicate controls, unknown evidence, and verified-closing requirements. No new channel or business-data writes. Local validation evidence is in `docs/marketplace-inquiry-validation.md`; prior targeted tests 138 PASS and full simulator 1,871 PASS / 1 unchanged WARNING / 0 FAIL. The end-of-day checkpoint includes only recovery documents and the already validated Marketplace report/synthetic tests. This session ends here; do not open Facebook until resumed.
+
+## Immediate prerequisite — expose the existing authenticated Facebook tab
+
+Owner confirms the existing seller profile is signed in and a Marketplace listing/inquiry is open. Current browser inventory exposes only the Dwelyx administrator listings tab, so Facebook evidence cannot yet be inspected. Open the existing listing/inquiry in the Codex in-app browser; do not request passwords, tokens or a new account. Then resume the read-only Marketplace validation below. No platform actions or canonical writes were performed; previous test results remain historical and local drafts are preserved.
+
+## VERIFY ONE EXISTING FACEBOOK MARKETPLACE LISTING + INQUIRY USING THE EXISTING SELLER PROFILE, READ-ONLY
+
+Current next step supersedes the recorded start task below. Local validation is complete; live verification waits for Shawn to identify/open the existing profile actually owning the Marketplace listings and their Messenger inquiries. Its exact name is not present in inspected configuration. Do not substitute a business Page, invent an account identity, ask for secrets, or connect another channel.
+
+Marketplace remains MANUAL. Fresh canonical reads contain no Marketplace inquiry/contact/deal attribution. Ledger contents are UNVERIFIED (HTTP 400); bucket exists. Existing source/campaign/post evidence, canonical exact-ID linking, duplicate receipts, multi-touch history and verified-closing protections pass synthetic validation. Preserve Russ marketing ownership, Mars/Nevaeh follow-up and Chase downstream CFD handoff; no handoff or message was executed. Gordon can diagnose local integration sources but does not prove live Facebook health.
+
+See `docs/marketplace-inquiry-validation.md` for the manual receipt design and exact evidence gaps. No new ingestion UI or connector was implemented. Unknown identities stay unknown; no new CRM records. Preserve completed Dwelyx bindings, historical inventory and the verification-time caveat. Targeted tests: 138 PASS / 0 FAIL; Ruff PASS; full `run-6ibe7613`: 1,871 PASS / 1 unchanged controlled cross-process WARNING / 0 FAIL, exit 0, production access attempted false. Uncommitted changes are limited to these two state documents, the validation report and synthetic test file. No checkpoint requested for this phase; no push/deploy/publish/send/spending/credential changes.
+
 ## VALIDATE FACEBOOK MARKETPLACE SOURCE + INQUIRY ATTRIBUTION
 
 Dwelyx property-identity milestone CLOSED by explicit owner instruction on 2026-09-11. This is the current next task and supersedes older next-task/HOLD entries below. It was recorded only; Marketplace validation has not begun.
