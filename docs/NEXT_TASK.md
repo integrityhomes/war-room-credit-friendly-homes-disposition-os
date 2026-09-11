@@ -1,7 +1,19 @@
 # CommandCore next task
 
 ## Exact next task
-Await Shawn's instruction for the recommended staff workflow readiness milestone: review workloads, handoffs, verified budget evidence, and unresolved profile details without assignments or external execution.
+INTEGRATE EXISTING GORDON BOT WITH COMMANDCORE
+
+Command Bot closeout is complete locally: the scoped staff-routing/context fixes passed 128 live-backed checks and the entire final-code simulator (1,770 PASS, 1 unchanged controlled cross-process WARNING, 0 FAIL). No Gordon integration work has started. Extend the existing Gordon and canonical CommandCore architecture when that milestone begins; this checkpoint does not authorize deployment, business writes, spending, communications, or real assignments.
+
+The user authorized only the routing/context repairs and local checkpoint. Phrase recognition, specialist-first routing, availability-based backup, concise ambiguity clarification and verified linked-context retention are complete. Verification used live registry reads and local page code, with a fictional in-memory graph for the complete linked handoff absent from live data. No live business records changed and nothing was pushed or deployed.
+
+Prior blocked-run evidence remains as history in `docs/SESSION_STATE.md`; the new passing final-code results supersede it. The existing coverage-inventory limits and single-worker restriction remain documented.
+
+## Next milestone boundary
+Gordon integration is now the next milestone. Recover the existing Gordon implementation and its interfaces before proposing changes; do not duplicate the bot or canonical CRM. No integration action was performed in this closeout session.
+
+## Deferred future milestone
+Staff workflow readiness: review workloads, handoffs, verified budget evidence, and unresolved profile details. Deferred by Shawn for later; preserve this milestone.
 
 ## Approval gate
 Status: ACTIVATION COMPLETE — Shawn explicitly approved activation in this conversation on 2026-09-11. Carlos, Chase, Mars, Gabe, Gerald, and Russ were created and verified in the existing canonical registry at 13:27:16 UTC. All six profiles and questionnaires match their source exactly; repeat provisioning made no writes. Shawn and Sabrina retain owner-level authority; none of these six profiles grants owner approval authority. Grant and Fort remain deferred. "Resume CommandCore" authorizes recovery only and must not repeat this completed task or enable further consequential actions.

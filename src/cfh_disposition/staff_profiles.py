@@ -107,19 +107,35 @@ def route_function(function, records, *, backup_for=None):
             return []
         return [m for m in members if m["profile"].get("universal_staff_backup")
                 and m["id"] != target["id"] and m.get("availability") == "available"]
-    return [m for m in members if function in m["profile"]["functions"] and m.get("availability") == "available"]
+    qualified = [m for m in members if function in m["profile"]["functions"]]
+    specialists = [m for m in qualified if not m['profile'].get('universal_staff_backup')]
+    available = [m for m in specialists if m.get('availability') == 'available']
+    if available:
+        return available
+    # A backup is a fallback for an existing specialist, not an implicit primary
+    # for any function. Operations management is the backup operator's own role.
+    return [m for m in qualified if m.get('availability') == 'available'
+            and (specialists or function == 'operations_management')]
 
 
 def requested_function(text):
-    import re
-    patterns = {r"\b(?:title|closing|cfd)\b": 'closing_coordination',
-                r"\b(?:seller|agent|fsbo|off.market)\b": 'acquisitions',
-                r"\b(?:buyer|showing)\b": 'buyer_followup',
-                r"\b(?:social|advertising|ad)\b": 'property_marketing',
-                r"\b(?:xleads|list import)\b": 'lead_data_operations',
-                r"\b(?:ghl|crm automation)\b": 'crm_automation'}
-    matches = {v for k, v in patterns.items() if re.search(k, text, re.I)}
+    matches = requested_functions(text)
     return next(iter(matches)) if len(matches) == 1 else None
+
+
+def requested_functions(text):
+    """Recognize work lanes; keep competing meanings for clarification."""
+    import re
+    text = re.sub(r'\bbuyer[ -]+onboarding\b', 'onboarding', text, flags=re.I)
+    patterns = {r"\b(?:title|closing|cfd)\b": 'closing_coordination',
+                r"\bonboarding\b": 'buyer_onboarding',
+                r"\b(?:sellers?|agents?|fsbo|off.market|acquisitions?|offers?|counteroffers?)\b": 'acquisitions',
+                r"\b(?:buyer|showing)\b": 'buyer_followup',
+                r"\b(?:social|advertising|ads?|marketing)\b": 'property_marketing',
+                r"\b(?:xleads|list (?:import|intake|organization|assignment))\b": 'lead_data_operations',
+                r"\b(?:ghl|gohighlevel|crm|automation)\b": 'crm_automation',
+                r"\boperations(?: management)?\b": 'operations_management'}
+    return {v for k, v in patterns.items() if re.search(k, text, re.I)}
 
 
 def handoff_targets(member, event, records):

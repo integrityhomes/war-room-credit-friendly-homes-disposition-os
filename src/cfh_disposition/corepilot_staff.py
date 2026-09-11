@@ -1,7 +1,48 @@
 """Natural-language staff reads over canonical profiles and My Work."""
 import re
 
-from .staff_profiles import configured_members, resolve_member, route_function, work_for
+from .staff_profiles import configured_members, requested_functions, resolve_member, route_function, work_for
+
+
+def owner_routing_question(text):
+    return bool(re.search(r'\bowner[ -](?:level |approval)|\bapprove\b', text, re.I))
+
+
+def routing_context(records, context):
+    """Resolve only unique canonical IDs and consistent links; never write records."""
+    keys = {'task_id': 'tasks', 'deal_id': 'deals', 'property_id': 'properties', 'contact_id': 'contacts'}
+    original = dict(context or {})
+    resolved = dict(original)
+    selected = {}
+    while True:
+        pending = [key for key in keys if resolved.get(key) and key not in selected]
+        if not pending:
+            break
+        for key in pending:
+            matches = [r for r in records.get(keys[key], ()) if r.get('id') == resolved[key] and not r.get('archived')]
+            if len(matches) != 1:
+                return original, '', 'Which current canonical record should I use?'
+            row = selected[key] = matches[0]
+            links = row.get('links') or {}
+            for linked in keys:
+                values = {v for v in (row.get(linked), links.get(linked)) if v}
+                if len(values) > 1 or any(resolved.get(linked) and resolved[linked] != value for value in values):
+                    return original, '', 'Which record should I use to resolve the conflicting links?'
+                if values:
+                    resolved[linked] = values.pop()
+    # The selected task describes the work; a linked deal's broad stage must not
+    # override it. IDs/addresses/person names are never interpreted as work lanes.
+    for key in keys:
+        if key not in selected:
+            continue
+        row = selected[key]
+        fields = ('title', 'task_type', 'description') if key == 'task_id' else ('next_action', 'stage', 'work_type')
+        evidence = ' '.join(str(row.get(field) or '') for field in fields)
+        if requested_functions(evidence) or owner_routing_question(evidence):
+            return resolved, evidence, ''
+        if key == 'task_id':
+            break
+    return resolved, '', ''
 
 
 def staff_answer(query, records, context=None):
@@ -60,19 +101,39 @@ def staff_answer(query, records, context=None):
                      ("Owner approval authority does not transfer. Coverage has not been saved.",),
                      "Review this temporary coverage in the existing Coverage screen.")
     if re.search(r"who (?:can cover|should handle|handles)", q, re.I):
+        if owner_routing_question(q):
+            return reply(('Shawn or Sabrina must make owner-level approval decisions.',),
+                         ('Staff delegation and backup never confer owner approval authority.',))
         if re.search(r"cover|someone is out", q, re.I):
-            backups = [m for m in members if m['profile'].get('universal_staff_backup')]
+            backups = [m for m in members if m['profile'].get('universal_staff_backup') and m.get('availability') == 'available']
             return reply(tuple(f"{m['name']} — {m['profile']['title']}" for m in backups),
                          ('Operational backup does not confer owner approval authority.',))
-        lanes = {'title': 'closing_coordination', 'closing': 'closing_coordination', 'buyer': 'buyer_followup',
-                 'seller': 'acquisitions', 'agent': 'acquisitions', 'social': 'property_marketing',
-                 'xleads': 'lead_data_operations', 'automation': 'crm_automation'}
-        functions = {v for k, v in lanes.items() if k in q.casefold()}
-        if len(functions) != 1:
+        functions = requested_functions(q)
+        basis = 'the requested work'
+        if not functions:
+            resolved, evidence, question = routing_context(records, context)
+            ctx = tuple(resolved.items())
+            if question:
+                return reply(question=question)
+            if owner_routing_question(evidence):
+                return reply(('Shawn or Sabrina must make owner-level approval decisions.',),
+                             ('Staff delegation and backup never confer owner approval authority.',))
+            functions = requested_functions(evidence)
+            basis = 'the selected canonical work and its verified links'
+        if not functions:
             return reply(question="Is this buyer follow-up, a closing issue, acquisitions, marketing, or CRM/list work?")
-        matches = route_function(functions.pop(), records)
-        return reply(tuple(f"{m['name']} — {m['profile']['title']}" for m in matches)
-                     or ('No available configured staff member matches this work.',))
+        choices = [route_function(function, records) for function in sorted(functions)]
+        candidate_ids = {m['id'] for group in choices for m in group}
+        if len(candidate_ids) != 1 or any(not group for group in choices):
+            names = sorted({m['name'] for group in choices for m in group})
+            return reply(question=(f"Should this go to {' or '.join(names)}?" if len(names) > 1 else
+                                   'Which work lane or available specialist should I use?'))
+        member = choices[0][0]
+        backup = member['profile'].get('universal_staff_backup') and functions != {'operations_management'}
+        return reply((f"{member['name']} — {member['profile']['title']}",),
+                     ('Operational backup does not confer owner approval authority.',) if backup else (),
+                     f"Recommended {'backup because the specialist is unavailable' if backup else 'specialist'} for {basis}. "
+                     'Context is retained; no assignment or handoff was saved.')
     profile = re.fullmatch(r"(?:show|review) (.+?)(?:'s|’s) (?:staff )?profile", q, re.I)
     if profile:
         member = resolve_member(profile[1], records)
