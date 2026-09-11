@@ -101,9 +101,50 @@ def _binding_refs(original, bindings, records):
 def save(client, record):
     """Explicit caller boundary; not wired to live ingestion or UI commands."""
     from .corepilot_internal import create_internal_record
-    if record.get("activity_type") not in {"marketing_touch", "marketing_identity_link"} or record.get("execution_key") != _hash(record.get("attribution")):
+    if record.get("activity_type") not in {"marketing_touch", "marketing_identity_link", "marketing_property_identity"} or record.get("execution_key") != _hash(record.get("attribution")):
         raise ValueError("Invalid attribution activity")
+    if record.get("activity_type") == "marketing_property_identity":
+        payload = record["attribution"]
+        if (set(payload) != {"namespace", "external_id", "property_id", "evidence"}
+                or record != _activity("marketing_property_identity", [payload["namespace"], payload["external_id"]], payload)):
+            raise ValueError("Invalid property identity activity")
     return create_internal_record(client, "activities", record)
+
+
+def property_identity(namespace, external_id, property_id, evidence, records):
+    """Prepare a reviewed property-only crosswalk; never a lead or marketing period.
+
+    Caller must verify the exact reconciliation and authorization before save.
+    Stable source/ID keys make retries create-only, including conflicting targets.
+    """
+    if (not namespace or not external_id or not property_id or not evidence
+            or not _time(evidence.get("verified_at"))
+            or evidence.get("match_result") not in {"VERIFIED EXACT", "VERIFIED NORMALIZED ADDRESS MATCH"}):
+        raise ValueError("Verified property evidence is required")
+    props = [p for p in records.get("properties", ()) if p.get("id") == property_id and not p.get("archived")]
+    if len(props) != 1:
+        raise ValueError("A unique existing property is required")
+    ref = {"source": namespace, "external_id": external_id}
+    existing = _property_candidates(ref, records)
+    if any(p.get("id") != property_id for p in existing):
+        raise ValueError("Conflicting property binding")
+    payload = {"namespace": namespace, "external_id": external_id, "property_id": property_id, "evidence": deepcopy(evidence)}
+    return _activity("marketing_property_identity", [namespace, external_id], payload)
+
+
+def _property_candidates(ref, records):
+    props = records.get("properties", ())
+    ids = {p.get("id") for p in props if ref.get("source") and ref.get("external_id")
+           and p.get("source") == ref["source"] and p.get("external_id") == ref["external_id"]}
+    for activity in records.get("activities", ()):
+        payload = activity.get("attribution", {})
+        if (activity.get("source") == "corepilot-internal" and not activity.get("archived")
+                and activity.get("activity_type") == "marketing_property_identity"
+                and activity.get("execution_key") == _hash(payload)
+                and payload.get("namespace") == ref.get("source") and payload.get("external_id") == ref.get("external_id")):
+            ids.add(payload.get("property_id"))
+    # Missing targets must cause resolution failure, not silently select another.
+    return [p for p in props if p.get("id") in ids] + [{"id": None} for pid in ids if not any(p.get("id") == pid for p in props)]
 
 
 def resolve(references, records):
@@ -116,7 +157,7 @@ def resolve(references, records):
                 continue
             rows = records.get(KINDS[key], ())
             if isinstance(ref, dict):
-                candidates = [r for r in rows if ref.get("source") and ref.get("external_id")
+                candidates = _property_candidates(ref, records) if key == "property_id" else [r for r in rows if ref.get("source") and ref.get("external_id")
                               and r.get("source") == ref["source"] and r.get("external_id") == ref["external_id"]]
             else:
                 candidates = [r for r in rows if r.get("id") == ref]

@@ -260,3 +260,62 @@ def test_canonical_task_links_and_archived_records(records):
     assert project(records)[0]["contact_id"] == "contact-1"
     records["contacts"][0]["archived"] = True
     assert project(records)[0]["contact_id"] == UNKNOWN
+
+
+def test_property_crosswalk_is_not_a_touch_and_preserves_inventory(records, observations):
+    from cfh_disposition.marketing_attribution import property_identity, resolve
+    before = deepcopy(records)
+    period_before = deepcopy(observations)
+    evidence = {"verified_at": WHEN, "match_result": "VERIFIED NORMALIZED ADDRESS MATCH", "original_listing_id": "listing-1"}
+    link = property_identity("dwelyx", "listing-1", "property-1", evidence, records)
+    client = fake_client(records)
+    assert save(client, link)
+    assert save(client, link) is False
+    assert resolve({"property_id": {"source": "dwelyx", "external_id": "listing-1"}}, records) == ({"property_id": "property-1"}, ())
+    assert project(records, observations) == []
+    assert observations == period_before
+    assert all(records[k] == before[k] for k in records if k != "activities")
+    assert link['attribution']['evidence'] == evidence
+    assert 'marketing_period' not in link['attribution']
+
+
+@pytest.mark.parametrize('status', ['Sold / Unavailable', 'Available'])
+def test_property_crosswalk_does_not_create_closings_or_rewrite_touches(records, status):
+    from cfh_disposition.marketing_attribution import property_identity
+    records['properties'][0]['availability'] = status
+    a = touch('synthetic', 'old-inquiry', {'occurred_at': WHEN, 'status': 'Closed'},
+              references={'property_id': {'source': 'dwelyx', 'external_id': 'listing-1'}})
+    records['activities'].append(a)
+    before = deepcopy(a)
+    records['activities'].append(property_identity('dwelyx', 'listing-1', 'property-1',
+        {'verified_at': WHEN, 'match_result': 'VERIFIED EXACT'}, records))
+    row, = project(records)
+    assert row['property_id'] == 'property-1'
+    assert row['result'] == row['contact_id'] == row['deal_id'] == UNKNOWN
+    assert not row['current_marketing']
+    assert a == before
+    assert records['properties'][0]['availability'] == status
+
+
+@pytest.mark.parametrize('classification', ['AMBIGUOUS', 'NO MATCH', 'UNRESOLVED'])
+def test_property_crosswalk_rejects_unverified_classification(records, classification):
+    from cfh_disposition.marketing_attribution import property_identity
+    with pytest.raises(ValueError):
+        property_identity('dwelyx', 'listing-1', 'property-1', {'verified_at': WHEN, 'match_result': classification}, records)
+
+
+def test_property_crosswalk_conflicting_target_fails_without_overwrite(records):
+    from cfh_disposition.marketing_attribution import property_identity, resolve
+    evidence = {'verified_at': WHEN, 'match_result': 'VERIFIED EXACT'}
+    client = fake_client(records)
+    save(client, property_identity('dwelyx', 'listing-1', 'property-1', evidence, records))
+    records['properties'].append({'id': 'property-2'})
+    with pytest.raises(ValueError):
+        property_identity('dwelyx', 'listing-1', 'property-2', evidence, records)
+    isolated = {**records, 'activities': []}
+    conflicting = property_identity('dwelyx', 'listing-1', 'property-2', evidence, isolated)
+    with pytest.raises(RuntimeError):
+        save(client, conflicting)
+    assert len(records['activities']) == 1
+    records['activities'].append(conflicting)
+    assert resolve({'property_id': {'source': 'dwelyx', 'external_id': 'listing-1'}}, records)[1]

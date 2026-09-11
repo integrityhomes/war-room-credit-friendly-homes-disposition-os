@@ -1,9 +1,77 @@
 # CommandCore next task
 
-## Exact next task
-VALIDATE READ-ONLY MARKETING CHANNEL CONNECTIONS
+## Approved property bindings applied — 2026-09-11
 
-## Current status — local canonical attribution phase 1 complete
+Shawn explicitly approved ONLY the prior VERIFIED EXACT / unique VERIFIED NORMALIZED ADDRESS MATCH property mappings. The approved 11 rows were revalidated against a fresh, complete canonical snapshot before execution. Three NO MATCH rows were excluded. Original reviewed Listing IDs, address/status/seller-account evidence, operator-view provenance, review digest and scoped owner authorization were preserved in append-only canonical activity payloads. No address matching runs automatically in production.
+
+Implementation extends the existing attribution activity architecture with `marketing_property_identity` and the existing create-only `save` boundary. One deterministic activity key per namespace/external Listing ID blocks duplicate/conflicting bindings. The resolver can use these activities for explicit property references; they are not marketing touches and do not create lead counts, contacts, periods or closings. No new store, schema, connector, live ingestion, UI action or deployment was introduced.
+
+Live result at 2026-09-11T18:22:43Z: 11 activities created, 11 of 14 Listing IDs verified through persisted bindings, 3 unresolved, 0 ambiguous mappings written. Same-payload duplicate retry created 0 additional records. Before/after reads found 184 properties, 0 contacts, 0 deals, 0 transactions, 0 communications and 1 existing task; all preexisting canonical records remained byte-identical. Activities changed only from 0 to the 11 planned property bindings. Existing inventory cache and credentials remained byte-identical. All existing current-yellow periods/history stayed unchanged; both matched historical SOLD/unavailable properties remain inactive. No buyer, closing or other business record was created. No status wording was treated as closing evidence.
+
+Private ignored execution/preservation evidence: `.commandcore-runtime/dwelyx-property-bindings-applied.json` (417 reads; 11 successful creates plus 11 create-only duplicate checks). The private reconciliation report is the preserved pre-write owner-review snapshot, not a live mapping store. Do not commit private reports, real IDs/addresses or the one-shot execution helper. Production write authorization is fulfilled; do not rerun the batch to resume.
+
+Current post-write targeted tests: 46 PASS / 0 WARNING / 0 FAIL, production access attempted false (`run-eodt3y7f`). Pre-write full simulator: 1,851 PASS / 1 controlled cross-process WARNING / 0 FAIL (`run-v4p4iamc`). Post-write full simulator: 1,851 PASS / 1 unchanged controlled cross-process WARNING / 0 FAIL, exit 0, production access attempted false (`run-t_91ejoo`). Warning identity/content matches the pre-write run exactly. Ruff and diff checks pass. Initial targeted sandbox output permission failure was resolved by running the same isolated launcher with approved host access. Runtime remains Python 3.13.15 versus engineering target 3.12; no runtime was changed.
+
+Exact next task: REVIEW THREE UNRESOLVED DWELYX PROPERTY IDENTITIES AND EXISTING OWNED-WEB RUNTIME SCOPE. Keep Marketplace and every other channel deferred. Buyer/contact reconciliation remains unresolved; no contacts, buyers, deals or closings are authorized. The hosted owned-web route remains unverified; no app wake/config change was performed. Shawn/Sabrina authority, staff routing, budgets and Gordon boundaries remain unchanged.
+
+All required post-write validation passed. Local checkpoint: `Record approved Dwelyx property identity bindings` (obtain exact hash from git HEAD). Checkpoint scope: attribution module/tests and the three preserved audit/state documents; private execution and reconciliation evidence remain ignored. No push or deployment; no further production action is authorized by a test PASS.
+
+## Current reconciliation review — 2026-09-11; STOP for Shawn
+
+Latest user explicitly authorized read-only reconciliation of the same 14 listing IDs and unique normalized address comparisons. Authenticated Approved submissions and Inquiry Inbox were re-inspected. Fresh complete bounded canonical reads: 184 properties, 0 contacts, 0 deals, 0 transactions; 188 successful reads, no production writes. Initial sandbox proxy connection failed; the approved bounded network retry succeeded. No application code changed and no tests rerun for this evidence-only task; prior test totals below are historical.
+
+Results: 0 explicit-ID VERIFIED EXACT matches; 11 VERIFIED NORMALIZED ADDRESS MATCH rows (including identical address strings, classified by address evidence); 0 ambiguous; 3 NO MATCH / UNRESOLVED. Standard Street/St expansion resolves one prior unmatched candidate. No fuzzy identities, missing directions or ZIP conflicts accepted. Buyer/contact matches 0; 12 unresolved request-level comparisons, all test-marked, not 12 unique genuine buyers. Stored request provenance verified for 12 (5 showing, 7 contact-seller), without stable upstream event IDs or full tracked-link correlation. No verified deal/closing evidence. Seller labels prove only account provenance; one legacy listing has only an importer owner marker.
+
+Private ignored review table and separate event/inventory reconciliation: `.commandcore-runtime/dwelyx-reconciliation-review.md` and `.json`. Contains all 14 requested fields; never commit these private records. Nine matched current/yellow periods preserved; two matched historical SOLD/unavailable properties remain inactive. Five current matched properties retain historical SOLD occurrences. Inventory cache bytes unchanged. Nothing was imported, bound, merged or written to business data. Hosted app remains unresolved/asleep based on the earlier observation and was not woken. No other channel, configuration/status change, message, spend, commit, push or deployment.
+
+All 14 proposed rows await Shawn review before any mapping write; 3 property exceptions require existing identity evidence, and request/contact plus importer provenance remain unresolved. Do not interpret review as authority to create missing records. Exact next task: AWAIT SHAWN REVIEW OF DWELYX RECONCILIATION; NO MAPPING WRITES. Keep Marketplace deferred. HEAD unchanged at `e226855c956ea6fae042f7f07b3df4870cbea3bc`; preserve the three prior uncommitted audit documents and all private/ignored work.
+
+## Current status — authenticated Dwelyx evidence inspected; closeout HOLD
+
+Shawn's authenticated operator session was used read-only. Do not ask for Dwelyx login again while valid. Existing pages showed 11 CFH approved seller submissions and 12 test-marked inquiries (5 showing, 7 contact-seller) referencing 3 additional IDs. Fourteen unique Listing IDs were compared with fresh canonical data: no explicit canonical property references, 10 address candidates only, all 14 mappings UNRESOLVED. Canonical contacts/deals/transactions remain empty in this snapshot. One stored receipt references an inspected Listing ID, without a canonical join. Seller labels establish platform provenance, not title; no Closed status proves closing.
+
+Owned web and Dwelyx remain PARTIAL. The existing Streamlit deployment is visibly asleep; the wake button was not clicked. Hosted route/config consistency remains unverified. No listing/status changes, sends, publishing, spending, credentials/configuration changes, mapping saves, new connector, migration, commit, push or deployment occurred. No other channel was started.
+
+Current targeted attribution/closing tests: 39 PASS / 0 WARNING / 0 FAIL, production access attempted false. See the newest SESSION_STATE.md section and `docs/marketing-readonly-validation.md` for evidence and limits. Private comparison output is `.commandcore-runtime/dwelyx-authenticated-comparison-20260911.json`. HEAD remains `e226855c956ea6fae042f7f07b3df4870cbea3bc`; preserve all existing uncommitted/ignored work. Only three audit/state documents are dirty.
+
+Next action: review exact unresolved crosswalk evidence and owner scope for resuming the existing sleeping owned-web runtime. No automatic mapping, fuzzy merge, buyer import, backfill or app wake is authorized. Consequential operations remain HOLD absent applicable owner approval. After this path is resolved, manual Marketplace source/inquiry evidence is the next safest proposed channel; do not begin it now. All staff/owner/budget/Gordon/preservation restrictions remain unchanged.
+
+## Historical handoff — existing Dwelyx login open, 2026-09-11
+
+The user authorized only existing Dwelyx/owned-web read-only verification and explicitly required Shawn to sign in himself. Recovery matched HEAD `e226855c956ea6fae042f7f07b3df4870cbea3bc`; the prior three uncommitted audit documents remain preserved. The in-app browser had no existing tabs/session evidence. Following the configured Dwelyx entry page's visible Log In → Seller Login menu opened `https://www.dwelyx.com/seller/login`. The page shows the existing seller email/password login form. No field was filled, form submitted, new account created, password reset or configuration changed. This establishes the published seller login route, not that a particular account owns CFH listings or grants admin access.
+
+STOP / awaiting Shawn: sign into the existing CFH Dwelyx seller/operator account used to manage its listings, directly in the opened browser tab. Minimum purpose is read-only listing/property IDs, source/event provenance and existing buyer relationships; never paste credentials or secrets into Codex. Tab was retained for handoff. After Shawn confirms sign-in, inspect only authorized existing records, preserve UNRESOLVED IDs, and do not broaden account permissions. Streamlit login/configuration review is deferred until this first handoff is resolved; no unrelated login is requested. Do not proceed to Marketplace or any other channel.
+
+Read-only verification is authorized after the user's sign-in; writes, publishing, sends, listing/configuration changes, spending, credentials changes, new integrations, commit, push and deployment remain prohibited. No tests were rerun for opening the login page; earlier test and live-audit results remain historical. Both connections remain PARTIAL and actual identity mapping remains unresolved. Exact immediate next task: AWAIT SHAWN SIGN-IN TO EXISTING DWELYX SELLER ACCOUNT, THEN RESUME READ-ONLY VERIFICATION.
+
+## Exact next task
+REVIEW THREE UNRESOLVED DWELYX PROPERTY IDENTITIES AND EXISTING OWNED-WEB RUNTIME SCOPE
+
+## Current status — focused local verification PASS; live path PARTIAL
+
+66 targeted isolated owned-web/Dwelyx/attribution checks passed with 0 warnings, 0 failures and no production access attempted. Local existing configuration and inventory-period evidence were read without changes. Full evidence and all ten checks are in the focused follow-up in `docs/marketing-readonly-validation.md` and at the top of SESSION_STATE.md. HEAD remains `e226855c956ea6fae042f7f07b3df4870cbea3bc`; preserve all prior uncommitted documentation and ignored/private work. Do not commit, push or deploy.
+
+Owned web and Dwelyx remain PARTIAL. Actual property identity and contact attribution remain WARNING; passing synthetic controls does not prove real canonical links. Do not infer missing contact/deal/post/list identity or closings, relabel test-like events, backfill activities or create duplicate business records.
+
+STOP before authenticated external verification. Shawn must authorize read-only access to the existing Credit Friendly Homes Dwelyx operator/admin account for buyer/property mappings and original event/delivery provenance, and owner-authorized read-only inspection of the existing CFH Streamlit Community Cloud deployment for hosted configuration and rendered routes. Do not create new accounts, request unrelated credentials, change secrets or submit a lead. HTTP 303 alone did not prove a private viewer login is required. Resume only the scoped authorized inspection once access is available.
+
+Next safest channel after this path is resolved: existing assisted Marketplace post/inquiry/source evidence, read-only and manual; do not begin it now. Consequential operations remain HOLD absent explicit applicable owner approval. Existing staff roles, Shawn/Sabrina authority, paid-budget gates, Gordon's local-diagnostics boundary, single-worker controls and Grant/Fort deferral remain intact.
+
+## Historical status — read-only channel validation complete; no commit
+
+Read `docs/marketing-readonly-validation.md` for the grouped matrix and full evidence, and the top of SESSION_STATE.md for current results. HEAD remains `e226855c956ea6fae042f7f07b3df4870cbea3bc`. Only documentation is dirty; private ignored audit evidence/helper is preserved. Do not commit, push, deploy, connect or activate anything merely to resume.
+
+Google source reads work. Backend marketing/canonical reads and receiver health checks succeeded, but no complete real inbound lead → canonical contact/property/deal attribution chain is proven. Canonical contacts/deals/attribution activities are empty in the inspected snapshot. Seven clicks are unclassified. Of five Dwelyx receipts marked non-test, three have test/smoke identifiers; none of the six receipts has a CFH property ID. The other two are not verified real leads. The approved legacy campaign and two legacy buyers do not authorize a new import or prove identity continuity.
+
+Next action is owner review of provenance and an exact identity reconciliation proposal using existing records. Keep UNKNOWN; preserve all original evidence and historical SOLD/current periods. Do not automatically relabel, delete, copy, merge or create records. Any eventual internal import/binding/backfill needs an explicitly reviewed scope and the existing approval/preservation controls; no new CRM/store is approved.
+
+Safest order after review: existing owned web/Google/Dwelyx evidence → manual Marketplace/Groups/classifieds/Nextdoor/offline/XLeads evidence → existing SMS/email/reactivation/GHL receipts → organic social account reads → paid Meta/Google reads only after authorized existing account access, with ChatGPT Ads a separate owner decision. Stop only a channel needing credentials, reauthorization, a paid service or a new connector; never invent access. The CFH entry returned 303 (not followed); Dwelyx registration returned 200; neither is a completed capture test.
+
+Live sends, posts, ad launches, spending, budget/credential changes, migrations, production connectors, push and deployment remain HOLD absent applicable explicit owner approval. Only Shawn/Sabrina approve weekly budgets; Russ operates within approved scope, with 75% warning, 90% escalation, 100% block and no automatic rollover. Preserve all staff roles, Carlos backup without owner authority, Grant/Fort deferral and single-worker controls. Gordon can assist only through its existing bounded local technical diagnostics; remote monitoring and execution were not activated.
+
+Current audit had no production writes, paid API calls or credential-file changes. Initial transient Supabase errors were followed by successful bounded rechecks/retrieval; their failed counts must not be used as empty-store evidence. The request guard blocked an unallowlisted IAM request without transmission. Historical simulator totals below were not rerun for this documentation/read-only task.
+
+## Historical status — local canonical attribution phase 1 complete
 
 The user explicitly authorized only the minimum attribution bridge, synthetic verification, state updates and a local checkpoint. Marketing touches and later exact identity bindings now reuse canonical activities and existing contact/property/deal/task/communication links. No duplicate CRM/store, provider schema change or database migration. Original evidence and multiple touches remain intact; missing identity and uncertain periods/results remain UNKNOWN. Buyer closings require verified canonical evidence, never a filled/sold label or acquisition closing.
 
