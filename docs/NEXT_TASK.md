@@ -1,5 +1,13 @@
 # CommandCore next task
 
+## VALIDATE FACEBOOK MARKETPLACE SOURCE + INQUIRY ATTRIBUTION
+
+Dwelyx property-identity milestone CLOSED by explicit owner instruction on 2026-09-11. This is the current next task and supersedes older next-task/HOLD entries below. It was recorded only; Marketplace validation has not begun.
+
+Preserve implementation checkpoint `3705db9d5ecd5127b28fccf91eec9d8e2b46acb6`, both successful current-property bindings, all historical SOLD/unavailable evidence, and the documented fixed verification-time limitation with separate actual completion timestamp. Do not replay the repair or create new properties or marketing periods. Prior verification: 13 original IDs bound, zero unresolved ACTIVE identities, zero duplicates; targeted 65 PASS, full simulator 1,863 PASS / 1 unchanged controlled cross-process WARNING / 0 FAIL. This closeout changes documentation only; those tests were not rerun.
+
+For the next task, retain existing canonical attribution and assisted/manual Marketplace rules. No publication, messages, spending, deployment or push is authorized by this closeout. No contacts/deals/closings were established by the property-identity milestone. Existing owner approvals and preservation controls remain in force. Local closeout checkpoint only; obtain its hash with git log -1.
+
 ## Current task complete — minimal canonical property identities
 
 The latest owner approval supersedes the historical source-validation STOP below. The two approved CURRENT properties now each exist exactly once in canonical storage and have their verified live Dwelyx listing bound. Original source rows, optional unknown facts and historical evidence remain preserved; no duplicate property or marketing period was created. Reconciliation: 13 of 14 original IDs bound, zero unresolved ACTIVE properties, one deliberately unbound historical SOLD exception. Archived duplicate existence remains OWNER CONFIRMED with ID UNVERIFIED and does not block property identity completion.

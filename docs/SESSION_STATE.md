@@ -1,5 +1,15 @@
 # CommandCore session state
 
+## Dwelyx property-identity milestone CLOSED — 2026-09-11
+
+Owner explicitly requested closeout and a local documentation checkpoint. Exact next task: VALIDATE FACEBOOK MARKETPLACE SOURCE + INQUIRY ATTRIBUTION. This supersedes the earlier HOLD next-task text below; validation has not started in this closeout.
+
+Implementation checkpoint `3705db9d5ecd5127b28fccf91eec9d8e2b46acb6` is preserved. Both approved current-property bindings remain untouched. All historical SOLD/unavailable evidence, including the deliberately unbound historical exception and previously bound historical properties, remains unchanged. No production reads or writes were needed for this documentation-only closeout. Preserve the fixed verification-time limitation and the separate actual completion timestamp documented below; do not rewrite the original evidence.
+
+Prior completed verification remains 13 of 14 original IDs bound, zero unresolved ACTIVE identities, zero duplicate properties; targeted 65 PASS and full simulator 1,863 PASS / 1 controlled cross-process WARNING / 0 FAIL. These tests were not rerun for this documentation-only change. Current verification: recovered state and HEAD agree; only the two state documents are changed for this checkpoint, with whitespace validation. Private source and repair evidence remain ignored and untouched. No push, deployment, publication or communication. Obtain the closeout checkpoint hash with git log -1.
+
+The recorded next task does not authorize publishing, sending, paid actions or automated Marketplace operation. Preserve canonical identities, history, owner approval controls and existing single-worker restrictions. Do not infer verified contacts, deals or closings from this property-only milestone.
+
 ## Owner-approved minimal property repair completed — 2026-09-11
 
 The latest explicit owner decision supersedes the source-validation STOP below: verified unique street/city/state establishes these two CURRENT identities; optional facts remain null. Two minimal canonical properties and two append-only live Dwelyx property bindings were created using the existing bucket, create-only writes and source lock. Owner-confirmed fields, original source references, alternate source evidence and historical SOLD occurrences were preserved. No new marketing period was created. Archived duplicate existence is OWNER CONFIRMED; its unavailable ID remains UNVERIFIED without blocking the live identity. The third, historical SOLD exception remains unavailable and unbound.
