@@ -164,11 +164,51 @@ def address_label(record: Mapping[str, Any]) -> str:
 
 
 def address_key(record: Mapping[str, Any]) -> str:
-    value = address_label(record)
-    # A complete address is required for fallback; a street alone is not unique.
-    if not re.search(r",\s*[A-Za-z]{2}\s+\d{5}(?:-\d{4})?\s*$", value):
+    parts = sheet_address_parts(address_label(record))
+    if not all(parts.values()):
         return ""
-    return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+    street = header_key(parts["address"]).split()
+    directions = dict(zip(("north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest"),
+                          ("n", "s", "e", "w", "ne", "nw", "se", "sw"), strict=True))
+    if len(street) > 2:
+        street[1] = directions.get(street[1], street[1])
+        street[-1] = directions.get(street[-1], street[-1])
+    # Normalize suffixes only in street position; never rewrite city names or
+    # equate Road with Drive. Units, directions and ZIP extensions stay distinct.
+    suffixes = {"street": "st", "avenue": "ave", "road": "rd", "drive": "dr", "lane": "ln", "court": "ct",
+                "boulevard": "blvd", "place": "pl", "terrace": "ter", "circle": "cir", "parkway": "pkwy"}
+    suffix_index = -2 if street and street[-1] in directions.values() else -1
+    if len(street) > abs(suffix_index):
+        street[suffix_index] = suffixes.get(street[suffix_index], street[suffix_index])
+    return " ".join((*street, header_key(parts["city"]), parts["state"].lower(), header_key(parts["zip_code"])))
+
+
+def verified_address_parts(value: Any, candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Recover omitted street suffix only from one complete matching source row.
+
+    A whole address including explicit city/state/ZIP must agree. No inferred
+    city split, fuzzy spelling, road-name initials, unit removal or ZIP repair.
+    """
+    original = sheet_address_parts(value)
+    if all(original.values()):
+        return original
+    def tokens(raw):
+        aliases = {"west": "w", "east": "e", "north": "n", "south": "s", "illinois": "il"}
+        return [aliases.get(t, t) for t in header_key(raw).split()]
+    wanted = tokens(value)
+    matches = []
+    for candidate in candidates:
+        parts = sheet_address_parts(address_label(candidate))
+        if not all(parts.values()):
+            continue
+        street = tokens(parts["address"])
+        suffixes = {"st", "street", "ave", "avenue", "rd", "road", "dr", "drive", "ln", "lane",
+                    "ct", "court", "blvd", "boulevard", "pl", "place", "ter", "terrace", "cir", "circle"}
+        if street and street[-1] in suffixes:
+            street = street[:-1]
+        if wanted == street + tokens(parts["city"]) + tokens(parts["state"]) + tokens(parts["zip_code"]):
+            matches.append(parts)
+    return matches[0] if len(matches) == 1 else original
 
 
 def comparable(field: str, value: Any) -> str:
@@ -292,6 +332,8 @@ def regional_sheet_properties(worksheets: Sequence[Any], source_reference: str, 
             source_fields = read_source_fields(section_headers, values, address_column=address_column)
             mapped["property_address"] = leading
             parts = sheet_address_parts(leading, verified_format_recovery=verified_format_recovery)
+            if not all(parts.values()):
+                parts = verified_address_parts(leading, cache_rows)
             if all(parts.values()):
                 mapped.update(parts)
             for field in ("beds", "baths", "square_feet", "down_payment", "total_monthly_payment", "sales_price", "interest_rate",

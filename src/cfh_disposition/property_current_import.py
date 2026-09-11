@@ -108,3 +108,57 @@ def execute_current_import(client, rows, *, source_reference_hash, approved_snap
                 "yellow": sum(r["sync_metadata"]["marketing_status"] == "yellow" for r in payloads),
                 "white": sum(r["sync_metadata"]["marketing_status"] == "white" for r in payloads),
                 "historical_only_imported": 0, "deals_created": 0, "deletions": 0, "sheet_writes": 0, "checkpoints_written": 0}
+
+
+def prepare_minimal_owner_identity(address, city, state, *, source_reference_hash, provenance, zip_code=None):
+    """Explicit owner-confirmed identity; optional property facts stay unknown."""
+    from .property_sync_preview import address_label
+    if not provenance or not source_reference_hash or not all(isinstance(v, str) and v.strip() for v in (address, city, state)):
+        raise ValueError("Verified address and provenance required")
+    fields = {"address": address, "city": city, "state": state.upper(), "zip": zip_code}
+    key = address_key({**fields, "zip": "00000"})  # Sentinel used only for identity comparison; never a stored ZIP.
+    if not key:
+        raise ValueError("Unambiguous street/city/state required")
+    return {**{k: None for k in FIELD_ALIASES}, **fields,
+            "id": deterministic_property_id("cfh-owner-confirmed:" + source_reference_hash, key),
+            "entity_type": "properties", "source": "cfh-google-sheet", "external_id": None,
+            "availability": "Available", "archived": False, "links": {},
+            "sync_metadata": {"source_reference_hash": source_reference_hash, "identity_only": True,
+                              "owner_confirmed_fields": ["address", "city", "state", "availability"],
+                              "provenance": provenance, "closing_verified": False,
+                              "verified_address": address_label(fields)}}
+
+
+def minimal_identity_matches(record, properties):
+    """Ignore optional ZIP, never house number/direction/street/city/state."""
+    key = address_key({**record, "zip": "00000", "zip_code": "00000"})
+    return [p for p in properties if key and address_key({**p, "zip": "00000", "zip_code": "00000"}) == key]
+
+
+def ensure_minimal_owner_identity(client, record, *, lock_path, owner_approved=False):
+    """Use canonical create-only storage under the same existing source lock."""
+    if not owner_approved or not record.get("sync_metadata", {}).get("identity_only"):
+        raise PermissionError("Explicit minimal-identity approval required")
+    with exclusive_check(lock_path):
+        before = read_canonical_records(client, "properties")
+        matches = minimal_identity_matches(record, before)
+        if len(matches) > 1 or any(p.get("archived") for p in matches):
+            raise ValueError("Ambiguous or archived canonical identity")
+        if matches:
+            return matches[0], False
+        if any(p.get("id") == record["id"] for p in before):
+            raise ValueError("Canonical ID collision")
+        now = datetime.now(UTC).isoformat()
+        payload = {**record, "created_at": now, "updated_at": now}
+        path = "properties/" + record["id"] + ".json"
+        bucket = client.storage.from_("commandcore-crm-core")
+        try:
+            bucket.upload(path, json.dumps(payload, sort_keys=True).encode(), file_options={"content-type": "application/json", "upsert": "false"})
+        except Exception:
+            existing = json.loads(bucket.download(path))
+            if any(existing.get(k) != v for k, v in record.items()):
+                raise RuntimeError("Uncertain create cannot be verified") from None
+            return existing, False
+        if json.loads(bucket.download(path)) != payload:
+            raise RuntimeError("Canonical identity read-back mismatch")
+        return payload, True
