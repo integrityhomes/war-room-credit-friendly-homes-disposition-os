@@ -60,6 +60,15 @@ def property_details(prop, records, observations):
 
 
 def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None, gordon=None, gordon_job=None):
+    if request.strip().casefold().rstrip("?.!") in {"show marketing attribution", "show marketing identity continuity"}:
+        from .marketing_attribution import UNKNOWN, project
+        rows = project(records, inventory_evidence)
+        return CorePilotResult(
+            "complete", (f"Recorded marketing touches: {len(rows)}", f"Verified buyer closings: {len({r['closing_id'] for r in rows if r['closing_id'] != UNKNOWN})}"),
+            tuple(f"{r['touch_id']}: identity needs verification" for r in rows if r['issues']),
+            "Review exact canonical links. Channel ingestion and execution remain disabled.",
+            evidence=tuple(f"{r['channel']} → {r['property_id']} → {r['contact_id']} → {r['deal_id']} → {r['result']}" for r in rows),
+        )
     from .corepilot_gordon import gordon_answer
     technical = gordon_answer(request, gordon, gordon_job)
     if technical is not None:

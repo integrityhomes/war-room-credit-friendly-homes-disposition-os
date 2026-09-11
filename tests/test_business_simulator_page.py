@@ -19,7 +19,9 @@ def test_simulator_results_screen_uses_only_isolated_results(monkeypatch, tmp_pa
         raise AssertionError("Viewing results must not execute a new run")
 
     monkeypatch.setattr(business_simulator, "launch", forbidden_launch)
-    page = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages/55_CommandCore_Business_Simulator.py"))
+    # Match the other simulator UI tests: traced cold Streamlit startup can exceed
+    # the framework's three-second default. Keep all isolation assertions intact.
+    page = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages/55_CommandCore_Business_Simulator.py"), default_timeout=30)
     page.session_state.authenticated = True
     page.run()
     assert not page.exception

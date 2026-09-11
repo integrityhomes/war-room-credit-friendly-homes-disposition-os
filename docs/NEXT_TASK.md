@@ -1,7 +1,37 @@
 # CommandCore next task
 
 ## Exact next task
-CONNECT EXISTING MARKETING CHANNELS TO COMMANDCORE THROUGH VERIFIED GORDON/COREPILOT ARCHITECTURE
+VALIDATE READ-ONLY MARKETING CHANNEL CONNECTIONS
+
+## Current status — local canonical attribution phase 1 complete
+
+The user explicitly authorized only the minimum attribution bridge, synthetic verification, state updates and a local checkpoint. Marketing touches and later exact identity bindings now reuse canonical activities and existing contact/property/deal/task/communication links. No duplicate CRM/store, provider schema change or database migration. Original evidence and multiple touches remain intact; missing identity and uncertain periods/results remain UNKNOWN. Buyer closings require verified canonical evidence, never a filled/sold label or acquisition closing.
+
+Current-session checks: 87 targeted/regression PASS / 0 FAIL; full simulator 1,844 PASS / 1 unchanged controlled cross-process WARNING / 0 FAIL, exit 0 and production access attempted false. Ruff and diff checks PASS. The initial full run and isolated recheck hit the existing results-screen three-second startup timeout; that test now uses the other simulator UI tests' 30-second allowance, with assertions unchanged. Its recheck and final full run passed. Evidence paths, initial failures and coverage limits are recorded at the top of SESSION_STATE.md. Local checkpoint title: `Bridge marketing attribution to canonical CommandCore identities`; read its hash with `git log -1` and preserve all ignored/private work.
+
+Next scope: read-only validation of existing channel receipts, exact canonical crosswalks and verified closing evidence, following the preserved audit order below. Do not connect/activate channels, backfill/write production attribution, send, publish, spend, change credentials, migrate, push or deploy merely to resume. Those actions remain HOLD absent the applicable explicit owner approval. No real marketing account, live crosswalk or production closing was certified in phase 1. Insufficient observation timestamps or stale canonical SOLD state remain UNKNOWN. No automatic live ingestion is wired; stable upstream receipt IDs and reviewed exact bindings are prerequisites.
+
+CorePilot remains the front door; Gordon remains the existing bounded technical worker. Russ owns advertising; Mars + Nevaeh buyer follow-up; Chase closing; Gerald CRM/automation; Gabe acquisitions; Carlos staff backup. Shawn/Sabrina retain sole owner authority. Preserve existing paid-budget controls, staff profiles, Grant/Fort deferral and single-worker limitations. The historical audit and staff/Gordon milestones below are evidence, not renewed execution approval.
+
+## Historical status — marketing audit before phase 1
+
+The user authorized only an audit and updates to these two recovery files, with no commit. The complete 16-channel matrix, architecture findings, configuration evidence and proposed test order are at the top of SESSION_STATE.md. No connection, external read/test POST, publication, communication, ad activation, spending, credentials change, production data change, migration, push or deployment occurred. Application and Gordon code are unchanged.
+
+Current HEAD remains `c0fd65a91cba741c847f597841299a5c778de44c`, main ahead 8. Only SESSION_STATE.md and NEXT_TASK.md have uncommitted audit updates. Preserve existing ignored/private records. Prior Gordon and simulator test totals below are historical.
+
+Key audit results:
+- Existing catalog: 15 property channels plus separate ChatGPT Ads; all have software/planning workflows. Static completion reports 10 ready in intended modes, not 10 verified live external connections.
+- Owned property/blog/market pages use existing internal routes. Assisted Marketplace/Groups/classifieds/Nextdoor remain manual. Instagram/TikTok/YouTube optional adapter is absent locally.
+- General automation selects the existing CommandCore receiver; external executors remain disabled. SMS endpoint is present; downstream authentication/delivery unknown. Reactivation is configured by general-webhook fallback, not a verified sender. Email sender and Meta/Google account settings are absent locally. Local Supabase/Google/Dwelyx signing configuration exists; remote validity/deployment was not tested.
+- Existing marketing tables (`cfh_properties`, `cfh_buyers`) and canonical CRM IDs need verified continuity. Reuse existing source/external_id/links; no new CRM or migration.
+- Attribution has channel/campaign/property clicks and signed Dwelyx buyer/outcome events, but no canonical contact/deal/post IDs in that event contract. Marketplace native inquiries require source capture. ChatGPT Ads is missing from the shared attribution mapper despite the static tracked label. Verified closing evidence must be distinct from home-filled status.
+- Russ owns all advertising; Mars + Nevaeh buyer follow-up; Chase CFD/closing; Gerald CRM/GHL/XLeads/data/automation; Gabe acquisitions; Carlos universal staff backup; Shawn/Sabrina owner authority. Nevaeh's repository implementation is review/recommendation, not a proved live phone/follow-up connection.
+- Preserve current-week owner-approved caps, Russ's within-cap scope, 75/90/100 alert/escalation/block and no automatic rollover. The helper exists and pure synthetic threshold checks passed; paid pages remain daily/monthly planning and no live spend/alert integration is proved. Older manager wording does not grant owner authority.
+- Gordon may help with bounded technical diagnosis only; current source-metadata jobs do not implement remote provider health or publishing. No Gordon task was executed for this audit.
+
+Historical proposed next action (superseded for phase 1 above): Shawn reviews the audit and authorizes the scope of read-only identity/attribution/connection validation. Proposed order is canonical IDs and attribution first; Google/owned-web/Dwelyx reads; manual-channel source capture; existing SMS then email/dedicated reactivation; optional social adapter decision; paid Meta/Google last; ChatGPT Ads separately after attribution and current platform verification. No sends or publications in these validation steps. Any live action retains its own applicable owner approval. Do not commit yet.
+
+The remainder records the completed Gordon milestone and standing staff preservation controls; it does not grant marketing execution authority.
 
 Existing Gordon local read-only handshake is complete. The user explicitly resumed the paused drafts; review found no unrelated changes. The original Gordon at `C:\Users\msb75\CodingBot\workspace\bot_dev` was reused in place at `6f87bd47f722ac9c50e02e2a715f0c3296af940b`. The supplied `bot\_dev` path is absent; do not recreate it or copy Gordon.
 
