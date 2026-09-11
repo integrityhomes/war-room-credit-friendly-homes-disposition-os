@@ -1,16 +1,23 @@
 # CommandCore next task
 
 ## Exact next task
-INTEGRATE EXISTING GORDON BOT WITH COMMANDCORE
+CONNECT EXISTING MARKETING CHANNELS TO COMMANDCORE THROUGH VERIFIED GORDON/COREPILOT ARCHITECTURE
 
-Command Bot closeout is complete locally: the scoped staff-routing/context fixes passed 128 live-backed checks and the entire final-code simulator (1,770 PASS, 1 unchanged controlled cross-process WARNING, 0 FAIL). No Gordon integration work has started. Extend the existing Gordon and canonical CommandCore architecture when that milestone begins; this checkpoint does not authorize deployment, business writes, spending, communications, or real assignments.
+Existing Gordon local read-only handshake is complete. The user explicitly resumed the paused drafts; review found no unrelated changes. The original Gordon at `C:\Users\msb75\CodingBot\workspace\bot_dev` was reused in place at `6f87bd47f722ac9c50e02e2a715f0c3296af940b`. The supplied `bot\_dev` path is absent; do not recreate it or copy Gordon.
 
-The user authorized only the routing/context repairs and local checkpoint. Phrase recognition, specialist-first routing, availability-based backup, concise ambiguity clarification and verified linked-context retention are complete. Verification used live registry reads and local page code, with a fictional in-memory graph for the complete linked handoff absent from live data. No live business records changed and nothing was pushed or deployed.
+CorePilot remains the front door, Gordon the bounded technical worker, and CommandCore the canonical system of record. The connection reuses Gordon's adapter, safety controls, job IDs, duplicate journal, owner-action rejection, deadline handling and normalized audit/result envelope. Normal business work remains with existing staff; mixed technical/staff requests clarify. The production page does not instantiate Gordon. All real worker verification used synthetic local source fixtures; no business records were forwarded to Gordon.
 
-Prior blocked-run evidence remains as history in `docs/SESSION_STATE.md`; the new passing final-code results supersede it. The existing coverage-inventory limits and single-worker restriction remain documented.
+Final current-session results: 20 real-adapter tests PASS; targeted simulator 103 PASS / 0 WARNING / 0 FAIL; live-backed read-only smoke 142 PASS / 0 FAIL, zero mutation attempts and byte-identical registry; full simulator 1,809 PASS / 1 unchanged controlled cross-process WARNING / 0 FAIL, exit 0, production access attempted false. Ruff and diff checks PASS. Exact evidence paths and earlier corrected/failed runs are retained in SESSION_STATE.md. Local checkpoint title: `Verify existing Gordon local handshake and CorePilot routing`; obtain its hash with `git log -1`.
 
 ## Next milestone boundary
-Gordon integration is now the next milestone. Recover the existing Gordon implementation and its interfaces before proposing changes; do not duplicate the bot or canonical CRM. No integration action was performed in this closeout session.
+
+Proceed only when the user authorizes the next milestone. First inspect existing marketing channels and existing canonical adapters through this verified architecture; no second bot or duplicate CRM/task/business-data store. No marketing connection, publication, communications, spending, credential change, schema migration, deployment or push was performed or authorized by this checkpoint.
+
+HOLD for live Gordon activation and consequential operations absent the applicable explicit owner approval. Shawn/Sabrina retain sole owner-level approval authority. Staff activation is already complete; do not repeat it. Keep Grant/Fort deferred and preserve the current single-worker restrictions.
+
+Remaining limits: source-only metadata inspection cannot verify remote connector health; Gordon is synchronous and has no remote approval-resume protocol; full distributed concurrency remains unproved; local Python remains 3.13.15 versus the 3.12 engineering target. See `docs/gordon-local-handshake.md` for the fixed inspection contract and retry/journal requirements. Coverage inventory remains 230 PASS / 6 WARNING modules with previously documented limits. Private evidence and questionnaires remain ignored; recheck the worktree on recovery.
+
+The following staff preservation and authority record remains in force; its earlier smoke results are historical.
 
 ## Deferred future milestone
 Staff workflow readiness: review workloads, handoffs, verified budget evidence, and unresolved profile details. Deferred by Shawn for later; preserve this milestone.

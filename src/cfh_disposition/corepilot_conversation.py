@@ -59,7 +59,11 @@ def property_details(prop, records, observations):
                            "Review the recorded evidence; missing facts need verification.", evidence=tuple(public_evidence(v, codes) for v in evidence))
 
 
-def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None):
+def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None, gordon=None, gordon_job=None):
+    from .corepilot_gordon import gordon_answer
+    technical = gordon_answer(request, gordon, gordon_job)
+    if technical is not None:
+        return technical
     from .corepilot_staff import staff_answer
     staff = staff_answer(request, records, context)
     if staff is not None:
