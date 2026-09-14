@@ -15,16 +15,21 @@ from urllib.request import Request, urlopen
 
 from .ai_campaign import CampaignPackage
 from .channels import CHANNELS, MarketingChannel
+from .meta_compliance_gate import (
+    META_CHANNELS,
+    META_COMPLIANCE_POLICY_VERSION,
+    MetaComplianceResult,
+)
 from .models import OwnerFinanceProperty
 
 AUTOMATION_EVENT = "credit_friendly_homes.campaign.approved"
-AUTOMATION_SCHEMA_VERSION = "1.4"
+AUTOMATION_SCHEMA_VERSION = "1.5"
 AUTOMATION_TIMEOUT_SECONDS = 30
 AUTOMATION_RESPONSE_LIMIT = 12_000
 COMMANDCORE_RECEIVER_PATH = "/functions/v1/commandcore-channel-receiver"
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds", "nextdoor"}
-FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace"}
+FACEBOOK_ON_PLATFORM_NO_LINK_CHANNELS = {"marketplace", "facebook_groups"}
 INTERNAL_LIVE_CHANNELS = {"property_page"}
 CONFIRMED_EXTERNAL_STATUSES = {"accepted", "queued", "scheduled", "sent", "published", "posted", "live"}
 
@@ -128,11 +133,14 @@ def _copy_source(package: CampaignPackage, channel_key: str) -> str:
         raise ValueError(f"Unknown marketing channel: {channel_key}") from exc
 
 
-def _marketplace_on_platform_copy(source: str) -> str:
+def _facebook_on_platform_copy(source: str, channel_key: str) -> str:
     without_urls = URL_PATTERN.sub("", source)
     lines = [line for line in without_urls.splitlines() if "dwelyx" not in line.lower()]
     cleaned = "\n".join(lines).strip()
-    cta = "Send us a Facebook Marketplace message for complete purchase terms, property questions, and next steps."
+    if channel_key == "marketplace":
+        cta = "Send us a Facebook Marketplace message for complete purchase terms, property questions, and next steps."
+    else:
+        cta = "Send us a Facebook message for complete purchase terms, property questions, and next steps."
     if cta.lower() not in cleaned.lower():
         cleaned = f"{cleaned}\n\n{cta}" if cleaned else cta
     return cleaned
@@ -140,8 +148,8 @@ def _marketplace_on_platform_copy(source: str) -> str:
 
 def channel_copy_with_link(package: CampaignPackage, channel_key: str, tracked_link: str) -> str:
     source = _copy_source(package, channel_key).strip()
-    if channel_key in FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS:
-        return _marketplace_on_platform_copy(source)
+    if channel_key in FACEBOOK_ON_PLATFORM_NO_LINK_CHANNELS:
+        return _facebook_on_platform_copy(source, channel_key)
     if URL_PATTERN.search(source):
         return URL_PATTERN.sub(tracked_link, source)
     return f"{source}\n\nCreate or log in to a Dwelyx buyer account: {tracked_link}"
@@ -162,24 +170,42 @@ def _property_payload(item: OwnerFinanceProperty) -> dict[str, Any]:
     }
 
 
+def _meta_gate_reason(meta_compliance: MetaComplianceResult | None, channel_key: str) -> str:
+    if channel_key not in META_CHANNELS:
+        return ""
+    if meta_compliance is None:
+        return (
+            "Meta compliance status was not supplied. Publication is fail-closed until account health "
+            "and the applicable Meta policy checks are reviewed."
+        )
+    return meta_compliance.block_reason(channel_key)
+
+
 def build_automatic_launch_payload(property_record: OwnerFinanceProperty, package: CampaignPackage,
     links_by_key: Mapping[str, Mapping[str, str]], *, campaign: str, approved_by: str,
     approved_at: datetime | None = None, marketplace_blocked: bool = False,
-    marketplace_block_reason: str = "") -> dict[str, Any]:
+    marketplace_block_reason: str = "", meta_compliance: MetaComplianceResult | None = None) -> dict[str, Any]:
     timestamp = approved_at or datetime.now(UTC)
     channel_payloads: list[dict[str, Any]] = []
     for channel in CHANNELS:
         row = links_by_key[channel.key]
         tracked_link = str(row["Tracked Dwelyx link"])
         action = launch_action_for_channel(channel)
-        marketplace_no_link = channel.key in FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS
-        posting_blocked = channel.key == "marketplace" and marketplace_blocked
+        no_public_link = channel.key in FACEBOOK_ON_PLATFORM_NO_LINK_CHANNELS
+        block_reasons: list[str] = []
+        if channel.key == "marketplace" and marketplace_blocked:
+            block_reasons.append(marketplace_block_reason or "Marketplace posting safety gate is active.")
+        meta_reason = _meta_gate_reason(meta_compliance, channel.key)
+        if meta_reason:
+            block_reasons.append(meta_reason)
+        posting_blocked = bool(block_reasons)
+        block_reason = " | ".join(dict.fromkeys(block_reasons))
         channel_payloads.append({
             "channel_key": channel.key, "channel_name": channel.name, "channel_mode": channel.mode.value,
             "launch_action": action.value, "requires_manual_final_post": action == LaunchAction.MANUAL_FINAL_POST,
-            "posting_blocked": posting_blocked, "block_reason": marketplace_block_reason if posting_blocked else "",
-            "public_external_link_allowed": not marketplace_no_link,
-            "tracked_buyer_link": None if marketplace_no_link else tracked_link,
+            "posting_blocked": posting_blocked, "block_reason": block_reason,
+            "public_external_link_allowed": not no_public_link,
+            "tracked_buyer_link": None if no_public_link else tracked_link,
             "copy": "" if posting_blocked else channel_copy_with_link(package, channel.key, tracked_link),
         })
     return {
@@ -188,9 +214,24 @@ def build_automatic_launch_payload(property_record: OwnerFinanceProperty, packag
         "campaign": campaign, "property": _property_payload(property_record),
         "buyer_destination": {"purpose": "Dwelyx buyer registration or login only",
             "publish_property_to_dwelyx": False, "property_sync_to_dwelyx": False,
-            "facebook_marketplace_direct_link": False, "facebook_groups_direct_link": True,
+            "facebook_marketplace_direct_link": False, "facebook_groups_direct_link": False,
             "nextdoor_direct_link": True},
         "marketplace_monthly_gate": {"blocked": marketplace_blocked, "reason": marketplace_block_reason},
+        "meta_compliance_gate": (
+            meta_compliance.as_dict()
+            if meta_compliance is not None
+            else {
+                "policy_version": META_COMPLIANCE_POLICY_VERSION,
+                "decision": "BLOCK",
+                "blocked_channels": list(META_CHANNELS),
+                "findings": [{
+                    "rule_id": "META-GATE-000",
+                    "decision": "BLOCK",
+                    "channels": list(META_CHANNELS),
+                    "message": "Meta compliance status was not supplied; Meta publication is fail-closed.",
+                }],
+            }
+        ),
         "channels": channel_payloads,
         "response_contract": {
             "dispatch_is_asynchronous": True,
@@ -285,7 +326,9 @@ def automation_plan_rows() -> list[dict[str, str]]:
         if action == LaunchAction.INTERNAL_LIVE:
             result = "The property landing page is live in this app when the property passes validation."
         elif channel.key == "marketplace":
-            result = "A no-link package is prepared for a final human post, subject to the five-per-month Homes for Sale or Rent safety gate."
+            result = "A no-link package is prepared for a final human post, subject to the Marketplace safety and Meta compliance gates."
+        elif channel.key == "facebook_groups":
+            result = "A no-link Facebook Group package is prepared for a final human post, subject to group cooldown and Meta compliance checks."
         elif channel.key == "nextdoor":
             result = "A tracked Business Post and paid housing-ad package is prepared. Business Page verification, final publication, platform review, targeting review, and ad spending remain manual."
         elif action == LaunchAction.MANUAL_FINAL_POST:
