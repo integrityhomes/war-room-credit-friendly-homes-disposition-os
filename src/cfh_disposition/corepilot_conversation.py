@@ -15,7 +15,15 @@ def property_question(query):
     return is_property_change_question(query) or "properties that changed" in query.casefold() or "what changed on it" in query.casefold()
 
 
-def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None):
+def answer(request, records, *, current_deal_id="", current_user="", property_changes=None, context=None, inventory_evidence=None, gordon=None, gordon_job=None):
+    from .corepilot_gordon import gordon_answer
+    technical = gordon_answer(request, gordon, gordon_job)
+    if technical is not None:
+        return technical
+    from .corepilot_staff import staff_answer
+    staff = staff_answer(request, records, context)
+    if staff is not None:
+        return staff
     query = " ".join(request.split())
     lower = query.casefold()
     ctx = dict(context or {})
