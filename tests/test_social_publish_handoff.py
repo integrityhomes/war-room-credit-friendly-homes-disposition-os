@@ -111,7 +111,7 @@ def test_social_publish_idempotency_key_is_stable_for_same_approved_package():
 
 def test_dispatch_fails_closed_without_social_adapter():
     package = _package()
-    with pytest.raises(SocialPublishHandoffError, match="Social publication is not connected"):
+    with pytest.raises(SocialPublishHandoffError, match="Meta publication blocked"):
         dispatch_social_publish_handoff(
             {},
             property_record=_property(),

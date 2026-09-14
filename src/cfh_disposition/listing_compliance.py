@@ -39,6 +39,7 @@ class ComplianceResult(BaseModel):
     publication_mode: str
     rule_identifiers: tuple[str, ...] = ()
     external_action_started: bool = False
+    meta_decision: dict[str, Any] | None = None
 
 
 class BaselineRule(BaseModel):
@@ -99,7 +100,8 @@ def compliance_content_hash(channel: str, content: str) -> str:
 
 
 def _money(value: Any) -> str:
-    return "" if value is None else f"${value:,.0f}"
+    number = _money_value(str(value)) if value is not None else None
+    return "" if number is None else f"${number:,.0f}"
 
 
 def _money_value(value: str) -> Decimal | None:
@@ -142,7 +144,11 @@ def review_shared_compliance(
     if property_record is not None:
         identifiers.extend(("facts.property_address", "facts.displayed_financing_terms"))
         address = property_record.display_address
-        if address and address.casefold() not in lowered:
+        marketplace_address = ", ".join(part for part in (
+            property_record.address, property_record.city,
+            " ".join(part for part in (property_record.state, property_record.zip_code) if part),
+        ) if part)
+        if address and address.casefold() not in lowered and marketplace_address.casefold() not in lowered:
             blockers.append("The exact property address is missing.")
         for label, amount in (
             ("down payment", property_record.down_payment),
@@ -150,11 +156,11 @@ def review_shared_compliance(
         ):
             if amount is None:
                 blockers.append(f"The property record is missing {label}.")
-            elif _money(amount) not in value:
+            elif not _money(amount) or _money(amount) not in value:
                 blockers.append(f"The exact {label} is missing.")
         identifiers.append("facts.no_invented_money")
         allowed_money = {
-            Decimal(str(amount))
+            _money_value(str(amount))
             for amount in (
                 property_record.total_price,
                 property_record.down_payment,

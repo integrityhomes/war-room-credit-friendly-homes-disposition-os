@@ -164,7 +164,7 @@ def test_deactivated_group_cannot_receive_posts() -> None:
     assert "inactive" in status.message.lower()
 
 
-def test_facebook_group_package_keeps_tracked_dwelyx_link() -> None:
+def test_facebook_group_package_keeps_tracking_internal() -> None:
     item = sample_property()
     original_link = "https://tracking.example.com/?go=dwelyx&medium=property_page"
     selected_link = "https://tracking.example.com/?go=dwelyx&medium=facebook_groups"
@@ -172,7 +172,7 @@ def test_facebook_group_package_keeps_tracked_dwelyx_link() -> None:
 
     copy = channel_copy_with_link(package, "facebook_groups", selected_link)
 
-    assert selected_link in copy
+    assert selected_link not in copy
     assert original_link not in copy
-    assert "dwelyx" in copy.lower()
+    assert "dwelyx" not in copy.lower()
     assert item.address in copy

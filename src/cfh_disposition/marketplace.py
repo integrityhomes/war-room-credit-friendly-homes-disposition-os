@@ -12,6 +12,7 @@ from .meta_marketplace_policy import (
     marketplace_disclaimer,
     meta_marketplace_policy_errors,
     meta_marketplace_policy_warnings,
+    review_meta_action,
 )
 from .models import OwnerFinanceProperty
 
@@ -29,6 +30,7 @@ class MarketplaceCheck:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     policy_version: str = META_MARKETPLACE_POLICY_VERSION
+    meta_decision: dict[str, Any] | None = None
 
     @property
     def passed(self) -> bool:
@@ -122,6 +124,10 @@ def review_marketplace_copy(
     listings_used = max(_int_value(listings_used_this_month, 0), 0)
     limit = max(_int_value(monthly_limit, 5), 1)
     combined = f"{title}\n{description}"
+    decision = review_meta_action(channel="marketplace", content=combined, property_record=property_record)
+    result.meta_decision = decision.model_dump(mode="json")
+    result.errors.extend(f.reason for f in decision.findings if f.status == "BLOCK")
+    result.warnings.extend(f.reason for f in decision.findings if f.status == "WARNING")
 
     if listings_used >= limit:
         result.errors.append(

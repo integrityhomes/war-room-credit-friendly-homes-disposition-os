@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
+from .meta_marketplace_policy import META_PUBLIC_LINK_PATTERN, review_meta_action
 from .models import OwnerFinanceProperty
 
 VARIATION_COUNT = 8
@@ -26,6 +28,7 @@ class FacebookGroupVariation:
     index: int
     label: str
     copy: str
+    meta_decision: dict[str, Any] | None = None
 
 
 HEADLINES = (
@@ -39,16 +42,7 @@ HEADLINES = (
     "Owner-Finance Home Information",
 )
 
-CTA_LINES = (
-    "Create or log in to your Dwelyx buyer account to review available owner-finance homes:",
-    "Review available owner-finance homes through your Dwelyx buyer account:",
-    "Create or access your Dwelyx buyer account to review available homes:",
-    "Buyer details and available owner-finance homes are available through Dwelyx:",
-    "Use Dwelyx to review available owner-finance homes and buyer next steps:",
-    "Open your Dwelyx buyer account to review available owner-finance homes:",
-    "Review current owner-finance availability through Dwelyx:",
-    "Create or log in to Dwelyx to review available owner-finance homes:",
-)
+
 
 
 def _money(value: Decimal | None) -> str:
@@ -138,11 +132,12 @@ def build_facebook_group_variation(
     )
     sections = _fact_sections(property_record)
     body = "\n\n".join(_ordered_sections(index, sections))
-    copy = f"{HEADLINES[index]}\n\n{body}\n\n{CTA_LINES[index]}\n{tracked_link}"
+    copy = f"{HEADLINES[index]}\n\n{body}\n\nSend us a Facebook message for property questions and next steps."
     return FacebookGroupVariation(
         index=index,
         label=f"Variation {index + 1} of {VARIATION_COUNT}",
         copy=copy,
+        meta_decision=review_meta_action(channel="facebook_groups", content=copy, property_record=property_record).model_dump(mode="json"),
     )
 
 
@@ -166,8 +161,10 @@ def validate_facebook_group_variation(
             errors.append(f"The exact {label} is missing.")
     if property_record.total_price is not None and _money(property_record.total_price) in variation.copy:
         errors.append("The total purchase price should not appear in the public Facebook Group copy.")
-    if variation.copy.count(tracked_link) != 1:
-        errors.append("The tracked Dwelyx link must appear exactly once.")
+    if META_PUBLIC_LINK_PATTERN.search(variation.copy):
+        errors.append("Internal tracking links must not appear in public Facebook Group copy.")
+    decision = review_meta_action(channel="facebook_groups", content=variation.copy, property_record=property_record)
+    errors.extend(f.reason for f in decision.findings if f.status == "BLOCK")
     if "not rent" not in lowered:
         errors.append('The copy must state that the monthly payment is "not rent."')
     for phrase in PROHIBITED_GROUP_PHRASES:

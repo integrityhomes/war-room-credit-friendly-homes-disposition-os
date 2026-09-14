@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 
-from .listing_compliance import review_shared_compliance
+from pydantic import BaseModel, ConfigDict, Field
 
-META_MARKETPLACE_POLICY_VERSION = "2026-08-03"
+from .fact_lock import MARKETABLE_PROPERTY_STATUSES
+from .listing_compliance import ComplianceResult, ComplianceResultState, review_shared_compliance
+from .models import OwnerFinanceProperty
+
+META_MARKETPLACE_POLICY_VERSION = "2026-09-14.1"
+META_AUDIT_LOGGER = logging.getLogger(__name__)
+META_AUDIT_LOGGER.setLevel(logging.INFO)
+if not META_AUDIT_LOGGER.handlers:
+    META_AUDIT_LOGGER.addHandler(logging.StreamHandler())
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +60,7 @@ BLOCKING_RULES: tuple[MetaPolicyRule, ...] = (
     ),
     MetaPolicyRule(
         "Approval and loan fraud",
-        r"\bno\s+credit\s+check\b|\bcredit\s+(?:doesn['’]?t|does\s+not)\s+matter\b|\bregardless\s+of\s+credit\b",
+        r"\bno\s+credit\s+check\b|\bcredit\s+(?:doesn['â€™]?t|does\s+not)\s+matter\b|\bregardless\s+of\s+credit\b",
         "Remove absolute credit claims. State that approval and terms are subject to review.",
     ),
     MetaPolicyRule(
@@ -178,7 +189,7 @@ BLOCKING_RULES: tuple[MetaPolicyRule, ...] = (
 WARNING_RULES: tuple[MetaPolicyRule, ...] = (
     MetaPolicyRule(
         "Pressure language",
-        r"\b(?:act\s+now|today\s+only|won['’]?t\s+last|hurry|first\s+come\s+first\s+served)\b",
+        r"\b(?:act\s+now|today\s+only|won['â€™]?t\s+last|hurry|first\s+come\s+first\s+served)\b",
         "Avoid pressure language that can make a legitimate listing appear deceptive.",
     ),
     MetaPolicyRule(
@@ -235,3 +246,164 @@ def meta_marketplace_policy_warnings(text: str) -> list[str]:
 
 def marketplace_disclaimer() -> str:
     return " ".join(REQUIRED_MARKETPLACE_DISCLOSURES)
+
+# Reviewed local safety profile, not a claim that provider policies never change.
+META_CHANNEL_ASSETS = {
+    "marketplace": ("profile", "marketplace"),
+    "facebook_groups": ("profile", "group"),
+    "facebook": ("profile", "page"),
+    "messenger": ("profile", "page"),
+    "meta_ads": ("profile", "page", "ad_account"),
+    "instagram": ("instagram",),
+}
+META_HOUSING_SAFETY_PROFILE = {"special_ad_category": "HOUSING", "age_min": 18, "age_max": "65+", "gender": "ALL"}
+META_BLOCKING_ERROR_CODES = frozenset({"2909037", "2909036", "2909035"})
+META_HEALTH_MAX_AGE = timedelta(hours=24)
+META_PUBLIC_LINK_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+META_INTERNAL_LINK_WARNING = "Internal attribution only â€” do not paste this tracking link into public Facebook Group copy."
+# Owner-reported recovery hold. Changing this requires verified restoration and owner scope.
+MARKETPLACE_PUBLISHING_HOLD = True
+
+HealthState = Literal["WORKING", "MANUAL", "NEEDS_REVIEW", "ACCESS_BLOCKED_BY_META", "RESTRICTED", "UNKNOWN"]
+
+
+class MetaSafetyContext(BaseModel):
+    """Local reviewed evidence only; never inferred from credentials or a payload PASS."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    health: dict[str, HealthState] = Field(default_factory=dict)
+    health_checked_at: datetime | None = None
+    required_assets: tuple[Literal["profile", "page", "ad_account", "group", "marketplace", "instagram", "commerce", "pixel"], ...] = ()
+    housing: dict[str, object] | None = None
+    commerce_required: bool | None = None
+    commerce_state: Literal["WORKING", "DEPRECATED", "STALE", "STALE_OFFSITE_CHECKOUT", "DISABLED", "UNKNOWN"] = "UNKNOWN"
+    meta_error_codes: tuple[str, ...] = ()
+    bypass_restriction: bool = False
+    facts_verified: bool | None = None
+    human_approved: bool = False
+
+
+class MetaFinding(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    status: Literal["WARNING", "BLOCK"]
+    code: str
+    reason: str
+    corrective_action: str
+
+
+class MetaDecision(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    status: Literal["PASS", "WARNING", "BLOCK"]
+    channel: str
+    action: Literal["prepare", "publish", "message", "advertise"]
+    policy_version: str = META_MARKETPLACE_POLICY_VERSION
+    timestamp: datetime
+    content_hash: str
+    property_id: str | None = None
+    findings: tuple[MetaFinding, ...]
+    health: dict[str, HealthState]
+    health_checked_at: datetime | None
+    commerce_state: str
+    meta_error_codes: tuple[str, ...]
+    human_approval_required: bool = True
+    external_action_started: bool = False
+
+
+def review_meta_action(
+    *, channel: str, content: str, action: Literal["prepare", "publish", "message", "advertise"] = "prepare",
+    context: MetaSafetyContext | None = None, property_record: OwnerFinanceProperty | None = None,
+    required_disclosures: tuple[str, ...] = (), checked_at: datetime | None = None,
+) -> MetaDecision:
+    """One Meta decision; preparation is never publication permission.
+
+    Audit uses a content digest and canonical ID, not raw copy, provider responses,
+    credentials or health-map keys supplied by a caller. Persist with existing records.
+    """
+    ctx = context or MetaSafetyContext()
+    now = checked_at or datetime.now(UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    findings: list[MetaFinding] = []
+    live = action != "prepare"
+
+    def add(code: str, reason: str, correction: str, *, missing: bool = False):
+        findings.append(MetaFinding(status="WARNING" if missing and not live else "BLOCK",
+                                    code=code, reason=reason, corrective_action=correction))
+
+    baseline = review_shared_compliance(channel=channel, content=content, property_record=property_record,
+        required_disclosures=required_disclosures, approval_required=False, publication_mode="Review", checked_at=now)
+    if baseline.blockers:
+        # Baseline messages may quote copy/amounts. Never include them in the audit log.
+        add("meta.copy", "Public copy failed the existing content or fact checks.", "Review the existing copy validation findings and correct the source facts or copy.")
+    for rule in BLOCKING_RULES:
+        if re.search(rule.pattern, content, flags=re.IGNORECASE | re.DOTALL):
+            add("meta.copy." + re.sub(r"[^a-z0-9]+", "_", rule.category.lower()), rule.message, rule.message)
+    for reason in _rule_messages(content, WARNING_RULES):
+        add("meta.copy_review", reason, "Review and correct the flagged copy.", missing=True)
+    if channel not in META_CHANNEL_ASSETS:
+        add("meta.channel", "Unsupported Meta channel.", "Use an explicitly supported channel.")
+    if channel in {"marketplace", "facebook_groups"} and META_PUBLIC_LINK_PATTERN.search(content):
+        add("meta.internal_link", "Public Facebook organic copy contains an external URL.", META_INTERNAL_LINK_WARNING)
+    if ctx.bypass_restriction:
+        add("meta.circumvention", "Using another account or profile to bypass a restriction is prohibited.", "Resolve the restriction on the existing asset; do not switch accounts to evade it.")
+    if channel == "marketplace" and MARKETPLACE_PUBLISHING_HOLD:
+        add("meta.marketplace_hold", "Marketplace publication is on hold pending verified access restoration.", "Prepare only; await restoration and owner review.", missing=not live)
+    required = tuple(dict.fromkeys((*META_CHANNEL_ASSETS.get(channel, ()), *ctx.required_assets)))
+    for asset in required:
+        state = ctx.health.get(asset, "UNKNOWN")
+        if state in {"RESTRICTED", "ACCESS_BLOCKED_BY_META"}:
+            add("meta.health_restricted", f"Required Meta asset {asset} is restricted.", "Resolve the restriction without an account workaround.", missing=not live)
+        elif state != "WORKING":
+            add("meta.health_unknown", f"Required asset {asset} is unknown, manual-only, or needs review.", "Verify the required asset health before publication.", missing=True)
+    observed = ctx.health_checked_at
+    if observed is None or observed.tzinfo is None or not timedelta(0) <= now - observed <= META_HEALTH_MAX_AGE:
+        add("meta.health_stale", "Current account-health evidence is missing or stale.", "Obtain current verified health evidence.", missing=True)
+    if ctx.commerce_required is None:
+        add("meta.commerce_requirement", "Whether this action requires Commerce is unknown.", "Determine whether Commerce is required; do not create a Shop unnecessarily.", missing=True)
+    elif ctx.commerce_required and ctx.commerce_state != "WORKING":
+        add("meta.commerce", "Required Commerce configuration is unsafe, stale, disabled, or unknown.",
+            "Correct and verify the required Commerce asset, including Offsite Checkout.", missing=ctx.commerce_state == "UNKNOWN")
+    codes = tuple(sorted(set(str(code) for code in ctx.meta_error_codes if str(code).isdigit())))
+    if ctx.meta_error_codes:
+        add("meta.provider_error", "Meta returned an unresolved policy/configuration error.", "Correct and verify the provider error before publication.")
+    for code in codes:
+        if code in META_BLOCKING_ERROR_CODES:
+            add("meta.error." + code, "Meta Housing configuration error remains unresolved.", "Correct Housing category and audience settings, then verify the error is resolved.")
+    if channel == "meta_ads":
+        if ctx.housing is None:
+            add("meta.housing_missing", "Housing audience configuration is missing.", "Supply the reviewed Housing safety configuration.", missing=True)
+        else:
+            for key, expected in META_HOUSING_SAFETY_PROFILE.items():
+                if ctx.housing.get(key) != expected:
+                    add("meta.housing." + key, "Housing audience does not match the conservative safety profile.", "Use Housing, ages 18 through 65+, and All genders.")
+            # No unreviewed detailed targeting, exclusions, lookalikes or opaque audience fields.
+            for key, value in ctx.housing.items():
+                if key not in META_HOUSING_SAFETY_PROFILE and (key != "detailed_targeting" or value not in ([], ())):
+                    add("meta.housing.targeting", "Unreviewed or prohibited Housing audience targeting is present.", "Remove detailed/protected-class targeting and unreviewed audience settings.")
+    if ctx.facts_verified is not True:
+        add("meta.facts", "Current property facts and availability have not been verified.", "Verify facts, lifecycle, and freshness through existing property controls.", missing=True)
+    if live and property_record is not None and property_record.status not in MARKETABLE_PROPERTY_STATUSES:
+        add("meta.property_status", "The property is not in a marketable lifecycle state.", "Preserve sold/pending/unavailable protections; review canonical availability.")
+    if live and not ctx.human_approved:
+        add("meta.approval", "Required human approval is missing.", "Obtain the applicable owner/channel approval; a policy PASS does not authorize spending.")
+    decision = MetaDecision(status="BLOCK" if any(f.status == "BLOCK" for f in findings) else "WARNING" if findings else "PASS",
+        channel=channel if channel in META_CHANNEL_ASSETS else "unsupported", action=action, timestamp=now,
+        content_hash=baseline.content_hash, property_id=str(property_record.property_id) if property_record else None,
+        findings=tuple(findings), health={key: ctx.health.get(key, "UNKNOWN") for key in required},
+        health_checked_at=observed, commerce_state=ctx.commerce_state, meta_error_codes=codes)
+    META_AUDIT_LOGGER.info("meta_compliance_decision %s", decision.model_dump_json())
+    return decision
+
+
+def review_meta_package(*, channel: str, content: str, property_record: OwnerFinanceProperty,
+                        required_disclosures: tuple[str, ...], context: MetaSafetyContext | None = None) -> ComplianceResult:
+    baseline = review_shared_compliance(channel=channel, content=content, property_record=property_record,
+        required_disclosures=required_disclosures, approval_required=True, publication_mode="Approval Required")
+    decision = review_meta_action(channel=channel, content=content, property_record=property_record,
+        required_disclosures=required_disclosures, context=context)
+    return baseline.model_copy(update={
+        "policy_version": META_MARKETPLACE_POLICY_VERSION, "meta_decision": decision.model_dump(mode="json"),
+        "result": ComplianceResultState.BLOCKED if decision.status == "BLOCK" else baseline.result,
+        "blockers": tuple(sorted(set((*baseline.blockers, *(f.reason for f in decision.findings if f.status == "BLOCK"))))),
+        "warnings": tuple(sorted(set((*baseline.warnings, *(f.reason for f in decision.findings if f.status == "WARNING"))))),
+    })

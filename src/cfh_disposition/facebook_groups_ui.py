@@ -96,6 +96,7 @@ def render_facebook_group_posting_center(
     dwelyx_url: str,
 ) -> None:
     st.subheader("Facebook Group Posting Center")
+    st.warning("Preparation only until required profile and Group health are verified. Internal tracking links must not be pasted publicly; do not switch accounts to evade restrictions.")
     st.caption(
         "Prepare tracked Facebook Group posts, move through groups quickly, prevent duplicate "
         "posting, and keep a per-group cooldown history. Final publication remains manual."
@@ -285,7 +286,7 @@ def render_facebook_group_posting_center(
                 st.write("### 2. Copy the exact prepared post")
                 st.code(copy_text, language=None)
                 st.caption(
-                    "Do not retype the property terms. This Facebook Group version includes the tracked Dwelyx buyer-registration link."
+                    "Do not retype the property terms. Tracking links are internal-only and must not be pasted into public Group copy."
                 )
 
                 _render_property_photos(selected)
@@ -413,7 +414,7 @@ def render_facebook_group_posting_center(
                 if group.group_url:
                     st.link_button("Open Selected Facebook Group", group.group_url)
                 st.text_input(
-                    "Tracked Dwelyx buyer-registration link for this group post",
+                    "Internal attribution only - do not paste publicly for this group post",
                     value=tracked_link,
                     key="facebook_group_tracked_link",
                     disabled=True,
@@ -426,7 +427,7 @@ def render_facebook_group_posting_center(
                     disabled=True,
                 )
                 st.info(
-                    "The tracked Dwelyx link is allowed in the Facebook Group package. Do not "
+                    "The tracking link is internal-only; do not paste it into public Group copy. Do not "
                     "copy this version into Facebook Marketplace. Change property facts only in Record Manager."
                 )
 
@@ -572,7 +573,7 @@ def render_facebook_group_posting_center(
                                 "No Facebook URL is saved for this group. Add it in Group Directory."
                             )
                         st.text_input(
-                            "Tracked Dwelyx link",
+                            "Internal attribution only - do not paste publicly",
                             value=tracked_link,
                             key=f"queue_link_{selected.property_id}_{item.group_id}",
                             disabled=True,

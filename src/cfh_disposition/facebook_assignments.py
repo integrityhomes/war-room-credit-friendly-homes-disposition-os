@@ -71,6 +71,7 @@ class FacebookPostingAssignment(BaseModel):
     tracked_link: str
     variation_label: str
     post_copy: str
+    meta_decision: dict[str, Any] | None = None
     priority: int = Field(default=100, ge=1, le=999)
     status: AssignmentStatus = AssignmentStatus.QUEUED
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -398,6 +399,7 @@ def generate_daily_assignments(
                 tracked_link=tracked_link,
                 variation_label=variation.label,
                 post_copy=variation.copy,
+                meta_decision=variation.meta_decision,
                 priority=priority,
                 created_at=timestamp,
             )
