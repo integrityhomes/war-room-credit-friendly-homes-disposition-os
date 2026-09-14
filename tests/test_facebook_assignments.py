@@ -125,7 +125,10 @@ def test_balanced_generation_respects_goals_and_one_group_per_day() -> None:
         assert "$2,000" in assignment.post_copy
         assert "$950" in assignment.post_copy
         assert "$94,500" not in assignment.post_copy
-        assert assignment.post_copy.count(assignment.tracked_link) == 1
+        assert assignment.tracked_link not in assignment.post_copy
+        assert "https://" not in assignment.post_copy
+        assert "facebook" in assignment.post_copy.lower()
+        assert "message" in assignment.post_copy.lower()
         assert "not rent" in assignment.post_copy.lower()
 
 
