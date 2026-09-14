@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from cfh_disposition.facebook_group_variations import (
     VARIATION_COUNT,
+    FacebookGroupVariation,
     build_facebook_group_variation,
     validate_facebook_group_variation,
     variation_index,
@@ -28,7 +29,7 @@ def sample_property() -> OwnerFinanceProperty:
     )
 
 
-def test_variation_preserves_exact_facts_and_omits_total_price() -> None:
+def test_variation_preserves_exact_facts_omits_total_price_and_stays_on_platform() -> None:
     item = sample_property()
     link = "https://tracking.example.com/?go=dwelyx&medium=facebook_groups"
     variation = build_facebook_group_variation(
@@ -43,7 +44,11 @@ def test_variation_preserves_exact_facts_and_omits_total_price() -> None:
     assert "$94,500" not in variation.copy
     assert "Small drywall repairs." in variation.copy
     assert "Possible updating." in variation.copy
-    assert variation.copy.count(link) == 1
+    assert link not in variation.copy
+    assert "https://" not in variation.copy
+    assert "dwelyx" not in variation.copy.lower()
+    assert "facebook" in variation.copy.lower()
+    assert "message" in variation.copy.lower()
     assert validate_facebook_group_variation(variation, item, link) == []
 
 
@@ -88,7 +93,7 @@ def test_missing_optional_condition_fields_use_safe_language() -> None:
     assert validate_facebook_group_variation(variation, item, link) == []
 
 
-def test_fact_guard_blocks_missing_link_and_prohibited_claim() -> None:
+def test_fact_guard_blocks_public_link_and_prohibited_claim() -> None:
     item = sample_property()
     link = "https://tracking.example.com/group"
     safe = build_facebook_group_variation(
@@ -96,13 +101,14 @@ def test_fact_guard_blocks_missing_link_and_prohibited_claim() -> None:
         link,
         group_id="group-789",
     )
-    unsafe = safe.__class__(
+    unsafe = FacebookGroupVariation(
         index=safe.index,
         label=safe.label,
-        copy=safe.copy.replace(link, "") + "\nGuaranteed approval. No credit check.",
+        copy=safe.copy + f"\n{link}\nGuaranteed approval. No credit check.",
     )
 
     errors = validate_facebook_group_variation(unsafe, item, link)
-    assert any("exactly once" in error for error in errors)
+    assert any("tracked dwelyx link" in error.lower() for error in errors)
+    assert any("website links" in error.lower() for error in errors)
     assert any("guaranteed approval" in error.lower() for error in errors)
     assert any("no credit check" in error.lower() for error in errors)
