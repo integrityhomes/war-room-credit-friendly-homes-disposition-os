@@ -15,7 +15,8 @@ from .corepilot_gordon import INSPECTIONS, GordonConnection, GordonJob, existing
 from .property_change_cache import exclusive_check
 
 FIXTURE = b'Fictional local inspection fixture.\n'
-LANES = (*INSPECTIONS, 'repair')
+BOUNDED_OPERATIONS = ('inspect', 'propose_change', 'apply_change', 'run_validation', 'report_result')
+LANES = (*INSPECTIONS, 'repair', *('bounded_' + op for op in BOUNDED_OPERATIONS))
 STATES = {'queued', 'dispatched', 'received', 'completed', 'failed', 'blocked_for_approval', 'blocked_uncertain'}
 PRODUCTION_ENABLED = False
 MAX_STATE_BYTES = 1024 * 1024
@@ -76,7 +77,16 @@ class SyntheticGordonCaller:
         _atomic(home / 'caller.json', {'version': 1, 'synthetic_only': True, 'namespace': str(uuid4()), 'jobs': {}})
         return cls(home, checkout)
 
-    def __init__(self, home, checkout):
+    @classmethod
+    def create_bounded(cls, home, checkout, synthetic_approvals):
+        if not isinstance(synthetic_approvals, dict):
+            raise ValueError("Trusted synthetic authority required")
+        caller = cls.create(home, checkout)
+        (caller.home / "fixture/synthetic_change.py").write_bytes(b"VALUE = 1\n")
+        return cls(home, checkout, synthetic_approvals=synthetic_approvals)
+
+    def __init__(self, home, checkout, *, synthetic_approvals=None):
+        self.synthetic_approvals = synthetic_approvals
         self.home = Path(home).absolute()
         self.path = self.home / 'caller.json'
         self.checkout = Path(checkout)
@@ -87,7 +97,12 @@ class SyntheticGordonCaller:
         _safe_tree(self.home)
         root = self.home / 'fixture'
         actual = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
-        if actual != set(INSPECTIONS.values()) or any((root / name).read_bytes() != FIXTURE for name in actual):
+        expected = set(INSPECTIONS.values())
+        if self.synthetic_approvals is not None:
+            expected.add('synthetic_change.py')
+        if actual != expected or any((root / name).stat().st_nlink != 1 or
+                (root / name).read_bytes() not in ({b'VALUE = 1\n', b'VALUE = 2\n'} if name == 'synthetic_change.py' else {FIXTURE})
+                for name in actual):
             raise ValueError('Only generated synthetic fixtures may be inspected')
 
     def _load(self):
@@ -102,7 +117,13 @@ class SyntheticGordonCaller:
         if not isinstance(state['jobs'], dict) or len(state['jobs']) > len(LANES):
             raise ValueError('Invalid job registry')
         for key, row in state['jobs'].items():
-            if set(row) != {'id', 'reference', 'lane', 'identity', 'state', 'history', 'response', 'error'}:
+            fields = {'id', 'reference', 'lane', 'identity', 'state', 'history', 'response', 'error'}
+            if 'bounded_request' in row:
+                fields.add('bounded_request')
+                self._validate_request(row['bounded_request'])
+                if row['lane'] != 'bounded_' + row['bounded_request']['operation']:
+                    raise ValueError('Conflicting operation identity')
+            if set(row) != fields:
                 raise ValueError('Invalid job fields')
             lane = row['lane']
             expected = str(uuid5(ns, lane))
@@ -142,6 +163,39 @@ class SyntheticGordonCaller:
                 self._transition(state, job, 'queued' if lane in INSPECTIONS else 'blocked_for_approval')
             return deepcopy(state['jobs'][key])
 
+    @staticmethod
+    def _validate_request(request):
+        expected = {'job_type', 'operation', 'files', 'validation_ids', 'approval_ref'}
+        if not isinstance(request, dict) or set(request) != expected or request['job_type'] != 'technical.synthetic_change':
+            raise ValueError('Unknown request')
+        if request['operation'] not in BOUNDED_OPERATIONS or request['files'] != ['synthetic_change.py']:
+            raise ValueError('Unknown operation or file scope')
+        commands = ['python_syntax', 'expected_value'] if request['operation'] == 'run_validation' else []
+        if request['validation_ids'] != commands:
+            raise ValueError('Validation not allowlisted')
+        if request['approval_ref'] is not None:
+            UUID(request['approval_ref'])
+
+    def enqueue_operation(self, operation, *, approval_ref=None, files=None, validation_ids=None):
+        if self.synthetic_approvals is None:
+            raise ValueError('Bounded mode is disabled')
+        request = {'job_type': 'technical.synthetic_change', 'operation': operation,
+                   'files': ['synthetic_change.py'] if files is None else files,
+                   'validation_ids': (['python_syntax', 'expected_value'] if operation == 'run_validation' else [])
+                       if validation_ids is None else validation_ids, 'approval_ref': approval_ref}
+        self._validate_request(request)
+        initial = self.enqueue(self.references['bounded_' + operation])
+        with exclusive_check(self.path):
+            state = self._load()
+            job = state['jobs'][initial['id']]
+            if 'bounded_request' in job:
+                if job['bounded_request'] != request:
+                    raise ValueError('Job identity already bound to another request')
+            else:
+                job['bounded_request'] = deepcopy(request)
+                self._transition(state, job, 'queued')
+            return deepcopy(job)
+
     def _finish_received(self, state, job):
         response = job['response']
         status = response.get('status')
@@ -174,14 +228,21 @@ class SyntheticGordonCaller:
                 self._finish_received(state, job)
             if job['state'] != 'queued':
                 return deepcopy(job)
-            if job['lane'] not in INSPECTIONS:
+            if job['lane'] not in INSPECTIONS and 'bounded_request' not in job:
                 self._transition(state, job, 'blocked_for_approval')
                 return deepcopy(job)
             # Durable dispatch intent BEFORE loading/calling the one existing adapter.
             self._transition(state, job, 'dispatched')
             try:
-                adapter = existing_adapter(self.checkout, self.home / 'fixture', self.home / 'audit' / 'gordon.jsonl')
-                outcome = GordonConnection(adapter).inspect(job['lane'], GordonJob(**job['identity']))
+                if 'bounded_request' in job:
+                    if self.synthetic_approvals is None:
+                        raise ValueError('Synthetic authority unavailable')
+                    adapter = existing_adapter(self.checkout, self.home / 'fixture', self.home / 'audit' / 'gordon.jsonl',
+                                               synthetic_approvals=self.synthetic_approvals)
+                    outcome = GordonConnection(adapter).bounded(job['bounded_request'], GordonJob(**job['identity']))
+                else:
+                    adapter = existing_adapter(self.checkout, self.home / 'fixture', self.home / 'audit' / 'gordon.jsonl')
+                    outcome = GordonConnection(adapter).inspect(job['lane'], GordonJob(**job['identity']))
             except Exception:
                 # Exception details may contain sensitive data; never persist them.
                 job['error'] = {'code': 'dispatch_outcome_unknown'}

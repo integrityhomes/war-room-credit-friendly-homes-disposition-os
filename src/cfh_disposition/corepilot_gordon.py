@@ -27,7 +27,7 @@ class GordonJob(BaseModel):
     correlation_id: UUID
 
 
-def existing_adapter(checkout, inspection_root, journal):
+def existing_adapter(checkout, inspection_root, journal, *, synthetic_approvals=None):
     """Explicit host configuration only; never called automatically by the UI.
 
     Load Gordon under its own namespace to avoid CommandCore's app.py collision.
@@ -49,7 +49,10 @@ def existing_adapter(checkout, inspection_root, journal):
             raise
     from importlib import import_module
 
-    return import_module(name + ".local_adapter").LocalGordonAdapter(inspection_root, journal)
+    adapter = import_module(name + ".local_adapter").LocalGordonAdapter
+    if synthetic_approvals is None:
+        return adapter(inspection_root, journal)
+    return adapter(inspection_root, journal, synthetic_approvals=synthetic_approvals)
 
 
 class GordonConnection:
@@ -68,6 +71,15 @@ class GordonConnection:
             "idempotency_key": str(job.idempotency_key),
             "correlation_id": str(job.correlation_id),
         })
+        return self._validate(outcome, job)
+
+    def bounded(self, request, job):
+        """Only the durable synthetic caller builds this fixed protocol request."""
+        return self._validate(self.adapter.submit(dict(request, idempotency_key=str(job.idempotency_key),
+                                                       correlation_id=str(job.correlation_id))), job)
+
+    @staticmethod
+    def _validate(outcome, job):
         # Fail closed on an unavailable/mismatched protocol; never display raw errors.
         required = {"accepted", "job_id", "correlation_id", "status", "result", "error", "actions_attempted", "approvals_required", "audit", "cost"}
         if not isinstance(outcome, dict) or set(outcome) != required:
