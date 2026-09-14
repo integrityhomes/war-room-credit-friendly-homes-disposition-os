@@ -77,7 +77,7 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert payload["buyer_destination"]["publish_property_to_dwelyx"] is False
     assert payload["buyer_destination"]["property_sync_to_dwelyx"] is False
     assert payload["buyer_destination"]["facebook_marketplace_direct_link"] is False
-    assert payload["buyer_destination"]["facebook_groups_direct_link"] is True
+    assert payload["buyer_destination"]["facebook_groups_direct_link"] is False
     assert payload["buyer_destination"]["nextdoor_direct_link"] is True
     assert payload["response_contract"]["require_per_channel_results"] is True
     assert len(payload["channels"]) == len(CHANNELS) == 15
@@ -90,12 +90,14 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert marketplace["public_external_link_allowed"] is False
     assert "https://" not in marketplace["copy"]
     assert "dwelyx" not in marketplace["copy"].lower()
-    assert "facebook marketplace message" in marketplace["copy"].lower()
+    assert marketplace["posting_blocked"] is True
+    assert marketplace["meta_decision"]["status"] == "BLOCK"
 
     groups = rows["facebook_groups"]
-    assert "tracking.example.com" in groups["tracked_buyer_link"]
-    assert groups["public_external_link_allowed"] is True
-    assert "tracking.example.com" in groups["copy"]
+    assert groups["tracked_buyer_link"] is None
+    assert "tracking.example.com" in groups["internal_tracking_link"]
+    assert groups["public_external_link_allowed"] is False
+    assert "tracking.example.com" not in groups["copy"]
 
     nextdoor = rows["nextdoor"]
     assert nextdoor["requires_manual_final_post"] is True
@@ -105,12 +107,12 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert item.address in nextdoor["copy"]
 
     for key, row in rows.items():
-        if key != "marketplace":
+        if key not in {"marketplace", "facebook_groups"}:
             assert "tracking.example.com" in row["tracked_buyer_link"]
             assert row["public_external_link_allowed"] is True
 
 
-def test_marketplace_sanitizer_removes_existing_urls_but_groups_keep_tracked_link() -> None:
+def test_facebook_organic_sanitizer_keeps_tracking_internal() -> None:
     _, links_by_key, package = launch_fixture()
     dirty = package.model_copy(
         update={
@@ -137,7 +139,7 @@ def test_marketplace_sanitizer_removes_existing_urls_but_groups_keep_tracked_lin
     assert "https://" not in marketplace_copy
     assert "dwelyx" not in marketplace_copy.lower()
     assert "facebook marketplace message" in marketplace_copy.lower()
-    assert "tracking.example.com" in group_copy
+    assert "tracking.example.com" not in group_copy
     assert "example.com/register" not in group_copy
 
 
@@ -157,8 +159,8 @@ def test_marketplace_monthly_block_removes_copy_from_automation_payload() -> Non
     assert marketplace["posting_blocked"] is True
     assert marketplace["copy"] == ""
     assert "Five of five" in marketplace["block_reason"]
-    assert rows["facebook_groups"]["posting_blocked"] is False
-    assert "tracking.example.com" in rows["facebook_groups"]["copy"]
+    assert rows["facebook_groups"]["posting_blocked"] is True
+    assert rows["facebook_groups"]["copy"] == ""
     assert rows["nextdoor"]["posting_blocked"] is False
     assert "tracking.example.com" in rows["nextdoor"]["copy"]
 

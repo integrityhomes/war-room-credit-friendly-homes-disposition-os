@@ -361,3 +361,38 @@ def test_dispatch_failure_leaves_manual_task_board_available(monkeypatch) -> Non
                 webhook_url="https://automation.example.com/property-control"
             ),
         )
+
+
+def test_resume_filters_meta_but_preserves_shutdown_and_unrelated_channels(monkeypatch):
+    import json
+
+    from cfh_disposition.meta_marketplace_policy import META_CHANNEL_ASSETS
+    captured = []
+    class FakeResponse:
+        status = 202
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self):
+            return b'accepted'
+    def fake_open(request, **kwargs):
+        captured.append(json.loads(request.data))
+        return FakeResponse()
+    monkeypatch.setattr('cfh_disposition.property_shutdown.urlopen', fake_open)
+    item = property_record(address='100 Fictional Test St')
+    settings = AutomationDispatchSettings(webhook_url='https://example.com/hook')
+    for action in (MarketingControlAction.RESUME, MarketingControlAction.PAUSE):
+        source = item.model_copy(update={'status': PropertyStatus.PAUSED}) if action == MarketingControlAction.RESUME else item
+        _, event = build_property_control_event(source, action, reason='Synthetic test', requested_by='Sabrina', now=NOW)
+        dispatch_property_control(event, settings)
+        keys = {row['channel_key'] for row in captured[-1]['channels']}
+        assert 'email' in keys and 'google_ads' in keys
+        if action == MarketingControlAction.RESUME:
+            assert not keys.intersection(META_CHANNEL_ASSETS)
+            state = campaign_state_after_control(new_launch_state(item.property_id, 'test'), event,
+                                                 dispatch_status=ControlDispatchStatus.SUCCEEDED, now=NOW)
+            assert state.channels['meta_ads'].status == LaunchStatus.PAUSED
+            assert state.channels['marketplace'].status == LaunchStatus.PAUSED
+        else:
+            assert {'marketplace', 'meta_ads', 'instagram', 'facebook_groups'} <= keys

@@ -33,6 +33,7 @@ from .dwelyx_attribution import (
     JourneyStage,
     build_journeys,
 )
+from .meta_marketplace_policy import META_CHANNEL_ASSETS, review_meta_action
 from .models import OwnerFinanceProperty, PropertyStatus
 from .nextdoor import build_nextdoor_package
 from .storage import SupabaseSettings
@@ -909,7 +910,7 @@ def build_refresh_payload(
             "channel_name": task.channel_name,
             "launch_action": materials.launch_action.value,
             "requires_manual_final_post": materials.requires_manual_final_post,
-            "tracked_buyer_link": None if task.channel_key == "marketplace" else materials.tracked_link,
+            "tracked_buyer_link": None if task.channel_key in {"marketplace", "facebook_groups"} else materials.tracked_link,
             "copy": materials.copy,
         },
         "buyer_destination": {
@@ -929,6 +930,12 @@ def dispatch_refresh_payload(
     payload: Mapping[str, Any],
     settings: AutomationDispatchSettings,
 ) -> AutomationDispatchReceipt:
+    channel = payload.get("channel", {})
+    key = str(channel.get("channel_key", "")).strip().lower() if isinstance(channel, Mapping) else ""
+    if key in META_CHANNEL_ASSETS:
+        decision = review_meta_action(channel=key, content=str(channel.get("copy", "")), action="publish")
+        if decision.status != "PASS":
+            raise CampaignCadenceError("Meta refresh blocked: " + "; ".join(f.reason for f in decision.findings))
     if not settings.configured:
         raise CampaignCadenceError(
             "The publishing workflow is not connected. Use the copy-ready package and confirm the external action manually."

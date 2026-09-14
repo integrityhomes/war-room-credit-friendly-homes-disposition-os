@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from .meta_marketplace_policy import META_CHANNEL_ASSETS, review_meta_action
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -449,6 +450,9 @@ def mark_control_dispatch(
     timestamp = _current(now)
     channel_tasks: list[ChannelControlTask] = []
     for task in event.channel_tasks:
+        if event.operation == ControlOperation.RESUME and task.channel_key in META_CHANNEL_ASSETS:
+            channel_tasks.append(task.model_copy(update={"status": ControlTaskStatus.READY, "notes": "Meta resume blocked pending current safety review."}))
+            continue
         channel = CHANNELS_BY_KEY[task.channel_key]
         action = launch_action_for_channel(channel)
         if task.channel_key == "property_page" or action == LaunchAction.MANUAL_FINAL_POST:
@@ -527,7 +531,13 @@ def dispatch_property_control(
 ) -> AutomationDispatchReceipt:
     if not settings.configured:
         raise PropertyControlError("The publishing workflow is not connected. The property status was still saved locally, and the task board remains available.")
-    body = serialize_launch_payload(build_property_control_payload(event))
+    payload = build_property_control_payload(event)
+    if event.operation == ControlOperation.RESUME:
+        for row in payload["channels"]:
+            if row["channel_key"] in META_CHANNEL_ASSETS:
+                review_meta_action(channel=row["channel_key"], content=row["instruction"], action="publish")
+        payload["channels"] = [row for row in payload["channels"] if row["channel_key"] not in META_CHANNEL_ASSETS]
+    body = serialize_launch_payload(payload)
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "Credit-Friendly-Homes-Disposition-OS/1.0",
@@ -566,7 +576,10 @@ def campaign_state_after_control(
     updated = ensure_all_channels(state)
     for channel in CHANNELS:
         launch_action = launch_action_for_channel(channel)
-        if channel.key == "property_page":
+        if event.operation == ControlOperation.RESUME and channel.key in META_CHANNEL_ASSETS:
+            status = LaunchStatus.PAUSED
+            note = "Meta resume blocked pending current safety review."
+        elif channel.key == "property_page":
             status = LaunchStatus.POSTED if event.operation == ControlOperation.RESUME else LaunchStatus.PAUSED
             note = "Public visibility updated by the saved property status."
         elif launch_action == LaunchAction.MANUAL_FINAL_POST:

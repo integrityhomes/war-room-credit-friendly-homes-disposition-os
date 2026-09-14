@@ -18,6 +18,7 @@ from .marketplace_calendar import (
     marketplace_month_status,
     record_marketplace_listing,
 )
+from .meta_marketplace_policy import MARKETPLACE_PUBLISHING_HOLD
 from .models import OwnerFinanceProperty
 
 
@@ -36,6 +37,7 @@ def render_marketplace_guard(
     secrets: Mapping[str, Any],
 ) -> None:
     st.subheader("Facebook Marketplace Compliance & Monthly Safety Guard")
+    st.warning("Marketplace publication is disabled pending verified access restoration. Copy is preparation only; do not switch profiles to bypass a restriction.")
     st.caption(
         "One active Marketplace listing per property. Homes for Sale or Rent listings are capped "
         "at five per calendar month, including listings later deleted."
@@ -89,7 +91,7 @@ def render_marketplace_guard(
             "that listing instead of creating a duplicate."
         )
     else:
-        st.success(status.message)
+        st.info("Monthly quota check only; this does not establish account access or permission to publish.")
         listing_type = MarketplaceListingType.FOR_SALE
         st.text_input(
             "Required Facebook category",
@@ -165,7 +167,7 @@ def render_marketplace_guard(
         if st.button(
             "Record Marketplace Listing Created",
             type="primary",
-            disabled=not check.passed or not confirmed,
+            disabled=MARKETPLACE_PUBLISHING_HOLD or not check.passed or not confirmed,
             use_container_width=True,
         ):
             try:
