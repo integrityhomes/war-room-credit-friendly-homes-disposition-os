@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
@@ -8,6 +9,7 @@ from uuid import UUID
 from .models import OwnerFinanceProperty
 
 VARIATION_COUNT = 8
+URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", flags=re.IGNORECASE)
 PROHIBITED_GROUP_PHRASES = (
     "move-in ready",
     "move in ready",
@@ -40,14 +42,14 @@ HEADLINES = (
 )
 
 CTA_LINES = (
-    "Create or log in to your Dwelyx buyer account to review available owner-finance homes:",
-    "Review available owner-finance homes through your Dwelyx buyer account:",
-    "Create or access your Dwelyx buyer account to review available homes:",
-    "Buyer details and available owner-finance homes are available through Dwelyx:",
-    "Use Dwelyx to review available owner-finance homes and buyer next steps:",
-    "Open your Dwelyx buyer account to review available owner-finance homes:",
-    "Review current owner-finance availability through Dwelyx:",
-    "Create or log in to Dwelyx to review available owner-finance homes:",
+    "Send us a Facebook message for complete purchase terms, property questions, and next steps.",
+    "Message us through Facebook for complete purchase terms, property questions, and next steps.",
+    "Use Facebook messaging if you want complete purchase terms or have property questions.",
+    "For complete purchase terms and next steps, send us a Facebook message.",
+    "Questions about the property or purchase terms? Send us a Facebook message.",
+    "Send a Facebook message to review complete purchase terms and next steps.",
+    "Use Facebook messaging for property questions, complete purchase terms, and next steps.",
+    "Message us on Facebook for complete purchase terms and property questions.",
 )
 
 
@@ -131,6 +133,12 @@ def build_facebook_group_variation(
     group_id: str,
     prior_post_count: int = 0,
 ) -> FacebookGroupVariation:
+    """Build Facebook Group copy while keeping the public post on-platform.
+
+    tracked_link remains in the function signature because assignments use it internally for
+    attribution, but it is deliberately not inserted into the Facebook Group post.
+    """
+    _ = tracked_link
     index = variation_index(
         property_record.property_id,
         group_id,
@@ -138,7 +146,7 @@ def build_facebook_group_variation(
     )
     sections = _fact_sections(property_record)
     body = "\n\n".join(_ordered_sections(index, sections))
-    copy = f"{HEADLINES[index]}\n\n{body}\n\n{CTA_LINES[index]}\n{tracked_link}"
+    copy = f"{HEADLINES[index]}\n\n{body}\n\n{CTA_LINES[index]}"
     return FacebookGroupVariation(
         index=index,
         label=f"Variation {index + 1} of {VARIATION_COUNT}",
@@ -166,8 +174,14 @@ def validate_facebook_group_variation(
             errors.append(f"The exact {label} is missing.")
     if property_record.total_price is not None and _money(property_record.total_price) in variation.copy:
         errors.append("The total purchase price should not appear in the public Facebook Group copy.")
-    if variation.copy.count(tracked_link) != 1:
-        errors.append("The tracked Dwelyx link must appear exactly once.")
+    if tracked_link and tracked_link in variation.copy:
+        errors.append("Do not place the tracked Dwelyx link in public Facebook Group copy.")
+    if URL_PATTERN.search(variation.copy):
+        errors.append("Remove website links from public Facebook Group copy and keep the first response inside Facebook.")
+    if "dwelyx" in lowered:
+        errors.append("Do not direct Facebook Group readers to Dwelyx in the public post.")
+    if "facebook" not in lowered or "message" not in lowered:
+        errors.append("Facebook Group copy must direct the first buyer response through Facebook messaging.")
     if "not rent" not in lowered:
         errors.append('The copy must state that the monthly payment is "not rent."')
     for phrase in PROHIBITED_GROUP_PHRASES:
