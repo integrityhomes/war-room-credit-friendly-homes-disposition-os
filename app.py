@@ -40,6 +40,7 @@ EVERYDAY_NAVIGATION = (
             NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"),
             NavigationItem("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Work Queue"),
             NavigationItem("pages/52_CommandCore_Property_Sync_Preview.py", "Property Sync Preview"),
+            NavigationItem("pages/53_CommandCore_Property_Baseline.py", "Final Property Baseline"),
             NavigationItem("pages/54_CommandCore_Property_Changes.py", "Property Changes"),
         ),
     ),
