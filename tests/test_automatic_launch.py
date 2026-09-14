@@ -22,6 +22,13 @@ from cfh_disposition.automatic_launch import (
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.channels import CHANNELS, CHANNELS_BY_KEY
 from cfh_disposition.dwelyx import DEFAULT_DWELYX_URL
+from cfh_disposition.meta_compliance_gate import (
+    MetaAccountHealth,
+    MetaCommerceHealth,
+    MetaCommerceState,
+    MetaHousingAdConfig,
+    review_meta_compliance,
+)
 from cfh_disposition.models import OwnerFinanceProperty
 
 
@@ -41,6 +48,20 @@ def sample_property() -> OwnerFinanceProperty:
         showing_instructions="Appointment required.",
         public_disclosures="Terms and availability are subject to verification.",
         photo_urls=["https://example.com/front.jpg"],
+    )
+
+
+def compliant_meta():
+    return review_meta_compliance(
+        account=MetaAccountHealth(),
+        housing_ad=MetaHousingAdConfig(
+            special_ad_category="Housing",
+            min_age=18,
+            max_age=65,
+            max_age_is_plus=True,
+            gender="All",
+        ),
+        commerce=MetaCommerceHealth(state=MetaCommerceState.NOT_REQUIRED),
     )
 
 
@@ -71,15 +92,17 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
         campaign="august_bristol",
         approved_by="Sabrina",
         approved_at=approved_at,
+        meta_compliance=compliant_meta(),
     )
 
     assert payload["event"] == AUTOMATION_EVENT
     assert payload["buyer_destination"]["publish_property_to_dwelyx"] is False
     assert payload["buyer_destination"]["property_sync_to_dwelyx"] is False
     assert payload["buyer_destination"]["facebook_marketplace_direct_link"] is False
-    assert payload["buyer_destination"]["facebook_groups_direct_link"] is True
+    assert payload["buyer_destination"]["facebook_groups_direct_link"] is False
     assert payload["buyer_destination"]["nextdoor_direct_link"] is True
     assert payload["response_contract"]["require_per_channel_results"] is True
+    assert payload["meta_compliance_gate"]["decision"] == "PASS"
     assert len(payload["channels"]) == len(CHANNELS) == 15
     assert payload["property"]["address"] == "101 Test Street"
     assert payload["property"]["photo_urls"] == ["https://example.com/front.jpg"]
@@ -93,9 +116,12 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert "facebook marketplace message" in marketplace["copy"].lower()
 
     groups = rows["facebook_groups"]
-    assert "tracking.example.com" in groups["tracked_buyer_link"]
-    assert groups["public_external_link_allowed"] is True
-    assert "tracking.example.com" in groups["copy"]
+    assert groups["tracked_buyer_link"] is None
+    assert groups["public_external_link_allowed"] is False
+    assert "https://" not in groups["copy"]
+    assert "dwelyx" not in groups["copy"].lower()
+    assert "facebook" in groups["copy"].lower()
+    assert "message" in groups["copy"].lower()
 
     nextdoor = rows["nextdoor"]
     assert nextdoor["requires_manual_final_post"] is True
@@ -105,12 +131,12 @@ def test_automatic_launch_payload_contains_all_channels_and_never_syncs_dwelyx()
     assert item.address in nextdoor["copy"]
 
     for key, row in rows.items():
-        if key != "marketplace":
+        if key not in {"marketplace", "facebook_groups"}:
             assert "tracking.example.com" in row["tracked_buyer_link"]
             assert row["public_external_link_allowed"] is True
 
 
-def test_marketplace_sanitizer_removes_existing_urls_but_groups_keep_tracked_link() -> None:
+def test_facebook_on_platform_sanitizer_removes_existing_urls_from_marketplace_and_groups() -> None:
     _, links_by_key, package = launch_fixture()
     dirty = package.model_copy(
         update={
@@ -118,7 +144,7 @@ def test_marketplace_sanitizer_removes_existing_urls_but_groups_keep_tracked_lin
                 f"{package.marketplace_description}\nVisit Dwelyx here: https://example.com/register"
             ),
             "facebook_group_post": (
-                f"{package.facebook_group_post}\nOld link: https://example.com/register"
+                f"{package.facebook_group_post}\nVisit Dwelyx here: https://example.com/register"
             ),
         }
     )
@@ -137,8 +163,10 @@ def test_marketplace_sanitizer_removes_existing_urls_but_groups_keep_tracked_lin
     assert "https://" not in marketplace_copy
     assert "dwelyx" not in marketplace_copy.lower()
     assert "facebook marketplace message" in marketplace_copy.lower()
-    assert "tracking.example.com" in group_copy
-    assert "example.com/register" not in group_copy
+    assert "https://" not in group_copy
+    assert "dwelyx" not in group_copy.lower()
+    assert "facebook" in group_copy.lower()
+    assert "message" in group_copy.lower()
 
 
 def test_marketplace_monthly_block_removes_copy_from_automation_payload() -> None:
@@ -151,6 +179,7 @@ def test_marketplace_monthly_block_removes_copy_from_automation_payload() -> Non
         approved_by="Sabrina",
         marketplace_blocked=True,
         marketplace_block_reason="Five of five listings used until September 1.",
+        meta_compliance=compliant_meta(),
     )
     rows = {row["channel_key"]: row for row in payload["channels"]}
     marketplace = rows["marketplace"]
@@ -158,9 +187,29 @@ def test_marketplace_monthly_block_removes_copy_from_automation_payload() -> Non
     assert marketplace["copy"] == ""
     assert "Five of five" in marketplace["block_reason"]
     assert rows["facebook_groups"]["posting_blocked"] is False
-    assert "tracking.example.com" in rows["facebook_groups"]["copy"]
+    assert "https://" not in rows["facebook_groups"]["copy"]
     assert rows["nextdoor"]["posting_blocked"] is False
     assert "tracking.example.com" in rows["nextdoor"]["copy"]
+
+
+def test_missing_meta_compliance_state_fails_closed_only_for_meta_channels() -> None:
+    item, links_by_key, package = launch_fixture()
+    payload = build_automatic_launch_payload(
+        item,
+        package,
+        links_by_key,
+        campaign="august_bristol",
+        approved_by="Sabrina",
+    )
+    rows = {row["channel_key"]: row for row in payload["channels"]}
+
+    assert payload["meta_compliance_gate"]["decision"] == "BLOCK"
+    for key in {"marketplace", "facebook_groups", "meta_ads", "instagram"}:
+        assert rows[key]["posting_blocked"] is True
+        assert rows[key]["copy"] == ""
+        assert "fail-closed" in rows[key]["block_reason"]
+    assert rows["email"]["posting_blocked"] is False
+    assert rows["google_ads"]["posting_blocked"] is False
 
 
 def test_launch_actions_keep_restricted_platforms_manual() -> None:
@@ -224,6 +273,7 @@ def test_dispatch_posts_signed_json(monkeypatch) -> None:
         links_by_key,
         campaign="august_bristol",
         approved_by="Sabrina",
+        meta_compliance=compliant_meta(),
     )
 
     class FakeResponse:
@@ -271,6 +321,7 @@ def test_dispatch_rejects_generic_http_success_without_channel_results(monkeypat
         links_by_key,
         campaign="august_bristol",
         approved_by="Sabrina",
+        meta_compliance=compliant_meta(),
     )
 
     class FakeResponse:
@@ -300,6 +351,7 @@ def test_dispatch_rejects_missing_automatic_channel_result(monkeypatch) -> None:
         links_by_key,
         campaign="august_bristol",
         approved_by="Sabrina",
+        meta_compliance=compliant_meta(),
     )
     response = json.loads(_confirmed_response_for(payload))
     response["channel_results"] = response["channel_results"][1:]
