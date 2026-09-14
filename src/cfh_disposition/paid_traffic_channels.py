@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from .listing_compliance import ComplianceResult, review_shared_compliance
+from .meta_marketplace_policy import MetaSafetyContext, review_meta_package
 from .models import OwnerFinanceProperty
 
 META_REQUIRED_DISCLOSURES = ("Approval is not guaranteed.", "Equal Housing Opportunity.")
@@ -114,7 +115,7 @@ def build_paid_traffic_package(
         notes = (
             "Treat as a housing-related ad and complete the platform's current housing-category setup during final ad creation.",
             "Do not use protected-class targeting, discriminatory copy, approval guarantees, or no-credit-check claims.",
-            "Manager must approve targeting, budget, creative, and final publication before spend begins.",
+            "Shawn or Sabrina must approve budget and consequential actions; review targeting, creative, and final publication before spend begins.",
         )
     else:
         headlines = (
@@ -152,6 +153,7 @@ def build_paid_traffic_package(
 def review_paid_traffic_package(
     package: PaidTrafficPackage,
     property_record: OwnerFinanceProperty,
+    *, context: MetaSafetyContext | None = None,
 ) -> ComplianceResult:
     """Run the executable final-copy check without authorizing an ad or budget."""
     content = "\n".join(
@@ -160,10 +162,12 @@ def review_paid_traffic_package(
             *package.primary_text_options,
             package.description,
             package.call_to_action,
-            *package.approval_notes,
         )
     )
     disclosures = META_REQUIRED_DISCLOSURES if package.channel_key == "meta_ads" else ("Approval is not guaranteed.",)
+    if package.channel_key == "meta_ads":
+        return review_meta_package(channel=package.channel_key, content=content, property_record=property_record,
+                                   required_disclosures=disclosures, context=context)
     return review_shared_compliance(
         channel=package.channel_key,
         content=content,

@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 from .ai_campaign import CampaignPackage
 from .channels import CHANNELS, MarketingChannel
+from .meta_marketplace_policy import META_CHANNEL_ASSETS, review_meta_action
 from .models import OwnerFinanceProperty
 
 AUTOMATION_EVENT = "credit_friendly_homes.campaign.approved"
@@ -24,7 +25,7 @@ AUTOMATION_RESPONSE_LIMIT = 12_000
 COMMANDCORE_RECEIVER_PATH = "/functions/v1/commandcore-channel-receiver"
 URL_PATTERN = re.compile(r"https?://[^\s<>\"]+")
 RESTRICTED_FINAL_POST_CHANNELS = {"marketplace", "facebook_groups", "classifieds", "nextdoor"}
-FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace"}
+FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS = {"marketplace", "facebook_groups"}
 INTERNAL_LIVE_CHANNELS = {"property_page"}
 CONFIRMED_EXTERNAL_STATUSES = {"accepted", "queued", "scheduled", "sent", "published", "posted", "live"}
 
@@ -141,7 +142,8 @@ def _marketplace_on_platform_copy(source: str) -> str:
 def channel_copy_with_link(package: CampaignPackage, channel_key: str, tracked_link: str) -> str:
     source = _copy_source(package, channel_key).strip()
     if channel_key in FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS:
-        return _marketplace_on_platform_copy(source)
+        result = _marketplace_on_platform_copy(source)
+        return result.replace("Facebook Marketplace message", "Facebook message") if channel_key == "facebook_groups" else result
     if URL_PATTERN.search(source):
         return URL_PATTERN.sub(tracked_link, source)
     return f"{source}\n\nCreate or log in to a Dwelyx buyer account: {tracked_link}"
@@ -174,13 +176,23 @@ def build_automatic_launch_payload(property_record: OwnerFinanceProperty, packag
         action = launch_action_for_channel(channel)
         marketplace_no_link = channel.key in FACEBOOK_MARKETPLACE_NO_LINK_CHANNELS
         posting_blocked = channel.key == "marketplace" and marketplace_blocked
+        copy = channel_copy_with_link(package, channel.key, tracked_link)
+        decision = None
+        if channel.key in META_CHANNEL_ASSETS:
+            decision = review_meta_action(channel=channel.key, content=copy, action="publish", property_record=property_record)
+            posting_blocked = posting_blocked or decision.status != "PASS"
         channel_payloads.append({
             "channel_key": channel.key, "channel_name": channel.name, "channel_mode": channel.mode.value,
             "launch_action": action.value, "requires_manual_final_post": action == LaunchAction.MANUAL_FINAL_POST,
-            "posting_blocked": posting_blocked, "block_reason": marketplace_block_reason if posting_blocked else "",
+            "posting_blocked": posting_blocked,
+            "block_reason": "; ".join(filter(None, (
+                marketplace_block_reason if channel.key == "marketplace" and marketplace_blocked else "",
+                "; ".join(f.reason for f in decision.findings) if decision else ""))),
+            "meta_decision": decision.model_dump(mode="json") if decision else None,
+            "internal_tracking_link": tracked_link if marketplace_no_link else None,
             "public_external_link_allowed": not marketplace_no_link,
             "tracked_buyer_link": None if marketplace_no_link else tracked_link,
-            "copy": "" if posting_blocked else channel_copy_with_link(package, channel.key, tracked_link),
+            "copy": "" if posting_blocked else copy,
         })
     return {
         "schema_version": AUTOMATION_SCHEMA_VERSION, "event": AUTOMATION_EVENT,
@@ -188,7 +200,7 @@ def build_automatic_launch_payload(property_record: OwnerFinanceProperty, packag
         "campaign": campaign, "property": _property_payload(property_record),
         "buyer_destination": {"purpose": "Dwelyx buyer registration or login only",
             "publish_property_to_dwelyx": False, "property_sync_to_dwelyx": False,
-            "facebook_marketplace_direct_link": False, "facebook_groups_direct_link": True,
+            "facebook_marketplace_direct_link": False, "facebook_groups_direct_link": False,
             "nextdoor_direct_link": True},
         "marketplace_monthly_gate": {"blocked": marketplace_blocked, "reason": marketplace_block_reason},
         "channels": channel_payloads,
@@ -251,6 +263,21 @@ def parse_dispatch_response(response_text: str, payload: Mapping[str, Any]) -> t
 
 
 def dispatch_automatic_launch(payload: Mapping[str, Any], settings: AutomationDispatchSettings) -> AutomationDispatchReceipt:
+    # Re-evaluate at the transport boundary. Never trust client-supplied PASS/blocked flags.
+    # There is no verified account-health provider wired to this transport yet.
+    rows = []
+    for row in payload.get("channels", []):
+        if not isinstance(row, Mapping):
+            raise AutomationLaunchError("Malformed channel payload.")
+        key = str(row.get("channel_key", "")).strip().lower()
+        if key not in {channel.key for channel in CHANNELS}:
+            raise AutomationLaunchError("Unsupported channel payload.")
+        if key in META_CHANNEL_ASSETS:
+            decision = review_meta_action(channel=key, content=str(row.get("copy", "")), action="publish")
+            if decision.status != "PASS":
+                continue  # Do not send blocked Meta copy or instructions to a downstream executor.
+        rows.append(row)
+    payload = {**payload, "channels": rows}
     if not settings.configured:
         raise AutomationLaunchError("CommandCore publishing is not connected. Connect Supabase or configure an external automation webhook.")
     body = serialize_launch_payload(payload)

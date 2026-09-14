@@ -43,7 +43,7 @@ def test_variation_preserves_exact_facts_and_omits_total_price() -> None:
     assert "$94,500" not in variation.copy
     assert "Small drywall repairs." in variation.copy
     assert "Possible updating." in variation.copy
-    assert variation.copy.count(link) == 1
+    assert link not in variation.copy
     assert validate_facebook_group_variation(variation, item, link) == []
 
 
@@ -88,7 +88,7 @@ def test_missing_optional_condition_fields_use_safe_language() -> None:
     assert validate_facebook_group_variation(variation, item, link) == []
 
 
-def test_fact_guard_blocks_missing_link_and_prohibited_claim() -> None:
+def test_fact_guard_blocks_public_link_and_prohibited_claim() -> None:
     item = sample_property()
     link = "https://tracking.example.com/group"
     safe = build_facebook_group_variation(
@@ -99,10 +99,10 @@ def test_fact_guard_blocks_missing_link_and_prohibited_claim() -> None:
     unsafe = safe.__class__(
         index=safe.index,
         label=safe.label,
-        copy=safe.copy.replace(link, "") + "\nGuaranteed approval. No credit check.",
+        copy=safe.copy + link + "\nGuaranteed approval. No credit check.",
     )
 
     errors = validate_facebook_group_variation(unsafe, item, link)
-    assert any("exactly once" in error for error in errors)
+    assert any("Internal tracking" in error for error in errors)
     assert any("guaranteed approval" in error.lower() for error in errors)
     assert any("no credit check" in error.lower() for error in errors)

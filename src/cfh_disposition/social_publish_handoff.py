@@ -9,6 +9,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .meta_marketplace_policy import review_meta_action
 from .models import OwnerFinanceProperty
 from .social_video_channels import SocialVideoPackage
 
@@ -155,6 +156,10 @@ def dispatch_social_publish_handoff(
     caption: str,
     approved_by: str,
 ) -> SocialPublishHandoffReceipt:
+    if package.channel_key == "instagram":
+        decision = review_meta_action(channel="instagram", content=caption, action="publish", property_record=property_record)
+        if decision.status != "PASS":
+            raise SocialPublishHandoffError("Meta publication blocked: " + "; ".join(f.reason for f in decision.findings))
     settings = SocialPublishSettings.from_mapping(values)
     if not settings.configured:
         raise SocialPublishHandoffError(

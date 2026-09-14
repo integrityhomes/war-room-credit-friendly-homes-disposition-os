@@ -115,7 +115,7 @@ def test_marketplace_copy_excludes_all_external_links():
     assert item.address in copy
 
 
-def test_facebook_group_copy_uses_selected_dwelyx_link():
+def test_facebook_group_copy_keeps_tracking_internal():
     item = sample_property()
     original_link = "https://tracking.example.com/?go=dwelyx&medium=property_page"
     selected_link = "https://tracking.example.com/?go=dwelyx&medium=facebook_groups"
@@ -123,9 +123,9 @@ def test_facebook_group_copy_uses_selected_dwelyx_link():
 
     copy = campaign_copy_for_channel(package, "facebook_groups", selected_link)
 
-    assert selected_link in copy
+    assert selected_link not in copy
     assert original_link not in copy
-    assert "dwelyx" in copy.lower()
+    assert "dwelyx" not in copy.lower()
     assert item.address in copy
 
 

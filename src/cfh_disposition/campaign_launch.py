@@ -35,6 +35,7 @@ from .marketplace_calendar import (
     MarketplaceCalendarStore,
     marketplace_month_status,
 )
+from .meta_marketplace_policy import META_CHANNEL_ASSETS
 from .models import OwnerFinanceProperty
 from .storage import StorageError, SupabaseSettings, build_storage
 
@@ -299,9 +300,9 @@ def mark_automatic_launch_success(
     updated = approve_all_channels(state, approved_by=updated_by, now=timestamp)
 
     for channel in CHANNELS:
-        if channel.key == "marketplace" and marketplace_blocked:
+        if channel.key in META_CHANNEL_ASSETS:
             status = LaunchStatus.PAUSED
-            notes = marketplace_block_reason
+            notes = marketplace_block_reason if channel.key == "marketplace" and marketplace_blocked else "Meta publication blocked pending current safety review."
         else:
             action = launch_action_for_channel(channel)
             if action == LaunchAction.INTERNAL_LIVE:
@@ -648,7 +649,7 @@ def render_campaign_launch_center(
     st.write("### Automatic Launch Engine")
     st.info(
         "No property is published or synced to Dwelyx. Facebook Marketplace has no direct link. "
-        "Facebook Groups and supported non-Marketplace channels may use the tracked Dwelyx buyer link."
+        "Facebook Group tracking links are internal-only and must not be pasted publicly. Other channels retain their own link rules."
     )
     automation_settings = AutomationDispatchSettings.from_mapping(secrets)
     if automation_settings.configured:
@@ -798,9 +799,9 @@ def render_campaign_launch_center(
             channel.key,
             tracked_link,
         )
-        if channel.key == "marketplace":
+        if channel.key in {"marketplace", "facebook_groups"}:
             st.info(
-                "Facebook Marketplace copy intentionally contains no website or Dwelyx link. "
+                "Facebook organic copy contains no website link. Tracking links are internal-only and must not be pasted publicly. "
                 "Buyers are instructed to message through Marketplace."
             )
         else:

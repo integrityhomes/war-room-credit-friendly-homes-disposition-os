@@ -3,10 +3,10 @@ from copy import deepcopy
 
 import pytest
 from test_marketing_attribution import WHEN, closing, fake_client
+from test_marketing_attribution import observations as observations
+from test_marketing_attribution import records as records
 
 from cfh_disposition.marketing_attribution import UNKNOWN, bind, project, save, touch
-
-pytest_plugins = ["test_marketing_attribution"]
 
 
 def inquiry(data, receipt, prop='property-1', buyer='contact-1', **evidence):

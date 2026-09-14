@@ -425,7 +425,7 @@ def test_manual_channels_stay_manual_and_marketplace_has_no_external_link() -> N
     assert all(item.launch_action == LaunchAction.MANUAL_FINAL_POST for item in materials.values())
     assert "https://" not in materials["marketplace"].copy
     assert "dwelyx" not in materials["marketplace"].copy.lower()
-    assert materials["facebook_groups"].tracked_link in materials["facebook_groups"].copy
+    assert materials["facebook_groups"].tracked_link not in materials["facebook_groups"].copy
     assert materials["nextdoor"].tracked_link in materials["nextdoor"].copy
 
 

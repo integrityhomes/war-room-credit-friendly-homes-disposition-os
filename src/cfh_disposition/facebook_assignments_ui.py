@@ -25,6 +25,7 @@ from .facebook_assignments import (
 )
 from .facebook_groups import FacebookGroupError, FacebookGroupStore, business_now
 from .fact_lock import MARKETABLE_PROPERTY_STATUSES
+from .meta_marketplace_policy import META_PUBLIC_LINK_PATTERN
 from .models import OwnerFinanceProperty
 
 
@@ -67,6 +68,8 @@ def _assignment_is_stale(
     assignment: FacebookPostingAssignment,
     property_record: OwnerFinanceProperty | None,
 ) -> tuple[bool, str]:
+    if META_PUBLIC_LINK_PATTERN.search(assignment.post_copy):
+        return True, "This saved assignment contains a public tracking link. Regenerate copy under the current internal-only rule."
     if property_record is None:
         return True, "The central property record is missing. Do not post this assignment."
     if property_record.status not in MARKETABLE_PROPERTY_STATUSES:
@@ -119,6 +122,7 @@ def render_facebook_assignment_dashboard(
     dwelyx_url: str,
 ) -> None:
     st.subheader("Daily Facebook Posting Assignment Dashboard")
+    st.warning("Preparation only until required account and Group health are verified. Internal tracking links must not be pasted publicly; do not switch accounts to evade restrictions.")
     st.caption(
         "Assign eligible Facebook Groups across the team without overlap. The final Facebook "
         "publish click remains manual; completed assignments activate the saved group cooldown."
@@ -372,7 +376,7 @@ def render_facebook_assignment_dashboard(
             st.write("### 2. Copy the exact Facebook Group post")
             st.code(selected.post_copy if not stale else "STALE ASSIGNMENT — REGENERATE BEFORE POSTING", language=None)
             st.text_input(
-                "3. Tracked Dwelyx buyer-registration link",
+                "3. Internal attribution only - do not paste publicly",
                 value=selected.tracked_link,
                 key=f"assignment_link_{selected.assignment_id}",
                 disabled=True,
