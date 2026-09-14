@@ -152,6 +152,24 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
         AppCompletionState.COMPLETE,
         "Canonical read-only Communications Hub over existing CRM communications and Nevaeh matching.",
     ),
+    AppCompletion(
+        "pages/52_CommandCore_Property_Sync_Preview.py",
+        "Deals",
+        AppCompletionState.SUPPORT_TOOL,
+        "Read-only source-sheet comparison with existing properties; no imports or updates.",
+    ),
+    AppCompletion(
+        "pages/53_CommandCore_Property_Baseline.py",
+        "Deals",
+        AppCompletionState.SUPPORT_TOOL,
+        "Read-only pre-import property baseline summary; import remains disabled.",
+    ),
+    AppCompletion(
+        "pages/54_CommandCore_Property_Changes.py",
+        "Deals",
+        AppCompletionState.SUPPORT_TOOL,
+        "Property change evidence and review decisions; live apply remains disabled.",
+    ),
     AppCompletion("pages/90_CFH_Marketing_Dispo.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Preserved canonical CFH marketing/disposition workspace."),
 )
 
