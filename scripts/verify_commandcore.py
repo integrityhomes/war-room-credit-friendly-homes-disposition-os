@@ -125,7 +125,8 @@ def _run(
     cwd: Path = ROOT,
     timeout: int = 900,
     environment_overrides: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
+    binary: bool = False,
+) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
     environment = os.environ.copy()
     environment.update(
         {
@@ -147,9 +148,9 @@ def _run(
             cwd=str(cwd),
             env=environment,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+            text=not binary,
+            encoding=None if binary else "utf-8",
+            errors=None if binary else "replace",
             timeout=timeout,
             shell=False,
             check=False,
@@ -175,14 +176,21 @@ def verify_repository() -> None:
 
 
 def git_status_paths() -> list[str]:
-    output = _checked(["git", "status", "--short", "--untracked-files=all"])
+    result = _run(["git", "status", "--short", "--porcelain=v1", "-z", "--untracked-files=all"], binary=True)
+    if result.returncode != 0:
+        raise VerificationError("Git status failed")
+    output = result.stdout
+    if not isinstance(output, bytes) or (output and not output.endswith(b"\0")):
+        raise VerificationError("Invalid NUL-delimited Git status")
+    records = iter(output.split(b"\0")[:-1])
     paths: list[str] = []
-    for line in output.splitlines():
-        value = line[3:].strip()
-        if " -> " in value:
-            value = value.split(" -> ", 1)[1]
-        if value:
-            paths.append(value.replace("\\", "/"))
+    for record in records:
+        if len(record) < 4 or record[2:3] != b" ":
+            raise VerificationError("Invalid Git status record")
+        paths.append(os.fsdecode(record[3:]))
+        if b"R" in record[:2] or b"C" in record[:2]:
+            if not next(records, b""):
+                raise VerificationError("Missing Git rename/copy source")
     return sorted(set(paths))
 
 
