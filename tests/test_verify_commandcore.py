@@ -75,16 +75,52 @@ def test_runner_has_no_live_credentials_or_external_calls() -> None:
     assert '"HTTPS_PROXY": ""' in SOURCE
 
 
-def test_git_status_preserves_first_modified_path(monkeypatch) -> None:
-    monkeypatch.setattr(
-        runner,
-        "_checked",
-        lambda arguments: " M scripts/verify_commandcore.py\n?? tests/new_test.py",
-    )
-    assert runner.git_status_paths() == [
-        "scripts/verify_commandcore.py",
-        "tests/new_test.py",
-    ]
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        (b" M scripts/verify_commandcore.py\0?? tests/new_test.py\0",
+         ["scripts/verify_commandcore.py", "tests/new_test.py"]),
+        (b"?? tests/has space.py\0", ["tests/has space.py"]),
+        (b'?? tests/"quoted".py\0', ['tests/"quoted".py']),
+        ("?? tests/caf\u00e9.py\0".encode(), ["tests/caf\u00e9.py"]),
+        (b"R  tests/new name.py\0tests/old name.py\0?? tests/other.py\0",
+         ["tests/new name.py", "tests/other.py"]),
+        (b"C  tests/copy.py\0tests/source.py\0", ["tests/copy.py"]),
+        (b"?? tests/a -> b.py\0", ["tests/a -> b.py"]),
+        (b"?? tests/trailing .py \0", ["tests/trailing .py "]),
+        (b"", []),
+    ],
+)
+def test_git_status_preserves_exact_paths(monkeypatch, output, expected) -> None:
+    def fake_run(arguments, **kwargs):
+        assert arguments == ["git", "status", "--short", "--porcelain=v1", "-z", "--untracked-files=all"]
+        assert kwargs == {"binary": True}
+        return subprocess.CompletedProcess(arguments, 0, output, b"")
+    monkeypatch.setattr(runner, "_run", fake_run)
+    assert runner.git_status_paths() == expected
+
+
+@pytest.mark.parametrize("output", [b"?? unterminated", b"R  new.py\0", b"bad\0"])
+def test_git_status_rejects_incomplete_records(monkeypatch, output) -> None:
+    monkeypatch.setattr(runner, "_run", lambda *a, **k: subprocess.CompletedProcess(a, 0, output, b""))
+    with pytest.raises(runner.VerificationError):
+        runner.git_status_paths()
+
+
+def test_git_status_rejects_command_failure(monkeypatch) -> None:
+    monkeypatch.setattr(runner, "_run", lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b"failure"))
+    with pytest.raises(runner.VerificationError, match="Git status failed"):
+        runner.git_status_paths()
+
+
+def test_binary_run_preserves_raw_output(monkeypatch) -> None:
+    def fake_run(arguments, **kwargs):
+        assert kwargs["text"] is False
+        assert kwargs["encoding"] is None and kwargs["errors"] is None
+        assert kwargs["shell"] is False
+        return subprocess.CompletedProcess(arguments, 0, b"raw\0", b"")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert runner._run(["git", "status"], binary=True).stdout == b"raw\0"
 
 
 def test_owned_cleanup_requires_exact_path_and_matching_marker(tmp_path, monkeypatch) -> None:
