@@ -15,6 +15,7 @@ from .contract_generation_pipeline import (
     select_exact_approved_template,
 )
 from .contract_workspace import CONTRACT_BUCKET
+from .missouri_contract_generation import generate_and_store_missouri_contract, is_missouri_afd
 
 SaveRelated = Callable[[str, str, dict[str, Any]], bool]
 ListDocuments = Callable[[], list[dict[str, Any]]]
@@ -181,7 +182,7 @@ def build_contract_for_deal(
         raise ContractGenerationError("The verified contract facts were saved, but CommandCore could not reload their CRM record.")
 
     facts = saved_prep.get("facts") if isinstance(saved_prep.get("facts"), dict) else {}
-    if not is_illinois_cfd(contract_type):
+    if not (is_illinois_cfd(contract_type) or is_missouri_afd(contract_type)):
         return ContractBuildOutcome(
             state=ContractBuildState.COORDINATOR_REQUIRED,
             message="This approved contract package still uses the existing coordinator while its document renderer is connected.",
@@ -210,12 +211,20 @@ def build_contract_for_deal(
             prep_document=saved_prep,
         )
 
-    generated = generate_and_store_contract(
-        client=client,
-        deal_id=deal_id,
-        facts_document=saved_prep,
-        all_documents=refreshed,
-    )
+    if is_missouri_afd(contract_type):
+        generated = generate_and_store_missouri_contract(
+            client=client,
+            deal_id=deal_id,
+            facts_document=saved_prep,
+            all_documents=refreshed,
+        )
+    else:
+        generated = generate_and_store_contract(
+            client=client,
+            deal_id=deal_id,
+            facts_document=saved_prep,
+            all_documents=refreshed,
+        )
     provenance = generated.document_record.get("generation_provenance")
     provenance = dict(provenance) if isinstance(provenance, dict) else {}
     provenance["facts_fingerprint"] = fingerprint
