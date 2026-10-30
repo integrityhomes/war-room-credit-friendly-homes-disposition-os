@@ -19,6 +19,15 @@ from cfh_disposition.commandcore_lead_flow import (
     request_approval,
     set_deal_terms,
 )
+from cfh_disposition.commandcore_next_action import (
+    STATUS_MARKETING_LIVE,
+    STATUS_NEEDS_APPROVAL,
+    STATUS_NEEDS_TERMS,
+    STATUS_READY_TO_MARKET,
+)
+from cfh_disposition.commandcore_next_action import (
+    next_action as flow_next_action,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,6 +80,7 @@ def test_lead_to_marketing_blocked_before_approval(demo_crm: DemoCrmBackend) -> 
     assert deal["stage"] == "New Lead"
     assert deal["links"]["contact_id"] == created.contact_id
     assert deal["links"]["property_id"] == created.property_id
+    assert flow_next_action(deal).status == STATUS_NEEDS_TERMS
 
     terms = set_deal_terms(
         demo_crm.handle,
@@ -87,6 +97,7 @@ def test_lead_to_marketing_blocked_before_approval(demo_crm: DemoCrmBackend) -> 
     assert terms.ok is True
     assert terms.record["stage"] == "Analyzing"
     assert terms.record["offer_price"] == "135000"
+    assert flow_next_action(terms.record).status == STATUS_NEEDS_APPROVAL
 
     blocked = publish_marketing(demo_crm.handle, deal_id=created.deal_id)
     assert blocked.ok is False
@@ -113,6 +124,9 @@ def test_lead_to_marketing_blocked_before_approval(demo_crm: DemoCrmBackend) -> 
     assert approval_request.ok is True
     assert approval_request.record["status"] == PENDING_OFFER_STATUS
     offer_id = approval_request.record["id"]
+    deal_after_request = demo_crm.handle({"action": "get", "entity": "deals", "id": created.deal_id})["record"]
+    offers = demo_crm.handle({"action": "list", "entity": "offers", "limit": 50})["records"]
+    assert flow_next_action(deal_after_request, offers=offers).status == STATUS_NEEDS_APPROVAL
 
     still_blocked = publish_marketing(demo_crm.handle, deal_id=created.deal_id)
     assert still_blocked.blocked is True
@@ -127,6 +141,9 @@ def test_lead_to_marketing_blocked_before_approval(demo_crm: DemoCrmBackend) -> 
     assert approved.ok is True
     assert approved.record["status"] == APPROVED_OFFER_STATUS
     assert approved.record["owner_approved_by"] == "Demo Owner"
+    deal_after_approval = demo_crm.handle({"action": "get", "entity": "deals", "id": created.deal_id})["record"]
+    offers = demo_crm.handle({"action": "list", "entity": "offers", "limit": 50})["records"]
+    assert flow_next_action(deal_after_approval, offers=offers).status == STATUS_READY_TO_MARKET
 
     published = publish_marketing(demo_crm.handle, deal_id=created.deal_id)
     assert published.ok is True
@@ -134,6 +151,8 @@ def test_lead_to_marketing_blocked_before_approval(demo_crm: DemoCrmBackend) -> 
     assert published.blocked is False
     assert published.deal["stage"] == MARKETING_STAGE
     assert published.deal.get("marketing_external_action_started") is False
+    offers = demo_crm.handle({"action": "list", "entity": "offers", "limit": 50})["records"]
+    assert flow_next_action(published.deal, offers=offers).status == STATUS_MARKETING_LIVE
 
     activities = demo_crm.handle({"action": "list", "entity": "activities", "limit": 100})["records"]
     titles = {str(item.get("title", "")) for item in activities}
