@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.channels import CHANNELS, CHANNELS_BY_KEY
 from cfh_disposition.marketing_intelligence_optimizer import build_market_informed_tests
 from cfh_disposition.marketing_intelligence_pipeline import build_current_intelligence_brief
@@ -39,34 +40,9 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error(
-            "This app is locked until APP_PASSWORD is added in Streamlit Secrets."
-        )
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-
-    st.title("AI Marketing Optimizer")
-    st.caption("Private internal access")
-    with st.form("ai_marketing_optimizer_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def _plan_key(
     period_start: date,
@@ -78,7 +54,6 @@ def _plan_key(
         f"ai_marketing_plan_{period_start.isoformat()}_"
         f"{period_end.isoformat()}_{property_token}"
     )
-
 
 def _display_plan(plan: AIMarketingPlan) -> None:
     st.write("## AI seven-day marketing plan")
@@ -143,10 +118,9 @@ def _display_plan(plan: AIMarketingPlan) -> None:
         for gap in plan.measurement_gaps:
             st.warning(gap)
 
-
 def _market_intelligence_rows(performance) -> list[dict[str, str]]:
     try:
-        intelligence_store = MarketingIntelligenceStore(st.secrets)
+        intelligence_store = MarketingIntelligenceStore(get_secrets())
         intelligence_ledger = intelligence_store.load()
         brief = build_current_intelligence_brief(intelligence_ledger)
     except MarketingIntelligenceStoreError:
@@ -171,7 +145,6 @@ def _market_intelligence_rows(performance) -> list[dict[str, str]]:
         for item in planner_briefs
     ]
 
-
 require_password()
 st.title("AI Marketing Optimizer")
 st.caption(
@@ -186,9 +159,9 @@ st.info(
 try:
     storage = get_storage()
     properties = storage.list_properties()
-    optimizer_store = MarketingOptimizerStore(st.secrets)
+    optimizer_store = MarketingOptimizerStore(get_secrets())
     optimizer_ledger = optimizer_store.load()
-    click_store = ClickAnalyticsStore(st.secrets)
+    click_store = ClickAnalyticsStore(get_secrets())
 except (StorageError, MarketingOptimizerError, AnalyticsError) as exc:
     st.error(f"AI Marketing Optimizer is safety-locked: {exc}")
     st.stop()
@@ -302,7 +275,7 @@ with plan_tab:
                 "No recent repeated market pattern is ready to influence a test yet. The measured optimizer continues normally."
             )
 
-        settings = MarketingOptimizerSettings.from_mapping(st.secrets)
+        settings = MarketingOptimizerSettings.from_mapping(get_secrets())
         plan_key = _plan_key(
             period_start,
             period_end,

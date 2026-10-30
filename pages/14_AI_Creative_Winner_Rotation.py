@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.creative_testing import (
     PRIMARY_METRICS,
     SUPPORTED_CREATIVE_CHANNELS,
@@ -38,38 +39,15 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("AI Creative Winner Rotation")
-    st.caption("Private internal access")
-    with st.form("creative_testing_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def experiment_label(experiment) -> str:
     return (
         f"{experiment.status.value} — {experiment.channel_name} — "
         f"{experiment.property_address}"
     )
-
 
 def consent_ready_buyers(buyers: list[BuyerProfile], channel_key: str) -> list[BuyerProfile]:
     eligible: list[BuyerProfile] = []
@@ -82,7 +60,6 @@ def consent_ready_buyers(buyers: list[BuyerProfile], channel_key: str) -> list[B
             continue
         eligible.append(buyer)
     return eligible
-
 
 def experiment_history_rows(ledger) -> list[dict[str, str | int]]:
     rows: list[dict[str, str | int]] = []
@@ -112,7 +89,6 @@ def experiment_history_rows(ledger) -> list[dict[str, str | int]]:
         )
     return rows
 
-
 require_password()
 st.title("AI Creative Testing & Winner Rotation Engine")
 st.caption(
@@ -124,10 +100,10 @@ try:
     storage = get_storage()
     properties = storage.list_properties()
     buyers = storage.list_buyers()
-    testing_store = CreativeTestingStore(st.secrets)
+    testing_store = CreativeTestingStore(get_secrets())
     ledger = testing_store.load()
     try:
-        click_events = ClickAnalyticsStore(st.secrets).list_recent(90)
+        click_events = ClickAnalyticsStore(get_secrets()).list_recent(90)
         click_warning = ""
     except AnalyticsError as exc:
         click_events = []
@@ -221,7 +197,7 @@ with create_tab:
             try:
                 experiment = build_creative_experiment(
                     selected_property,
-                    dwelyx_base_url(st.secrets),
+                    dwelyx_base_url(get_secrets()),
                     channel_key=channel_key,
                     primary_metric=primary_metric,
                     minimum_impressions_per_variant=int(minimum_impressions),
