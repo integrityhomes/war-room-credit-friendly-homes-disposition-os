@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.dwelyx import dwelyx_base_url
 from cfh_disposition.facebook_assignments_ui import (
     render_facebook_assignment_dashboard,
@@ -17,32 +18,9 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-
-    st.title("Daily Facebook Posting Assignments")
-    st.caption("Private internal access")
-    with st.form("facebook_assignment_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 require_password()
 st.title("Daily Facebook Posting Assignment Dashboard")
@@ -63,10 +41,10 @@ except StorageError as exc:
 
 # Any actionable Facebook operational problem discovered here is copied into the
 # central critical-failure learning ledger so it will also appear on the main screen.
-scan_facebook_operational_failures(st.secrets, properties)
+scan_facebook_operational_failures(get_secrets(), properties)
 
 render_facebook_assignment_dashboard(
     properties,
-    st.secrets,
-    dwelyx_base_url(st.secrets),
+    get_secrets(),
+    dwelyx_base_url(get_secrets()),
 )

@@ -5,7 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     render_page_header,
@@ -17,34 +18,13 @@ from supabase import create_client
 
 st.set_page_config(page_title="CommandCore", page_icon="🧭", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("CommandCore sign-in is not configured yet.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore")
-    with st.form("commandcore_shell_login"):
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("CommandCore data connection is not configured.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -53,16 +33,13 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def list_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
     return records if isinstance(records, list) else []
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def due_date(record: dict[str, Any]) -> date | None:
     raw = text(record.get("due_date") or record.get("due_at"))
@@ -76,7 +53,6 @@ def due_date(record: dict[str, Any]) -> date | None:
         except ValueError:
             return None
 
-
 def open_task(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() not in {
         "done",
@@ -85,7 +61,6 @@ def open_task(record: dict[str, Any]) -> bool:
         "cancelled",
         "canceled",
     }
-
 
 def active_deal(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() not in {
@@ -98,7 +73,6 @@ def active_deal(record: dict[str, Any]) -> bool:
         "archived",
     }
 
-
 def pending_owner_approval(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() in {
         "draft_pending_owner_approval",
@@ -107,7 +81,6 @@ def pending_owner_approval(record: dict[str, Any]) -> bool:
         "needs_approved_legal_template",
         "internal_review_ready",
     }
-
 
 def open_lifecycle_work(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() not in {
@@ -119,13 +92,11 @@ def open_lifecycle_work(record: dict[str, Any]) -> bool:
         "owner_rejected",
     }
 
-
 def link(path: str, label: str, caption: str = "") -> None:
     with st.container(border=True):
         st.page_link(path, label=label, use_container_width=True)
         if caption:
             st.caption(caption)
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_shell_logout"):
