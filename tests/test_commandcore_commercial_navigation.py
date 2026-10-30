@@ -16,12 +16,12 @@ def test_commercial_sidebar_prioritizes_everyday_work_areas() -> None:
 
     for area in (
         '"Home"',
-        '"Leads / Sellers"',
-        '"Deals / Properties"',
-        '"My Work"',
-        '"Buyers / Marketing"',
-        '"Management"',
-        '"Owner Approvals"',
+        '"Leads / CRM"',
+        '"Deals"',
+        '"Approvals"',
+        '"Marketing"',
+        '"Buyers"',
+        '"Admin"',
     ):
         assert area in everyday
 
@@ -29,12 +29,17 @@ def test_commercial_sidebar_prioritizes_everyday_work_areas() -> None:
         'NavigationItem("pages/00_CommandCore.py", "Home")',
         'NavigationItem("pages/44_CommandCore_CRM.py", "Leads")',
         'NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace")',
-        'NavigationItem("pages/35_CommandCore_My_Work.py", "My Work")',
-        'NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home")',
         'NavigationItem("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals")',
+        'NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home")',
+        'NavigationItem("pages/01_Record_Manager.py", "Buyers & Properties")',
         'NavigationItem("pages/39_CommandCore_Operations_Hub.py", "Operations")',
     ):
         assert primary in everyday
+
+    # Specialty and secondary tools stay under Admin / Advanced.
+    assert "Ask CorePilot" not in everyday
+    assert "My Work" not in everyday
+    assert "Facebook Groups" not in everyday
 
     ux_source = Path("src/cfh_disposition/commandcore_ux.py").read_text(encoding="utf-8")
     assert 'with st.expander("Admin / Advanced Tools", expanded=False):' in ux_source

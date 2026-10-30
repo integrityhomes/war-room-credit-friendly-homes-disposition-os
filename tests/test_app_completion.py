@@ -28,7 +28,7 @@ def test_external_blockers_are_not_mislabeled_as_internal_work() -> None:
 
 
 def test_operator_dashboard_is_a_completed_my_work_compatibility_route() -> None:
-    row = APP_COMPLETION_BY_PATH["pages/21_CommandCore_Operator_Dashboard.py"]
+    row = APP_COMPLETION_BY_PATH["pages/56_CommandCore_Operator_Dashboard.py"]
 
     assert row.state == AppCompletionState.COMPLETE
     assert "My Work" in row.disposition

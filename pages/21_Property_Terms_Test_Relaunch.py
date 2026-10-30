@@ -33,7 +33,6 @@ from cfh_disposition.terms_testing import (
     cancel_experiment,
     create_experiment,
     experiment_history_rows,
-    find_experiment,
     mark_review_ready,
     phase_metric_rows,
     recommendation_for_experiment,
