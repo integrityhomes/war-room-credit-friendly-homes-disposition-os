@@ -8,7 +8,7 @@ from test_property_change_runtime import reader as source_reader
 from cfh_disposition import property_change_runtime as runtime
 from cfh_disposition.property_change_review import record_review_decision
 
-SECRETS = {"GOOGLE_SHEET_ID": "fictional", "SUPABASE_URL": "fictional", "SUPABASE_SERVICE_ROLE_KEY": "fictional"}
+SECRETS = {"APP_PASSWORD": "fictional", "GOOGLE_SHEET_ID": "fictional", "SUPABASE_URL": "fictional", "SUPABASE_SERVICE_ROLE_KEY": "fictional"}
 
 
 @pytest.fixture
