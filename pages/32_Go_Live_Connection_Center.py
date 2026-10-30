@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_integrations import build_integration_connections, integration_summary
 from cfh_disposition.go_live_connections import (
     automation_connection_sample_json,
@@ -14,33 +15,13 @@ from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Connections", page_icon="🔌", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    with st.form("go_live_connections_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SECRET_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SECRET_KEY") or get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         return None
     return create_client(url, key)
-
 
 def load_registry_records(keys: list[str]) -> list[dict]:
     client = get_supabase()
@@ -61,7 +42,6 @@ def load_registry_records(keys: list[str]) -> list[dict]:
             records.append(connection)
     return records
 
-
 require_password()
 st.title("CommandCore Connections")
 st.caption("See which outside accounts or handoffs still need setup before their related marketing paths can operate.")
@@ -69,7 +49,7 @@ st.info(
     "Secret values are never displayed. A configured account or credential is not launch authority, and a successful handoff is not proof that an outside platform completed an action."
 )
 
-rows = build_connection_status(st.secrets)
+rows = build_connection_status(get_secrets())
 registry_records = load_registry_records([row.key for row in rows])
 connections = build_integration_connections(rows, registry_records)
 summary = integration_summary(connections)
@@ -169,7 +149,7 @@ with st.expander("Advanced: general automation webhook", expanded=False):
         )
         if st.button("Send Safe General-Webhook Test", type="primary"):
             try:
-                receipt = dispatch_publishing_connection_test(st.secrets, requested_by=tester)
+                receipt = dispatch_publishing_connection_test(get_secrets(), requested_by=tester)
             except ValueError as exc:
                 st.error(str(exc))
             else:
