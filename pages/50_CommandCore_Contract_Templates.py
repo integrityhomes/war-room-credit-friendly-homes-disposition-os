@@ -1,45 +1,24 @@
-# ruff: noqa: I001
 from __future__ import annotations
+from cfh_disposition.auth import require_password
+from cfh_disposition.app_secrets import get_secrets
+# ruff: noqa: I001
 
 from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.commandcore_contract_template_ui import render_contract_template_library
 from supabase import create_client
 
-
 st.set_page_config(page_title="CommandCore Contract Templates", page_icon="📄", layout="wide")
-
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("CommandCore is locked until APP_PASSWORD is configured.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore")
-    with st.form("commandcore_template_login"):
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
 
 @st.cache_resource
 def get_supabase() -> Any:
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("CommandCore storage is not configured.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -48,14 +27,11 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
 
-
 def deal_label(deal: dict[str, Any]) -> str:
     return text(deal.get("title")) or text(deal.get("stage")) or text(deal.get("id"))
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_template_logout"):

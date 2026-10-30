@@ -5,31 +5,12 @@ from pathlib import Path
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import render_page_header
 from cfh_disposition.property_sync_preview import CATEGORIES, load_sync_preview
 
 st.set_page_config(page_title="Property Sync Preview", page_icon="🔎", layout="wide")
-
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("CommandCore sign-in is not configured yet.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Property Sync Preview")
-    with st.form("sync_preview_login"):
-        entered = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in")
-    if submitted and password_matches(entered, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("That password did not match.")
-    st.stop()
-
 
 require_password()
 render_page_header("Property Sync Preview", "See what the Credit Friendly Homes sheet would change in CommandCore.")
@@ -41,7 +22,7 @@ if st.button("Build read-only preview", type="primary", key="build_sync_preview"
     st.session_state.pop("property_sync_preview", None)
     try:
         with st.spinner("Reading the sheet and comparing existing properties…"):
-            result = load_sync_preview(st.secrets)
+            result = load_sync_preview(get_secrets())
     except Exception:  # Never expose provider exceptions, credentials, or private URLs.
         st.error("The complete preview could not be built. Check the Google reader dependencies, source access, and inventory tab names. Nothing was changed.")
     else:
