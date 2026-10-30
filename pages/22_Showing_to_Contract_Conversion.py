@@ -1,4 +1,6 @@
 from __future__ import annotations
+from cfh_disposition.auth import require_password
+from cfh_disposition.app_secrets import get_secrets
 
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -6,7 +8,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.buyer_conversion import (
     BuyerConversionError,
     BuyerConversionStore,
@@ -58,31 +59,9 @@ TIME_ZONES = {
     "Central Time": "America/Chicago",
 }
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Showing-to-Contract Conversion Center")
-    st.caption("Private internal access")
-    with st.form("showing_conversion_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def buyer_name(buyer: BuyerProfile | None, buyer_id: str) -> str:
     if buyer is None:
@@ -90,12 +69,10 @@ def buyer_name(buyer: BuyerProfile | None, buyer_id: str) -> str:
     name = " ".join(part for part in (buyer.first_name, buyer.last_name) if part).strip()
     return name or f"Buyer {buyer_id[:8]}"
 
-
 def property_name(property_record: OwnerFinanceProperty | None, property_id: str) -> str:
     if property_record is None:
         return f"Property {property_id[:8]}"
     return property_record.display_address or f"Property {property_id[:8]}"
-
 
 def record_label(record, buyers_by_id, properties_by_id) -> str:
     return (
@@ -104,7 +81,6 @@ def record_label(record, buyers_by_id, properties_by_id) -> str:
         f"{record.stage.value}"
     )
 
-
 def appointment_label(appointment, buyers_by_id, properties_by_id) -> str:
     return (
         f"{appointment.status.value} — "
@@ -112,7 +88,6 @@ def appointment_label(appointment, buyers_by_id, properties_by_id) -> str:
         f"{buyer_name(buyers_by_id.get(appointment.buyer_id), appointment.buyer_id)} — "
         f"{property_name(properties_by_id.get(appointment.property_id), appointment.property_id)}"
     )
-
 
 def local_reminder_message(
     reminder_type: ReminderType,
@@ -153,7 +128,6 @@ def local_reminder_message(
         "questions, or the main issue preventing you from moving forward."
     )
 
-
 def localize_new_reminders(ledger, appointment, property_record, zone_label: str):
     reminders = [
         reminder.model_copy(
@@ -172,7 +146,6 @@ def localize_new_reminders(ledger, appointment, property_record, zone_label: str
     ]
     return ledger.model_copy(update={"reminders": reminders})
 
-
 def save_ledgers(
     showing_store: ShowingConversionStore,
     conversion_store: BuyerConversionStore,
@@ -186,7 +159,6 @@ def save_ledgers(
     except Exception:
         showing_store.save(original_showing)
         raise
-
 
 require_password()
 st.title("Showing-to-Contract Conversion Center")
@@ -203,9 +175,9 @@ try:
     storage = get_storage()
     properties = storage.list_properties()
     buyers = storage.list_buyers()
-    showing_store = ShowingConversionStore(st.secrets)
+    showing_store = ShowingConversionStore(get_secrets())
     showing_ledger = showing_store.load()
-    conversion_store = BuyerConversionStore(st.secrets)
+    conversion_store = BuyerConversionStore(get_secrets())
     conversion_ledger = conversion_store.load()
 except (StorageError, ShowingConversionError, BuyerConversionError) as exc:
     st.error(f"Showing-to-Contract Center is safety-locked: {exc}")
