@@ -6,7 +6,8 @@ from urllib import request
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     queue_success,
@@ -22,38 +23,17 @@ st.set_page_config(page_title="CommandCore My Work", page_icon="👤", layout="w
 ACTION_BUCKET = "commandcore-action-queue"
 HANDOFF_BUCKET = "commandcore-handoff-ledger"
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore My Work")
-    with st.form("commandcore_my_work_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
 
-
 def call_commandcore_function(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         return {}
     req = request.Request(
@@ -71,7 +51,6 @@ def call_commandcore_function(function_name: str, payload: dict[str, Any]) -> di
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
 
 def load_items() -> list[dict[str, Any]]:
     client = get_supabase()
@@ -99,7 +78,6 @@ def load_items() -> list[dict[str, Any]]:
                 items.append(normalized)
     return items
 
-
 @st.cache_data(ttl=60)
 def load_handoffs(dispatch_id: str) -> list[dict[str, Any]]:
     dispatch_id = dispatch_id.strip()
@@ -126,14 +104,12 @@ def load_handoffs(dispatch_id: str) -> list[dict[str, Any]]:
     handoffs.sort(key=lambda record: str(record.get("handoff_at", "")), reverse=True)
     return handoffs
 
-
 @st.cache_data(ttl=60)
 def load_shift_brief(owner_id_value: str) -> dict[str, Any]:
     owner_id_value = owner_id_value.strip()
     if not owner_id_value:
         return {}
     return call_commandcore_function("commandcore-shift-brief", {"owner_id": owner_id_value})
-
 
 @st.cache_data(ttl=30)
 def load_takeover_history(owner_id_value: str) -> dict[str, Any]:
@@ -145,14 +121,11 @@ def load_takeover_history(owner_id_value: str) -> dict[str, Any]:
         {"action": "list", "owner_id": owner_id_value},
     )
 
-
 def owner_name(item: dict[str, Any]) -> str:
     return str(item.get("owner_name", "") or "Unassigned").strip() or "Unassigned"
 
-
 def owner_id(item: dict[str, Any]) -> str:
     return str(item.get("owner_id", "") or "").strip()
-
 
 def action_id(item: dict[str, Any]) -> str:
     explicit = str(item.get("action_id", "") or "").strip()
@@ -161,7 +134,6 @@ def action_id(item: dict[str, Any]) -> str:
     dispatch_id = str(item.get("dispatch_id", "") or "").strip()
     channel = str(item.get("channel_key", "") or "").strip()
     return f"{dispatch_id}_{channel}".strip("_")
-
 
 def table_row(item: dict[str, Any]) -> dict[str, Any]:
     required_actions = item.get("required_actions", [])
@@ -176,7 +148,6 @@ def table_row(item: dict[str, Any]) -> dict[str, Any]:
         ),
     }
 
-
 def matching_handoffs(item: dict[str, Any]) -> list[dict[str, Any]]:
     dispatch_id = str(item.get("dispatch_id", "") or "").strip()
     target_action_id = action_id(item)
@@ -187,7 +158,6 @@ def matching_handoffs(item: dict[str, Any]) -> list[dict[str, Any]]:
         for record in load_handoffs(dispatch_id)
         if str(record.get("action_id", "") or "").strip() == target_action_id
     ]
-
 
 def record_shift_takeover(
     owner_id_value: str,
@@ -209,7 +179,6 @@ def record_shift_takeover(
         "source": "commandcore_my_work",
     }
     return call_commandcore_function("commandcore-shift-takeover", payload)
-
 
 def show_shift_takeover_controls(
     owner_id_value: str,
@@ -263,7 +232,6 @@ def show_shift_takeover_controls(
                 st.markdown(f"**{taken_at}**")
                 st.caption(counts)
 
-
 def show_shift_brief(
     brief: dict[str, Any],
     selected_name: str,
@@ -307,7 +275,6 @@ def show_shift_brief(
 
     st.divider()
     show_shift_takeover_controls(owner_id_value, selected_name, brief)
-
 
 require_password()
 

@@ -6,33 +6,14 @@ from urllib import request
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 
 st.set_page_config(page_title="CommandCore Coverage Exceptions", page_icon="🚨", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Coverage Exceptions")
-    with st.form("commandcore_coverage_exceptions_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         return {}
     req = request.Request(
@@ -51,10 +32,8 @@ def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def management_action(item: dict[str, Any]) -> str:
     recommended = text(item.get("recommended_action"))
@@ -66,7 +45,6 @@ def management_action(item: dict[str, Any]) -> str:
     if "reassignment" in exception_type or "dispatch" in exception_type:
         return "Review the affected dispatch and manually confirm a safe internal owner assignment."
     return "Review the coverage event, confirm ownership of urgent work, and document the resolution."
-
 
 def update_status(exception_id: str, status: str, actor: str, note: str) -> bool:
     result = call_commandcore(
@@ -81,7 +59,6 @@ def update_status(exception_id: str, status: str, actor: str, note: str) -> bool
     )
     return result.get("ok") is True
 
-
 def aging_label(item: dict[str, Any]) -> str:
     value = text(item.get("aging_level") or "current").lower()
     return {
@@ -91,7 +68,6 @@ def aging_label(item: dict[str, Any]) -> str:
         "current": "CURRENT",
         "resolved": "RESOLVED",
     }.get(value, value.upper())
-
 
 require_password()
 

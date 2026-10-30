@@ -6,7 +6,8 @@ from urllib import request
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     render_page_header,
@@ -16,29 +17,9 @@ from cfh_disposition.commandcore_ux import (
 
 st.set_page_config(page_title="CommandCore Management Alerts", page_icon="⚠️", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Management Alerts")
-    with st.form("commandcore_management_alerts_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 def call_commandcore(payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         return {}
     req = request.Request(
@@ -57,10 +38,8 @@ def call_commandcore(payload: dict[str, Any]) -> dict[str, Any]:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def open_coverage_exceptions(*, key: str, primary: bool = False) -> None:
     if st.button(
@@ -70,7 +49,6 @@ def open_coverage_exceptions(*, key: str, primary: bool = False) -> None:
         use_container_width=True,
     ):
         st.switch_page("pages/37_CommandCore_Coverage_Exceptions.py")
-
 
 require_password()
 
