@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.campaign_launch import CampaignLaunchStore, LaunchStoreError
 from cfh_disposition.dwelyx_attribution import (
     DwelyxAttributionError,
@@ -37,35 +38,12 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Vacant Home Disposition Escalation Center")
-    st.caption("Private internal access")
-    with st.form("inventory_velocity_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def money(value: Decimal) -> str:
     return f"${value:,.0f}"
-
 
 require_password()
 st.title("Vacant Home Disposition Escalation Center")
@@ -81,19 +59,19 @@ st.warning(
 try:
     storage = get_storage()
     properties = storage.list_properties()
-    velocity_store = InventoryVelocityStore(st.secrets)
+    velocity_store = InventoryVelocityStore(get_secrets())
     velocity_ledger = velocity_store.load()
 except (StorageError, InventoryVelocityError) as exc:
     st.error(f"Inventory Escalation Center is safety-locked: {exc}")
     st.stop()
 
 try:
-    click_events = ClickAnalyticsStore(st.secrets).list_recent(90)
+    click_events = ClickAnalyticsStore(get_secrets()).list_recent(90)
 except AnalyticsError:
     click_events = []
 
 try:
-    attribution_events = DwelyxAttributionStore(st.secrets).list_events(5000)
+    attribution_events = DwelyxAttributionStore(get_secrets()).list_events(5000)
 except DwelyxAttributionError:
     attribution_events = []
 
@@ -102,7 +80,7 @@ attribution_connected = bool(real_attribution_events)
 
 launch_states = {}
 try:
-    launch_store = CampaignLaunchStore(st.secrets)
+    launch_store = CampaignLaunchStore(get_secrets())
     for property_record in properties:
         property_id = str(property_record.property_id)
         launch_states[property_id] = launch_store.load(

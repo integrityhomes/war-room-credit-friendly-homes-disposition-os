@@ -4,7 +4,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Deal Work Queue", page_icon="🔄", layout="wide")
@@ -17,34 +18,13 @@ WORK_TYPE_LABELS = {
     "marketing_dispo": "Marketing / Dispo",
 }
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Deal Work Queue")
-    with st.form("commandcore_deal_workflow_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -53,21 +33,17 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def list_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
     return records if isinstance(records, list) else []
 
-
 def links(record: dict[str, Any]) -> dict[str, Any]:
     value = record.get("links")
     return value if isinstance(value, dict) else {}
-
 
 def is_open(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() not in {
@@ -78,11 +54,9 @@ def is_open(record: dict[str, Any]) -> bool:
         "canceled",
     }
 
-
 def work_type_label(value: Any) -> str:
     key = text(value)
     return WORK_TYPE_LABELS.get(key, key.replace("_", " ").title() or "Deal Work")
-
 
 def prep_status_label(value: Any) -> str:
     status = text(value) or "waiting_for_readiness_check"
@@ -93,14 +67,12 @@ def prep_status_label(value: Any) -> str:
     }
     return labels.get(status, status.replace("_", " ").title())
 
-
 def open_deal(deal_id: str, *, key: str) -> None:
     if not deal_id:
         return
     if st.button("Open Deal", key=key, type="primary", use_container_width=True):
         st.session_state["commandcore_selected_deal_id"] = deal_id
         st.switch_page("pages/45_CommandCore_Deal_Record.py")
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_deal_workflow_logout"):

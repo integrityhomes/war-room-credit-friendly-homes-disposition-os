@@ -5,7 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_nevaeh_inbox import (
     NevaehInboxCategory,
     NevaehInboxItem,
@@ -40,35 +41,13 @@ VIEW_CATEGORY = {
     "Unmatched": NevaehInboxCategory.UNMATCHED,
 }
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until the app password is configured.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Communications")
-    st.caption("Private internal access")
-    with st.form("commandcore_communications_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("That password did not work.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("CommandCore storage is not configured.")
     return create_client(url, key)
-
 
 def response_dictionary(response: object) -> dict[str, Any]:
     value = response if isinstance(response, dict) else getattr(response, "data", None)
@@ -79,7 +58,6 @@ def response_dictionary(response: object) -> dict[str, Any]:
             return {}
     return value if isinstance(value, dict) else {}
 
-
 def list_records(entity: str) -> list[dict[str, Any]]:
     response = get_supabase().functions.invoke(
         "commandcore-crm-core",
@@ -88,11 +66,9 @@ def list_records(entity: str) -> list[dict[str, Any]]:
     records = response_dictionary(response).get("records", [])
     return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
 
-
 def category_count(items: tuple[NevaehInboxItem, ...], view: str) -> int:
     category = VIEW_CATEGORY[view]
     return sum(category in item.categories for item in items)
-
 
 def render_item(item: NevaehInboxItem, *, expanded: bool) -> None:
     urgent = NevaehInboxCategory.STOP_CONSENT in item.categories
@@ -123,7 +99,6 @@ def render_item(item: NevaehInboxItem, *, expanded: bool) -> None:
             st.caption(f"Match confidence: {item.confidence}")
             st.caption("Views: " + ", ".join(category.value for category in item.categories))
             st.caption("Records written: 0 · Consent changes: 0 · Provider actions: 0")
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_communications_logout"):

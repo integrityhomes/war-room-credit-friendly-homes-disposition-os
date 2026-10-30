@@ -1,9 +1,10 @@
 from __future__ import annotations
+from cfh_disposition.auth import require_password
+from cfh_disposition.app_secrets import get_secrets
 
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
 from cfh_disposition.automatic_launch import AutomationDispatchSettings
 from cfh_disposition.buyer_conversion import (
     BuyerConversionError,
@@ -52,35 +53,12 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Property Shutdown & Buyer Reroute Center")
-    st.caption("Private internal access")
-    with st.form("property_control_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def active_records_for_property(conversion_ledger, property_id: str):
     return [record for record in conversion_ledger.records if record.property_id == property_id and record.stage not in TERMINAL_STAGES]
-
 
 def buyer_label(record, buyers_by_id) -> str:
     buyer = buyers_by_id.get(record.buyer_id)
@@ -90,10 +68,9 @@ def buyer_label(record, buyers_by_id) -> str:
         name = ""
     return f"{name or 'Buyer ' + record.buyer_id[:8]} — {record.stage.value} — owner: {record.owner or 'Unassigned'}"
 
-
 def sync_campaign_state(event, dispatch_status) -> None:
     try:
-        campaign_store = CampaignLaunchStore(st.secrets)
+        campaign_store = CampaignLaunchStore(get_secrets())
         state = campaign_store.load(event.property_id, event.campaign)
         state = state or new_launch_state(event.property_id, event.campaign)
         state = campaign_state_after_control(
@@ -105,10 +82,9 @@ def sync_campaign_state(event, dispatch_status) -> None:
     except LaunchStoreError:
         return
 
-
 def sync_one_channel(event, channel_key: str, task_status: ControlTaskStatus) -> None:
     try:
-        campaign_store = CampaignLaunchStore(st.secrets)
+        campaign_store = CampaignLaunchStore(get_secrets())
         state = campaign_store.load(event.property_id, event.campaign)
         if state is None:
             return
@@ -131,10 +107,9 @@ def sync_one_channel(event, channel_key: str, task_status: ControlTaskStatus) ->
     except LaunchStoreError:
         return
 
-
 def log_shutdown_failure(event, detail: str, *, channel: str = "property-wide") -> None:
     record_operational_failure(
-        st.secrets,
+        get_secrets(),
         CriticalFailureType.SOLD_SHUTDOWN,
         summary="A sold/filled property shutdown still needs intervention on one or more marketing surfaces.",
         technical_detail=detail,
@@ -144,7 +119,6 @@ def log_shutdown_failure(event, detail: str, *, channel: str = "property-wide") 
         campaign=event.campaign,
         source="property_control",
     )
-
 
 require_password()
 st.title("Property Shutdown & Buyer Reroute Center")
@@ -159,9 +133,9 @@ try:
     storage = get_storage()
     properties = storage.list_properties()
     buyers = storage.list_buyers()
-    control_store = PropertyControlStore(st.secrets)
+    control_store = PropertyControlStore(get_secrets())
     control_ledger = control_store.load()
-    conversion_store = BuyerConversionStore(st.secrets)
+    conversion_store = BuyerConversionStore(get_secrets())
     conversion_ledger = conversion_store.load()
 except (StorageError, PropertyControlError, BuyerConversionError) as exc:
     st.error(f"Property Control Center is safety-locked: {exc}")
@@ -299,7 +273,7 @@ with control_tab:
             updated_ledger = append_control_event(control_ledger, event)
             control_store.save(updated_ledger)
 
-            settings = AutomationDispatchSettings.from_mapping(st.secrets)
+            settings = AutomationDispatchSettings.from_mapping(get_secrets())
             if settings.configured:
                 try:
                     receipt = dispatch_property_control(event, settings)

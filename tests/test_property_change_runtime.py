@@ -37,7 +37,7 @@ def test_page_checks_on_open_and_preserves_checkpoint_on_failed_read(reader):
     calls, fail = reader
     page = AppTest.from_file(str(ROOT / "pages/54_CommandCore_Property_Changes.py"))
     page.session_state.authenticated = True
-    page.secrets.update(GOOGLE_SHEET_ID="fictional-sheet", SUPABASE_URL="fictional", SUPABASE_SERVICE_ROLE_KEY="fictional")
+    page.secrets.update(APP_PASSWORD="fictional", GOOGLE_SHEET_ID="fictional-sheet", SUPABASE_URL="fictional", SUPABASE_SERVICE_ROLE_KEY="fictional")
     page.run()
     assert not page.exception and not page.error
     assert calls == ["sheet read", "canonical read"]

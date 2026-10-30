@@ -4,31 +4,12 @@ import traceback
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import render_page_header
 from cfh_disposition.property_baseline import load_baseline_preview
 
 st.set_page_config(page_title="Final Property Baseline", page_icon="📋", layout="wide")
-
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("CommandCore sign-in is not configured yet.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Final Property Baseline")
-    with st.form("baseline_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("That password did not match.")
-    st.stop()
-
 
 require_password()
 render_page_header("Final Property Baseline", "Inspect the exact property records proposed for the first CommandCore load.")
@@ -42,7 +23,7 @@ if st.button("Build pre-import summary", type="primary", key="build_property_bas
     st.session_state.pop("property_baseline_plan", None)
     try:
         with st.spinner("Reading one sheet snapshot and checking canonical properties…"):
-            plan = load_baseline_preview(st.secrets)
+            plan = load_baseline_preview(get_secrets())
     except Exception as exc:
         st.error("The complete baseline could not be read. Nothing was imported. Check source access and try again.")
         # Exception messages, source lines and locals can contain provider secrets.

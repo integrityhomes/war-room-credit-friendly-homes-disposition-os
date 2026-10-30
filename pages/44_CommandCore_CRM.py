@@ -4,7 +4,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_agent_finder_ui import render_agent_finder
 from cfh_disposition.commandcore_ux import advanced_settings, queue_success, render_page_header, show_error
 from supabase import create_client
@@ -27,34 +28,13 @@ PIPELINE_STAGES = [
 ]
 DEAL_STATUSES = ["Active", "On Hold", "Closed", "Dead"]
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore CRM")
-    with st.form("commandcore_crm_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -63,30 +43,24 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def links(record: dict[str, Any]) -> dict[str, Any]:
     value = record.get("links")
     return value if isinstance(value, dict) else {}
-
 
 def load_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
     return records if isinstance(records, list) else []
 
-
 def save_record(entity: str, record: dict[str, Any]) -> dict[str, Any]:
     return call_crm({"action": "upsert", "entity": entity, "record": record})
-
 
 def saved_record(result: dict[str, Any]) -> dict[str, Any]:
     record = result.get("record")
     return record if isinstance(record, dict) else {}
-
 
 def record_label(entity: str, record: dict[str, Any]) -> str:
     if entity == "contacts":
@@ -99,14 +73,12 @@ def record_label(entity: str, record: dict[str, Any]) -> str:
         return f"{address} — {location}" if location else address or text(record.get("id"))
     return text(record.get("title")) or text(record.get("stage")) or text(record.get("id"))
 
-
 def select_option(label: str, options: list[str], current: str, *, key: str | None = None) -> str:
     values = list(options)
     if current and current not in values:
         values.insert(0, current)
     index = values.index(current) if current in values else 0
     return st.selectbox(label, values, index=index, key=key)
-
 
 def create_guided_lead(
     seller: dict[str, Any],
@@ -140,7 +112,6 @@ def create_guided_lead(
     if not deal_id:
         return False, "The deal was saved, but CommandCore did not return the deal ID.", ""
     return True, "Lead created and linked successfully.", deal_id
-
 
 def guided_lead_intake() -> None:
     st.subheader("Add a Lead")
@@ -238,7 +209,6 @@ def guided_lead_intake() -> None:
     )
     st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
-
 def contact_form(existing: dict[str, Any]) -> dict[str, Any] | None:
     with st.form("crm_contact_form"):
         left, right = st.columns(2)
@@ -260,7 +230,6 @@ def contact_form(existing: dict[str, Any]) -> dict[str, Any] | None:
                 "notes": notes,
             }
     return None
-
 
 def property_form(existing: dict[str, Any]) -> dict[str, Any] | None:
     with st.form("crm_property_form"):
@@ -289,7 +258,6 @@ def property_form(existing: dict[str, Any]) -> dict[str, Any] | None:
                 "notes": notes,
             }
     return None
-
 
 def deal_form(
     existing: dict[str, Any],
@@ -369,7 +337,6 @@ def deal_form(
             }
     return None
 
-
 def manage_records() -> None:
     st.subheader("Find & Edit Records")
     st.caption("Use this area when you need to correct an existing seller, property, or deal.")
@@ -419,7 +386,7 @@ def manage_records() -> None:
                     deals=load_records("deals"),
                     properties=load_records("properties"),
                     save_record=save_record,
-                    secrets=st.secrets,
+                    secrets=get_secrets(),
                 )
             saved = contact_form(selected)
         elif entity == "properties":
@@ -432,7 +399,6 @@ def manage_records() -> None:
                 st.success("Saved to CommandCore CRM.")
                 st.rerun()
             st.error(text(result.get("error")) or "CommandCore could not save this record.")
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_crm_logout"):

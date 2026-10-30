@@ -5,30 +5,12 @@ from decimal import Decimal
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.chatgpt_ads import INTENT_OPTIONS, SUPPORTED_MARKETS, build_chatgpt_ads_plan
 from cfh_disposition.dwelyx import dwelyx_base_url
 
 st.set_page_config(page_title="ChatGPT Ads Planning", page_icon="💬", layout="wide")
-
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    with st.form("chatgpt_ads_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
 
 require_password()
 st.title("ChatGPT Ads Planning")
@@ -54,7 +36,7 @@ daily_budget = Decimal(
     )
 )
 
-landing_default = dwelyx_base_url(st.secrets)
+landing_default = dwelyx_base_url(get_secrets())
 with st.expander("Tracking & destination details", expanded=False):
     landing_url = st.text_input("Buyer landing page", value=landing_default)
     st.caption(

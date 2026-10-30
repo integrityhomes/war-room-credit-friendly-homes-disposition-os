@@ -5,7 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_contract_controls import legal_template_blocker, pending_document
 from cfh_disposition.commandcore_ux import (
     queue_success,
@@ -20,34 +21,13 @@ st.set_page_config(page_title="CommandCore Owner Approvals", page_icon="✅", la
 
 OWNER_NAMES = {"Shawn", "Sabrina"}
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Owner Approvals")
-    with st.form("owner_approval_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -56,40 +36,32 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def list_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
     return records if isinstance(records, list) else []
-
 
 def upsert(entity: str, record: dict[str, Any]) -> dict[str, Any]:
     result = call_crm({"action": "upsert", "entity": entity, "record": record})
     saved = result.get("record", {})
     return saved if isinstance(saved, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def links(record: dict[str, Any]) -> dict[str, Any]:
     value = record.get("links")
     return value if isinstance(value, dict) else {}
 
-
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
 
 def pending_offer(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() == "draft_pending_owner_approval"
 
-
 def verify_owner_pin(supplied: str) -> bool:
-    expected = str(st.secrets.get("OWNER_APPROVAL_PIN", "")).strip()
+    expected = str(get_secrets().get("OWNER_APPROVAL_PIN", "")).strip()
     return bool(expected and supplied and supplied == expected)
-
 
 def open_deal(deal_id: str, *, key: str, label: str = "Review") -> None:
     if not deal_id:
@@ -97,7 +69,6 @@ def open_deal(deal_id: str, *, key: str, label: str = "Review") -> None:
     if st.button(label, key=key, use_container_width=True):
         st.session_state["commandcore_selected_deal_id"] = deal_id
         st.switch_page("pages/45_CommandCore_Deal_Record.py")
-
 
 def save_decision(
     *,
@@ -152,7 +123,6 @@ def save_decision(
     }
     upsert(entity, updated)
 
-
 def render_supporting_details(entity: str, record: dict[str, Any]) -> None:
     with st.expander("Advanced details", expanded=False):
         st.caption(f"Record type: {entity} · Record ID: {text(record.get('id')) or 'Unavailable'}")
@@ -174,7 +144,6 @@ def render_supporting_details(entity: str, record: dict[str, Any]) -> None:
                 st.caption("Approved legal template reference")
                 st.json(template_reference, expanded=False)
 
-
 def approval_reason(entity: str, record: dict[str, Any]) -> str:
     for key in ("approval_reason", "owner_approval_reason", "reason"):
         value = text(record.get(key))
@@ -184,14 +153,12 @@ def approval_reason(entity: str, record: dict[str, Any]) -> str:
         return "The offer is ready for an owner decision before the workflow can continue."
     return "The document or closing step requires an owner decision before it can continue."
 
-
 def requester_name(record: dict[str, Any]) -> str:
     for key in ("requested_by_name", "requested_by", "created_by_name", "created_by"):
         value = text(record.get(key))
         if value:
             return value
     return "Not listed"
-
 
 def risk_label(record: dict[str, Any]) -> str:
     value = text(record.get("risk_label") or record.get("risk_level") or record.get("severity")).lower()
@@ -200,7 +167,6 @@ def risk_label(record: dict[str, Any]) -> str:
     if value and value not in {"normal", "low", "none"}:
         return "Needs attention"
     return "Normal"
-
 
 def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
     record_id = text(record.get("id"))
@@ -306,7 +272,6 @@ def render_item(entity: str, record: dict[str, Any], deals_by_id: dict[str, dict
             st.session_state["commandcore_selected_deal_id"] = deal_id
             st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
-
 def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str, dict[str, Any]]) -> None:
     record_id = text(record.get("id"))
     deal_id = text(links(record).get("deal_id") or record.get("deal_id"))
@@ -324,7 +289,6 @@ def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str,
                 st.json(facts, expanded=False)
         st.caption("This item cannot be approved from this queue yet.")
 
-
 require_password()
 if st.sidebar.button("Log out", key="owner_approval_logout"):
     st.session_state.authenticated = False
@@ -336,7 +300,7 @@ render_page_header(
 )
 show_queued_success()
 
-if not str(st.secrets.get("OWNER_APPROVAL_PIN", "")).strip():
+if not str(get_secrets().get("OWNER_APPROVAL_PIN", "")).strip():
     st.warning(
         "Owner decisions are locked because OWNER_APPROVAL_PIN is not configured in Streamlit Secrets. "
         "The queue can be reviewed safely, but approvals and rejections cannot be recorded yet."

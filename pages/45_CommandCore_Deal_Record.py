@@ -5,7 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_approval_status import approval_decision_time_label, build_deal_approval_status
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
 from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
@@ -35,34 +36,13 @@ DEAL_TAB_LABELS = [
     "Deal Timeline",
 ]
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Deal Record")
-    with st.form("commandcore_deal_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -71,21 +51,17 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def list_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
     return records if isinstance(records, list) else []
 
-
 def links(record: dict[str, Any]) -> dict[str, Any]:
     value = record.get("links")
     return value if isinstance(value, dict) else {}
-
 
 def linked_record(entity: str, record_id: str) -> dict[str, Any] | None:
     if not record_id:
@@ -94,10 +70,8 @@ def linked_record(entity: str, record_id: str) -> dict[str, Any] | None:
     record = result.get("record")
     return record if isinstance(record, dict) else None
 
-
 def related_to_deal(record: dict[str, Any], deal_id: str) -> bool:
     return text(links(record).get("deal_id")) == deal_id or text(record.get("deal_id")) == deal_id
-
 
 def save_related(entity: str, deal_id: str, record: dict[str, Any]) -> bool:
     record_links = links(record)
@@ -105,16 +79,13 @@ def save_related(entity: str, deal_id: str, record: dict[str, Any]) -> bool:
     result = call_crm({"action": "upsert", "entity": entity, "record": payload})
     return bool(result.get("ok"))
 
-
 def upsert_record(entity: str, record: dict[str, Any]) -> dict[str, Any]:
     result = call_crm({"action": "upsert", "entity": entity, "record": record})
     saved = result.get("record")
     return saved if isinstance(saved, dict) else {}
 
-
 def deal_label(deal: dict[str, Any]) -> str:
     return text(deal.get("title")) or text(deal.get("stage")) or text(deal.get("id"))
-
 
 def show_related_table(entity: str, rows: list[dict[str, Any]]) -> None:
     if not rows:
@@ -132,7 +103,6 @@ def show_related_table(entity: str, rows: list[dict[str, Any]]) -> None:
     table = [{column: row.get(column) for column in columns if column in row} for row in rows]
     st.dataframe(table, use_container_width=True, hide_index=True)
 
-
 def open_task_exists(rows: list[dict[str, Any]], work_type: str) -> bool:
     for row in rows:
         status = text(row.get("status")).lower()
@@ -145,7 +115,6 @@ def open_task_exists(rows: list[dict[str, Any]], work_type: str) -> bool:
         }:
             return True
     return False
-
 
 def create_work_request(
     deal: dict[str, Any],
@@ -178,13 +147,11 @@ def create_work_request(
         st.rerun()
     st.error("CommandCore could not create the work request.")
 
-
 def open_deal_tab(label: str) -> None:
     if label not in DEAL_TAB_LABELS:
         return
     st.session_state["commandcore_deal_pending_tab"] = label
     st.rerun()
-
 
 def open_marketing(property_record: dict[str, Any]) -> None:
     property_id = text(property_record.get("id") or property_record.get("property_id"))
@@ -195,7 +162,6 @@ def open_marketing(property_record: dict[str, Any]) -> None:
         st.session_state["commandcore_marketing_property_address"] = address
     st.session_state["pending_main_navigation"] = "Marketing Home"
     st.switch_page("pages/90_CFH_Marketing_Dispo.py")
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_deal_logout"):

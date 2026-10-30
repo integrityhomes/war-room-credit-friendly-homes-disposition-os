@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.channels import CHANNELS_BY_KEY
 from cfh_disposition.classifieds_channel import (
@@ -16,35 +17,12 @@ from cfh_disposition.storage import StorageError, build_storage
 
 st.set_page_config(page_title="Craigslist & Local Classifieds", page_icon="📌", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Craigslist & Local Classifieds")
-    st.caption("Private internal access")
-    with st.form("classifieds_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def property_label(item) -> str:
     return item.display_address or str(item.property_id)
-
 
 require_password()
 st.title("Craigslist & Local Classifieds")
@@ -78,10 +56,10 @@ if not campaign:
     st.stop()
 
 links = build_channel_links(
-    dwelyx_base_url(st.secrets),
+    dwelyx_base_url(get_secrets()),
     campaign=campaign,
     property_id=selected.property_id,
-    tracking_base_url=tracking_app_base_url(st.secrets),
+    tracking_base_url=tracking_app_base_url(get_secrets()),
 )
 links_by_key = {row["Channel key"]: row["Tracked Dwelyx link"] for row in links}
 channel = CHANNELS_BY_KEY["classifieds"]

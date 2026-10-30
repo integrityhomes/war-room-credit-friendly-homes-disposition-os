@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.blog_public import render_blog_request
 from cfh_disposition.commandcore_ux import (
     NavigationItem,
@@ -16,8 +17,7 @@ from cfh_disposition.storage import build_storage
 
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 DIAGNOSTIC_PAGE = "pages/" + "34_Safe_Full_Payload_Test.py"
 
@@ -124,7 +124,6 @@ ADMIN_ADVANCED_NAVIGATION = (
         ),
     ),
 )
-
 
 storage = get_storage()
 if render_blog_request(storage):

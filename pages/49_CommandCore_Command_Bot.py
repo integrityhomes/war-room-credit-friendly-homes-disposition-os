@@ -5,7 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.corepilot_conversation import property_question
 from cfh_disposition.corepilot_internal import create_internal_record, run_internal_command
@@ -20,7 +21,6 @@ from supabase import ClientOptions, create_client
 st.set_page_config(page_title="CorePilot", page_icon="🤖", layout="wide")
 
 QUICK_ACTIONS = ("What needs my attention?", "Find a deal", "Show my work", "Review communications")
-
 
 def render_mobile_styles() -> None:
     """Keep the one CorePilot experience usable on laptop and phone screens."""
@@ -47,36 +47,15 @@ def render_mobile_styles() -> None:
         unsafe_allow_html=True,
     )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until the app password is configured.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CorePilot")
-    with st.form("corepilot_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("That password did not match. Try again.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("CommandCore storage is not configured.")
     # Canonical list reads download each JSON record; a populated inventory can
     # exceed the SDK's short default function timeout.
     return create_client(url, key, ClientOptions(function_client_timeout=60))
-
 
 def response_dictionary(response: object) -> dict[str, Any]:
     value = response if isinstance(response, (dict, bytes, bytearray)) else getattr(response, "data", None)
@@ -86,7 +65,6 @@ def response_dictionary(response: object) -> dict[str, Any]:
         except (UnicodeDecodeError, json.JSONDecodeError):
             return {}
     return value if isinstance(value, dict) else {}
-
 
 def list_records(entity: str) -> list[dict[str, Any]]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": {"action": "list", "entity": entity, "limit": 500}})
@@ -98,7 +76,6 @@ def list_records(entity: str) -> list[dict[str, Any]]:
         raise ValueError("Canonical read may be truncated; complete answers are unavailable")
     return records
 
-
 def load_corepilot_records() -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
     records: dict[str, list[dict[str, Any]]] = {}
     errors: dict[str, str] = {}
@@ -109,7 +86,6 @@ def load_corepilot_records() -> tuple[dict[str, list[dict[str, Any]]], dict[str,
             records[entity] = []
             errors[entity] = type(exc).__name__
     return records, errors
-
 
 def render_result(result: CorePilotResult) -> None:
     if result.status == "internal_done":
@@ -157,7 +133,6 @@ def render_result(result: CorePilotResult) -> None:
         if result.capability_names:
             st.write("Capabilities used: " + ", ".join(result.capability_names))
 
-
 render_mobile_styles()
 require_password()
 if st.sidebar.button("Log out", key="corepilot_logout"):
@@ -189,9 +164,9 @@ if submitted:
                 or preparation_intent(request) in {"Proposed property update", "Price/terms proposal", "Marketing preparation"}
                 or "needs my attention" in request.casefold()):
             try:
-                property_changes = read_property_changes(st.secrets)
+                property_changes = read_property_changes(get_secrets())
                 st.caption(f"Property evidence last checked: {property_changes.checked_at}")
-                checkpoint = latest_property_check(st.secrets)
+                checkpoint = latest_property_check(get_secrets())
                 inventory_evidence = checkpoint.get("inventory_observations")
                 if checkpoint.get("error"):
                     st.warning("The last property check failed. Showing the last successful evidence; it may be out of date.")

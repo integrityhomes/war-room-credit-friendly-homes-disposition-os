@@ -7,33 +7,14 @@ from urllib import request
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 
 st.set_page_config(page_title="CommandCore Coverage", page_icon="🛡️", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Coverage")
-    with st.form("commandcore_coverage_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         return {}
     req = request.Request(
@@ -49,29 +30,24 @@ def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
-
 @st.cache_data(ttl=30)
 def load_team() -> list[dict[str, Any]]:
     result = call_commandcore("commandcore-team-registry", {"action": "list"})
     members = result.get("members") if isinstance(result, dict) else []
     return [item for item in members if isinstance(item, dict)] if isinstance(members, list) else []
 
-
 @st.cache_data(ttl=20)
 def load_uncovered_work(owner_id: str) -> dict[str, Any]:
     return call_commandcore("commandcore-uncovered-work", {"owner_id": owner_id})
-
 
 def member_label(member: dict[str, Any]) -> str:
     name = str(member.get("name", "") or "").strip()
     member_id = str(member.get("id", "") or "").strip()
     return name or member_id or "Unnamed team member"
 
-
 def iso_from_inputs(day_value: Any, time_value: Any) -> str:
     combined = datetime.combine(day_value, time_value)
     return combined.replace(tzinfo=UTC).isoformat()
-
 
 def show_detection(detection: dict[str, Any]) -> None:
     level = str(detection.get("escalation_level", "normal") or "normal").upper()
@@ -89,13 +65,11 @@ def show_detection(detection: dict[str, Any]) -> None:
     if recommendation:
         st.write(f"**CommandCore recommendation:** {recommendation}")
 
-
 def dispatch_label(dispatch: dict[str, Any]) -> str:
     property_id = str(dispatch.get("property_id", "") or "Property not linked").strip()
     open_count = int(dispatch.get("open_item_count", 0) or 0)
     urgent = int(dispatch.get("urgent_count", 0) or 0)
     return f"{property_id} • {open_count} open • {urgent} urgent"
-
 
 require_password()
 

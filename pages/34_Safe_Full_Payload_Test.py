@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 import streamlit as st
 
 from cfh_disposition.ai_campaign import CampaignPackage, build_fallback_campaign
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.automatic_launch import (
     AutomationDispatchSettings,
     build_automatic_launch_payload,
@@ -25,31 +26,9 @@ from cfh_disposition.storage import StorageError, build_storage
 
 st.set_page_config(page_title="Safe Full Payload Test", page_icon="🧪", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Safe Full Payload Test")
-    st.caption("Private internal access")
-    with st.form("safe_full_payload_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 require_password()
 st.title("Safe Full Payload Test")
@@ -60,7 +39,7 @@ st.success(
     "Safety lock: this test sends zero executable top-level channels and explicitly disables publishing, email, SMS, ads, and spending."
 )
 
-settings = AutomationDispatchSettings.from_mapping(st.secrets)
+settings = AutomationDispatchSettings.from_mapping(get_secrets())
 if not settings.configured:
     st.error("AUTOMATION_WEBHOOK_URL is not configured in Streamlit Secrets.")
     st.stop()
@@ -91,10 +70,10 @@ campaign = st.text_input("Campaign name", value="owner_finance_homes").strip() o
 requested_by = st.text_input("Test requested by", value="Shawn")
 
 links = build_channel_links(
-    dwelyx_base_url(st.secrets),
+    dwelyx_base_url(get_secrets()),
     campaign=campaign,
     property_id=selected.property_id,
-    tracking_base_url=tracking_app_base_url(st.secrets),
+    tracking_base_url=tracking_app_base_url(get_secrets()),
 )
 links_by_key = {row["Channel key"]: row for row in links}
 base_link = links_by_key["property_page"]["Tracked Dwelyx link"]
@@ -110,12 +89,12 @@ package = (
 buyer_matches = []
 buyer_audience_error = ""
 try:
-    intent_ledger = BuyerIntentStore(st.secrets).load()
+    intent_ledger = BuyerIntentStore(get_secrets()).load()
     buyer_matches = build_match_queue(
         buyers,
         [selected],
         intent_ledger,
-        dwelyx_base_url(st.secrets),
+        dwelyx_base_url(get_secrets()),
         minimum_score=35,
     )
 except BuyerIntentError as exc:

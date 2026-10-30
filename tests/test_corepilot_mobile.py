@@ -25,8 +25,8 @@ def test_phone_controls_have_touch_friendly_minimum_height_and_quick_actions() -
 
 
 def test_mobile_uses_existing_authentication_and_safety_boundaries() -> None:
-    assert "configured_password(st.secrets)" in PAGE
-    assert "password_matches(password, expected)" in PAGE
+    assert "require_password()" in PAGE
+    assert "from cfh_disposition.auth import require_password" in PAGE
     assert "CorePilot stopped before the protected action" in PAGE
     assert "CorePilotActionClass.APPROVAL_REQUIRED" in PAGE
     assert '"action": "list"' in PAGE

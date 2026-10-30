@@ -6,7 +6,8 @@ import io
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
 from cfh_disposition.facebook_group_variations import (
     build_facebook_group_variation,
@@ -28,32 +29,9 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-
-    st.title("Facebook Group Variation Pack")
-    st.caption("Private internal access")
-    with st.form("facebook_group_variation_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def csv_bytes(rows: list[dict[str, str]]) -> bytes:
     output = io.StringIO()
@@ -72,7 +50,6 @@ def csv_bytes(rows: list[dict[str, str]]) -> bytes:
     writer.writerows(rows)
     return output.getvalue().encode("utf-8")
 
-
 def text_pack(rows: list[dict[str, str]]) -> bytes:
     sections: list[str] = []
     for row in rows:
@@ -90,7 +67,6 @@ def text_pack(rows: list[dict[str, str]]) -> bytes:
         )
     return ("\n\n".join(sections) + "\n").encode("utf-8")
 
-
 require_password()
 st.title("Facebook Group Variation Pack")
 st.caption(
@@ -101,7 +77,7 @@ st.caption(
 try:
     storage = get_storage()
     properties = storage.list_properties()
-    group_store = FacebookGroupStore(st.secrets)
+    group_store = FacebookGroupStore(get_secrets())
     ledger = group_store.load()
 except (StorageError, FacebookGroupError) as exc:
     st.error(f"Variation Pack is safety-locked: {exc}")
@@ -123,7 +99,7 @@ if not groups:
 selected_name = st.selectbox("Choose property", list(property_options))
 selected = property_options[selected_name]
 campaign = st.text_input("Campaign name", value="owner_finance_homes")
-dwelyx_url = dwelyx_base_url(st.secrets)
+dwelyx_url = dwelyx_base_url(get_secrets())
 
 rows: list[dict[str, str]] = []
 eligible_rows: list[dict[str, str]] = []

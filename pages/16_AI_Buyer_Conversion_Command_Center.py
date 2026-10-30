@@ -5,7 +5,8 @@ from datetime import UTC, date, datetime, time, timedelta
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.buyer_conversion import (
     CONTACT_ACTIVITIES,
     ActivityType,
@@ -34,35 +35,12 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("AI Buyer Conversion & Follow-Up Command Center")
-    st.caption("Private internal access")
-    with st.form("buyer_conversion_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def buyer_name(buyer) -> str:
     return " ".join(part for part in [buyer.first_name, buyer.last_name] if part).strip() or str(buyer.buyer_id)
-
 
 def record_label(record, buyers_by_id, properties_by_id) -> str:
     buyer = buyers_by_id.get(record.buyer_id)
@@ -71,16 +49,13 @@ def record_label(record, buyers_by_id, properties_by_id) -> str:
     address = property_record.display_address if property_record else f"Missing property {record.property_id[:8]}"
     return f"{record.stage.value} — {selected_buyer} — {address}"
 
-
 def combine_due(due_date: date, due_time: time) -> datetime:
     return datetime.combine(due_date, due_time, tzinfo=UTC)
-
 
 def save_ledger(store, ledger, message: str) -> None:
     store.save(ledger)
     st.success(message)
     st.rerun()
-
 
 require_password()
 st.title("AI Buyer Conversion & Follow-Up Command Center")
@@ -95,7 +70,7 @@ try:
     storage = get_storage()
     buyers = storage.list_buyers()
     properties = storage.list_properties()
-    conversion_store = BuyerConversionStore(st.secrets)
+    conversion_store = BuyerConversionStore(get_secrets())
     ledger = conversion_store.load()
 except (StorageError, BuyerConversionError) as exc:
     st.error(f"Buyer Conversion Command Center is safety-locked: {exc}")

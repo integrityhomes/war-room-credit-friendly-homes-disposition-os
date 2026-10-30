@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.buyer_acquisition import (
     MANUAL_PUBLICATION_SOURCES,
     PAID_SOURCES,
@@ -35,36 +36,13 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("AI Buyer Acquisition & Audience Growth")
-    st.caption("Private internal access")
-    with st.form("buyer_acquisition_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def campaign_label(campaign) -> str:
     scope = campaign.property_address or f"{campaign.market_city}, {campaign.market_state}"
     return f"{campaign.status.value} — {campaign.source_name} — {scope}"
-
 
 def campaign_history_rows(ledger) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
@@ -84,7 +62,6 @@ def campaign_history_rows(ledger) -> list[dict[str, str]]:
         )
     return rows
 
-
 require_password()
 st.title("AI Buyer Acquisition & Audience Growth Engine")
 st.caption(
@@ -95,10 +72,10 @@ st.caption(
 try:
     storage = get_storage()
     properties = storage.list_properties()
-    acquisition_store = BuyerAcquisitionStore(st.secrets)
+    acquisition_store = BuyerAcquisitionStore(get_secrets())
     ledger = acquisition_store.load()
     try:
-        click_events = ClickAnalyticsStore(st.secrets).list_recent(120)
+        click_events = ClickAnalyticsStore(get_secrets()).list_recent(120)
         click_warning = ""
     except AnalyticsError as exc:
         click_events = []
@@ -200,7 +177,7 @@ with create_tab:
                 source_key=source_key,
                 market_city=market_city,
                 market_state=market_state,
-                dwelyx_url=dwelyx_base_url(st.secrets),
+                dwelyx_url=dwelyx_base_url(get_secrets()),
                 weekly_budget=Decimal(str(weekly_budget)),
                 target_cost_per_registration=Decimal(str(target_cost)),
                 weekly_registration_goal=int(weekly_goal),

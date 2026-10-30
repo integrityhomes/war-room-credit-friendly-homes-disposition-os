@@ -41,7 +41,7 @@ def test_advanced_and_system_tools_remain_available() -> None:
         'st.subheader("System Setup")',
         'st.button("Refresh Saved Records")',
         'render_record_manager(storage)',
-        'render_marketplace_guard(st.session_state.properties, st.secrets)',
+        'render_marketplace_guard(st.session_state.properties, get_secrets())',
     ):
         assert marker in source
 

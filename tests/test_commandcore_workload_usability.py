@@ -21,7 +21,7 @@ def test_workload_empty_state_has_safe_next_actions() -> None:
 def test_workload_recommendation_heading_avoids_internal_ids() -> None:
     source = workload_source()
     function_start = source.index("def recommendation_label")
-    function_end = source.index("\n\n\nrequire_password()", function_start)
+    function_end = source.index("\nrequire_password()", function_start)
     label_function = source[function_start:function_end]
 
     assert "property_id" not in label_function

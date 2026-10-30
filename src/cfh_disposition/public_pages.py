@@ -20,6 +20,7 @@ from .analytics import (
     click_summary,
     traffic_type_counts,
 )
+from .app_secrets import get_secrets
 from .channel_tracking import (
     build_channel_links,
     canonical_channel_key,
@@ -93,11 +94,11 @@ def _browse_dwelyx_url(
     target: str | None = None,
 ) -> str:
     return build_dwelyx_url(
-        target or dwelyx_base_url(st.secrets),
+        target or dwelyx_base_url(get_secrets()),
         source="credit_friendly_homes",
         medium=medium,
         property_id=property_id,
-        tracking_base_url=tracking_app_base_url(st.secrets),
+        tracking_base_url=tracking_app_base_url(get_secrets()),
     )
 
 
@@ -254,7 +255,7 @@ def _test_tracking_url(url: str) -> str:
 
 
 def _render_dwelyx_redirect() -> None:
-    configured_target = dwelyx_base_url(st.secrets)
+    configured_target = dwelyx_base_url(get_secrets())
     requested_target = _query_value("target", configured_target)
     target = (
         requested_target
@@ -279,7 +280,7 @@ def _render_dwelyx_redirect() -> None:
     session_key = f"dwelyx_click_logged::{signature}"
     if not st.session_state.get(session_key):
         try:
-            ClickAnalyticsStore(st.secrets).record(
+            ClickAnalyticsStore(get_secrets()).record(
                 ClickEvent(
                     occurred_at=datetime.now(UTC),
                     source=source,
@@ -336,12 +337,12 @@ def _render_channel_center(storage: Storage) -> None:
     selected_property = property_options[selected_property_name]
 
     links = build_channel_links(
-        dwelyx_base_url(st.secrets),
+        dwelyx_base_url(get_secrets()),
         campaign=campaign,
         property_id=(
             selected_property.property_id if selected_property else None
         ),
-        tracking_base_url=tracking_app_base_url(st.secrets),
+        tracking_base_url=tracking_app_base_url(get_secrets()),
     )
 
     st.success(f"{len(links)} separate channel links are ready.")
@@ -403,7 +404,7 @@ def _render_click_analytics(storage: Storage) -> None:
     )
 
     try:
-        all_events = ClickAnalyticsStore(st.secrets).list_recent(
+        all_events = ClickAnalyticsStore(get_secrets()).list_recent(
             days,
             include_test=True,
             include_unclassified=True,

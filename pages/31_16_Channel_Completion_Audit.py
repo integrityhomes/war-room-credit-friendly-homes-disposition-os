@@ -3,29 +3,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.auth import require_password
 from cfh_disposition.channel_completion import build_channel_completion, completion_summary
 
 st.set_page_config(page_title="CommandCore Marketing Setup Status", page_icon="✅", layout="wide")
-
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    with st.form("channel_audit_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
 
 require_password()
 st.title("CommandCore Marketing Setup Status")

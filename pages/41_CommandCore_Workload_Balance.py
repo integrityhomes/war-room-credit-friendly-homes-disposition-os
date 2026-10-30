@@ -6,45 +6,25 @@ from urllib import request
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Workload Balance", page_icon="⚖️", layout="wide")
 
 ACTION_BUCKET = "commandcore-action-queue"
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Workload Balance")
-    with st.form("commandcore_workload_balance_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
 
-
 def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         return {}
     req = request.Request(
@@ -59,7 +39,6 @@ def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
 
 def load_open_items() -> list[dict[str, Any]]:
     client = get_supabase()
@@ -89,14 +68,12 @@ def load_open_items() -> list[dict[str, Any]]:
             items.append(normalized)
     return items
 
-
 def recommendation_label(item: dict[str, Any]) -> str:
     channel = str(item.get("channel_key", "")).replace("_", " ").title()
     return (
         f"{item.get('from_owner_name', 'Unknown')} → {item.get('to_owner_name', 'Unknown')}"
         + (f" • {channel}" if channel else "")
     )
-
 
 require_password()
 

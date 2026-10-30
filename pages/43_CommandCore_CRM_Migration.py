@@ -10,7 +10,8 @@ from urllib import error, request
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 
 st.set_page_config(page_title="CommandCore CRM Migration", page_icon="📥", layout="wide")
 
@@ -30,37 +31,15 @@ ENTITY_OPTIONS = [
 ]
 ENTITY_KEYS = [item.lower() for item in ENTITY_OPTIONS]
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore CRM Migration")
-    with st.form("commandcore_crm_migration_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 def text(value: Any) -> str:
     return str(value or "").strip()
 
-
 def service_config() -> tuple[str, str]:
-    url = text(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    key = text(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", ""))
+    url = text(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    key = text(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", ""))
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return url, key
-
 
 def call_service(service: str, payload: dict[str, Any]) -> dict[str, Any]:
     url, key = service_config()
@@ -82,7 +61,6 @@ def call_service(service: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"{service} returned an unexpected response.")
     return parsed
 
-
 def clean_value(value: Any) -> Any:
     if pd.isna(value):
         return None
@@ -92,7 +70,6 @@ def clean_value(value: Any) -> Any:
         except (ValueError, AttributeError):
             pass
     return value
-
 
 def rows_from_upload(uploaded: Any) -> list[dict[str, Any]]:
     raw = uploaded.getvalue()
@@ -110,7 +87,6 @@ def rows_from_upload(uploaded: Any) -> list[dict[str, Any]]:
         {str(key): clean_value(value) for key, value in row.items()}
         for row in frame.to_dict(orient="records")
     ]
-
 
 def table_rows(staged: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
@@ -133,13 +109,11 @@ def table_rows(staged: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
     return output
 
-
 def default_approvals(staged: list[dict[str, Any]]) -> dict[int, bool]:
     return {
         index: row.get("ready_for_import") is True and row.get("duplicate_in_file") is not True
         for index, row in enumerate(staged)
     }
-
 
 def commit_rows(staged: list[dict[str, Any]], approvals: dict[int, bool]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -159,16 +133,13 @@ def commit_rows(staged: list[dict[str, Any]], approvals: dict[int, bool]) -> lis
         )
     return rows
 
-
 def payload_signature(rows: list[dict[str, Any]]) -> str:
     canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-
 def external_id_hash(values: set[str]) -> str:
     canonical = "\n".join(sorted({text(value).lower() for value in values if text(value)}))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
 
 def capture_source_export_batch(source: str, uploaded: Any, staged: list[dict[str, Any]]) -> None:
     source_key = text(source).lower()
@@ -203,7 +174,6 @@ def capture_source_export_batch(source: str, uploaded: Any, staged: list[dict[st
     st.session_state.pop("crm_migration_reconciliation_preview", None)
     st.session_state.pop("crm_migration_reconciliation_result", None)
 
-
 def accumulated_source_ids() -> dict[str, set[str]]:
     accumulated = {entity_key: set() for entity_key in ENTITY_KEYS}
     batches = st.session_state.get("crm_migration_source_batches")
@@ -217,7 +187,6 @@ def accumulated_source_ids() -> dict[str, set[str]]:
             values = entity_ids.get(entity_key) if isinstance(entity_ids.get(entity_key), list) else []
             accumulated[entity_key].update(text(value) for value in values if text(value))
     return accumulated
-
 
 def build_source_manifest(source: str, real_source_export: bool) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     ids_by_entity = accumulated_source_ids()
@@ -254,7 +223,6 @@ def build_source_manifest(source: str, real_source_export: bool) -> tuple[dict[s
         "entities": entities,
     }, status_rows
 
-
 def reconciliation_rows(preview: dict[str, Any]) -> list[dict[str, Any]]:
     entities = preview.get("entities") if isinstance(preview.get("entities"), dict) else {}
     rows: list[dict[str, Any]] = []
@@ -272,12 +240,10 @@ def reconciliation_rows(preview: dict[str, Any]) -> list[dict[str, Any]]:
         )
     return rows
 
-
 def safe_preview_for_display(preview: dict[str, Any]) -> dict[str, Any]:
     safe = dict(preview)
     safe.pop("preview_token", None)
     return safe
-
 
 def preview_is_apply_ready(preview: Any) -> bool:
     return (
@@ -289,7 +255,6 @@ def preview_is_apply_ready(preview: Any) -> bool:
         and int(preview.get("invalid_count", 0) or 0) == 0
         and int(preview.get("duplicate_count", 0) or 0) == 0
     )
-
 
 require_password()
 

@@ -14,7 +14,7 @@ def test_blog_route_is_stable_and_campaign_scoped() -> None:
 
 def test_blog_publication_requires_persisted_campaign_approval() -> None:
     source = BLOG.read_text(encoding="utf-8")
-    assert "CampaignLaunchStore(st.secrets).load" in source
+    assert "CampaignLaunchStore(get_secrets()).load" in source
     assert "state.approved_at is None" in source
     assert 'state.channels.get("blog")' in source
     assert "blog.status not in PUBLISHABLE_BLOG_STATUSES" in source

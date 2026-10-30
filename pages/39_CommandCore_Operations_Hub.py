@@ -7,7 +7,8 @@ from urllib.request import Request, urlopen
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_property_source_diagnostics import (
     run_property_source_diagnostic,
     safe_property_diagnostic_failure,
@@ -35,35 +36,13 @@ st.set_page_config(page_title="CommandCore Operations", page_icon="🧭", layout
 ACTION_BUCKET = "commandcore-action-queue"
 OPERATOR_STATE_BUCKET = "commandcore-operator-state"
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Operations")
-    st.caption("Private internal access")
-    with st.form("commandcore_operations_hub_login"):
-        entered_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(entered_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in Streamlit Secrets.")
     return create_client(url, key)
-
 
 def list_secretary_crm_records(entity: str) -> list[dict[str, Any]]:
     """Use the existing CRM list action through a read-only UI boundary."""
@@ -74,7 +53,6 @@ def list_secretary_crm_records(entity: str) -> list[dict[str, Any]]:
     payload = response if isinstance(response, dict) else getattr(response, "data", {})
     records = payload.get("records", []) if isinstance(payload, dict) else []
     return [item for item in records if isinstance(item, dict)]
-
 
 def read_secretary_consent(contact_id: str) -> dict[str, Any]:
     """Read current consent from the existing contact ledger without changing it."""
@@ -87,10 +65,9 @@ def read_secretary_consent(contact_id: str) -> dict[str, Any]:
     payload = response if isinstance(response, dict) else getattr(response, "data", {})
     return payload if isinstance(payload, dict) and payload.get("ok") else {}
 
-
 def post_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).strip().rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         raise RuntimeError("CommandCore services are not configured.")
     req = Request(
@@ -111,11 +88,10 @@ def post_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
         raise RuntimeError("CommandCore did not confirm the request.")
     return parsed
 
-
 def load_launch_readiness() -> dict[str, Any]:
     """Read the existing launch-readiness auditor without hiding an unhealthy 503 response."""
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).strip().rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         raise RuntimeError("CommandCore services are not configured.")
     req = Request(
@@ -141,7 +117,6 @@ def load_launch_readiness() -> dict[str, Any]:
         raise RuntimeError("CommandCore readiness auditor returned an invalid response.")
     return parsed
 
-
 def load_queue_items() -> list[dict[str, Any]]:
     client = get_supabase()
     rows = client.storage.from_(ACTION_BUCKET).list("dispatches") or []
@@ -161,7 +136,6 @@ def load_queue_items() -> list[dict[str, Any]]:
             if isinstance(item, dict):
                 items.append(item)
     return items
-
 
 def load_operator_states() -> dict[str, dict[str, Any]]:
     client = get_supabase()
@@ -185,10 +159,8 @@ def load_operator_states() -> dict[str, dict[str, Any]]:
                 states[action_id] = parsed
     return states
 
-
 def action_id_for(item: dict[str, Any]) -> str:
     return str(item.get("action_id", "") or f"{item.get('dispatch_id', '')}_{item.get('channel_key', '')}").strip()
-
 
 def load_human_escalations(items: list[dict[str, Any]], states: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     if not items:
@@ -196,7 +168,6 @@ def load_human_escalations(items: list[dict[str, Any]], states: dict[str, dict[s
     result = post_commandcore("commandcore-aging-escalation", {"items": items, "operator_states": states})
     escalations = result.get("escalations") if isinstance(result.get("escalations"), list) else []
     return [item for item in escalations if isinstance(item, dict)]
-
 
 def load_coverage_alerts() -> list[dict[str, Any]]:
     result = post_commandcore(
@@ -211,7 +182,6 @@ def load_coverage_alerts() -> list[dict[str, Any]]:
         and str(item.get("status", "")).lower() != "resolved"
         and str(item.get("aging_level", "")).lower() in {"overdue", "escalated", "executive"}
     ]
-
 
 def human_rows(items: list[dict[str, Any]], escalations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_id = {
@@ -243,7 +213,6 @@ def human_rows(items: list[dict[str, Any]], escalations: list[dict[str, Any]]) -
     rows.sort(key=lambda row: (rank.get(str(row["Urgency"]), 9), 0 if row["Priority"] == "HIGH" else 1))
     return rows
 
-
 def coverage_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = [
         {
@@ -262,7 +231,6 @@ def coverage_rows(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rank = {"EXECUTIVE": 0, "ESCALATED": 1, "OVERDUE": 2}
     rows.sort(key=lambda row: (rank.get(str(row["Urgency"]), 9), 0 if row["Severity"] == "CRITICAL" else 1))
     return rows
-
 
 def render_system_readiness(readiness: dict[str, Any] | None, readiness_error: str | None) -> None:
     st.subheader("CommandCore System Readiness")
@@ -322,8 +290,7 @@ def render_system_readiness(readiness: dict[str, Any] | None, readiness_error: s
             for blocker in blocker_names:
                 st.write(f"- {blocker}")
 
-
-require_password()
+require_password(title="CommandCore Operations")
 
 if st.sidebar.button("Log out", key="commandcore_operations_hub_logout"):
     st.session_state.authenticated = False
@@ -521,7 +488,7 @@ with st.expander("Property Source Diagnostics", expanded=False):
         use_container_width=True,
     ):
         try:
-            diagnostic = run_property_source_diagnostic(st.secrets)
+            diagnostic = run_property_source_diagnostic(get_secrets())
         except GoogleBridgeError as error:
             failure = safe_property_diagnostic_failure(error)
             st.error("Live Google connection: FAIL")
@@ -562,7 +529,7 @@ with st.expander("Property Source Diagnostics", expanded=False):
         use_container_width=True,
     ):
         try:
-            full_audit = run_full_property_source_audit(st.secrets)
+            full_audit = run_full_property_source_audit(get_secrets())
         except GoogleBridgeError as error:
             failure = safe_property_diagnostic_failure(error)
             st.error("Full Google property source: FAIL")

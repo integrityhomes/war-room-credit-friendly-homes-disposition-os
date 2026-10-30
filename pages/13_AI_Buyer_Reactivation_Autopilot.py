@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.buyer_intent import (
     BuyerIntentError,
     BuyerIntentStore,
@@ -41,31 +42,9 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("AI Buyer Reactivation Autopilot")
-    st.caption("Private internal access")
-    with st.form("reactivation_autopilot_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def job_label(job: ReactivationJob) -> str:
     return (
@@ -73,14 +52,12 @@ def job_label(job: ReactivationJob) -> str:
         f"{job.channel.value} [{job.status.value}]"
     )
 
-
 def fresh_match_for_job(job: ReactivationJob, buyers_by_id, properties_by_id, intent_ledger, dwelyx_url):
     buyer = buyers_by_id.get(job.buyer_id)
     property_record = properties_by_id.get(job.property_id)
     if not buyer or not property_record:
         raise ReactivationAutopilotError("The buyer or property record for this job no longer exists.")
     return build_match(buyer, property_record, intent_ledger, dwelyx_url)
-
 
 def dispatch_one(job, autopilot_ledger, intent_ledger, settings, buyers_by_id, properties_by_id, dwelyx_url):
     stop_reason = engagement_stop_reason(intent_ledger, job)
@@ -129,7 +106,6 @@ def dispatch_one(job, autopilot_ledger, intent_ledger, settings, buyers_by_id, p
     )
     return updated_autopilot, updated_intent, "dispatched", receipt.response_text
 
-
 require_password()
 st.title("AI Buyer Reactivation Autopilot")
 st.caption(
@@ -141,16 +117,16 @@ try:
     storage = get_storage()
     buyers = storage.list_buyers()
     properties = storage.list_properties()
-    intent_store = BuyerIntentStore(st.secrets)
+    intent_store = BuyerIntentStore(get_secrets())
     intent_ledger = intent_store.load()
-    autopilot_store = ReactivationAutopilotStore(st.secrets)
+    autopilot_store = ReactivationAutopilotStore(get_secrets())
     autopilot_ledger = autopilot_store.load()
 except (StorageError, BuyerIntentError, ReactivationAutopilotError) as exc:
     st.error(f"Reactivation Autopilot is safety-locked: {exc}")
     st.stop()
 
-settings = ReactivationDispatchSettings.from_mapping(st.secrets)
-dwelyx_url = dwelyx_base_url(st.secrets)
+settings = ReactivationDispatchSettings.from_mapping(get_secrets())
+dwelyx_url = dwelyx_base_url(get_secrets())
 buyers_by_id = {str(buyer.buyer_id): buyer for buyer in buyers}
 properties_by_id = {str(item.property_id): item for item in properties}
 marketable_properties = [item for item in properties if item.status in MARKETABLE_PROPERTY_STATUSES]

@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.dwelyx import dwelyx_base_url
 from cfh_disposition.dwelyx_attribution import (
     DwelyxAttributionError,
@@ -49,31 +50,9 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Property Terms Test & Relaunch Center")
-    st.caption("Private internal access")
-    with st.form("terms_testing_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def experiment_label(experiment) -> str:
     return (
@@ -81,10 +60,8 @@ def experiment_label(experiment) -> str:
         f"{experiment.property_address}"
     )
 
-
 def property_label(item: OwnerFinanceProperty) -> str:
     return f"{item.display_address} — {item.status.value}"
-
 
 def field_value(item: OwnerFinanceProperty, field: TermsField):
     mapping = {
@@ -95,7 +72,6 @@ def field_value(item: OwnerFinanceProperty, field: TermsField):
         TermsField.TERM_MONTHS: item.term_months,
     }
     return mapping[field]
-
 
 def formatted_field_value(item: OwnerFinanceProperty, field: TermsField) -> str:
     value = field_value(item, field)
@@ -111,11 +87,9 @@ def formatted_field_value(item: OwnerFinanceProperty, field: TermsField) -> str:
         return f"{value}%"
     return f"{value} months"
 
-
 def save_ledger(store: TermsTestingStore, ledger) -> None:
     store.save(ledger)
     st.session_state.terms_testing_refresh = True
-
 
 require_password()
 st.title("Property Terms Test & Relaunch Center")
@@ -132,7 +106,7 @@ st.warning(
 try:
     storage = get_storage()
     properties = storage.list_properties()
-    terms_store = TermsTestingStore(st.secrets)
+    terms_store = TermsTestingStore(get_secrets())
     ledger = terms_store.load()
 except (StorageError, TermsTestingError) as exc:
     st.error(f"Terms Testing Center is safety-locked: {exc}")
@@ -140,13 +114,13 @@ except (StorageError, TermsTestingError) as exc:
 
 click_events = []
 try:
-    click_events = ClickAnalyticsStore(st.secrets).list_recent(days=365)
+    click_events = ClickAnalyticsStore(get_secrets()).list_recent(days=365)
 except AnalyticsError as exc:
     st.warning(f"Tracked-click history is unavailable: {exc}")
 
 attribution_events = []
 try:
-    attribution_events = DwelyxAttributionStore(st.secrets).list_events(limit=10000)
+    attribution_events = DwelyxAttributionStore(get_secrets()).list_events(limit=10000)
 except DwelyxAttributionError as exc:
     st.warning(f"Dwelyx result events are unavailable: {exc}")
 
@@ -156,7 +130,7 @@ if not properties:
 
 properties_by_id = {str(item.property_id): item for item in properties}
 property_options = {property_label(item): item for item in properties}
-dwelyx_url = dwelyx_base_url(st.secrets)
+dwelyx_url = dwelyx_base_url(get_secrets())
 
 create_tab, approval_tab, results_tab, relaunch_tab, history_tab = st.tabs(
     [
