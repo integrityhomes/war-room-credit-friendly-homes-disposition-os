@@ -6,7 +6,8 @@ from uuid import uuid4
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.channels import CHANNELS
 from cfh_disposition.dwelyx_attribution import (
     DwelyxAttributionError,
@@ -34,35 +35,12 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Dwelyx Results Tracking & Attribution Center")
-    st.caption("Private internal access")
-    with st.form("dwelyx_attribution_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_property_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def property_labels(properties) -> dict[str, str]:
     return {str(item.property_id): item.display_address or str(item.property_id) for item in properties}
-
 
 def filtered_events(events, days: int, include_tests: bool):
     cutoff = datetime.now(UTC) - timedelta(days=days)
@@ -71,7 +49,6 @@ def filtered_events(events, days: int, include_tests: bool):
         for event in events
         if event.occurred_at >= cutoff and (include_tests or not event.test_mode)
     ]
-
 
 def top_channel_name(channel_rows) -> str:
     active = [row for row in channel_rows if row.registrations]
@@ -88,7 +65,6 @@ def top_channel_name(channel_rows) -> str:
     )
     return winner.name
 
-
 def compact_id(value: str, *, prefix: int = 8, suffix: int = 4) -> str:
     text = str(value or "").strip()
     if not text:
@@ -97,10 +73,8 @@ def compact_id(value: str, *, prefix: int = 8, suffix: int = 4) -> str:
         return text
     return f"{text[:prefix]}…{text[-suffix:]}"
 
-
 def local_timestamp(value: datetime) -> str:
     return value.astimezone().strftime("%b %d, %Y • %I:%M %p")
-
 
 require_password()
 st.title("Dwelyx Results Tracking & Attribution Center")
@@ -112,7 +86,7 @@ st.info(
 )
 
 try:
-    attribution_store = DwelyxAttributionStore(st.secrets)
+    attribution_store = DwelyxAttributionStore(get_secrets())
     all_events = attribution_store.list_events()
     properties = get_property_storage().list_properties()
 except (DwelyxAttributionError, StorageError) as exc:
@@ -289,7 +263,7 @@ with test_tab:
     st.caption(
         "Test events are marked separately and excluded from normal business results unless you choose to include them."
     )
-    secret = str(st.secrets.get("DWELYX_WEBHOOK_SECRET", "")).strip()
+    secret = str(get_secrets().get("DWELYX_WEBHOOK_SECRET", "")).strip()
     if not secret:
         st.warning(
             "Add DWELYX_WEBHOOK_SECRET to Streamlit Secrets before testing the signed event contract."
@@ -374,9 +348,9 @@ with test_tab:
 with connection_tab:
     st.write("### Dwelyx connection status")
     secret_configured = bool(
-        str(st.secrets.get("DWELYX_WEBHOOK_SECRET", "")).strip()
+        str(get_secrets().get("DWELYX_WEBHOOK_SECRET", "")).strip()
     )
-    endpoint = receiver_endpoint(st.secrets)
+    endpoint = receiver_endpoint(get_secrets())
     production_events = [event for event in all_events if not event.test_mode]
     latest_event = max(
         (event.occurred_at for event in production_events),
