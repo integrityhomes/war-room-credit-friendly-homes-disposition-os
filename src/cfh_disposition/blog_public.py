@@ -4,6 +4,7 @@ from uuid import UUID
 
 import streamlit as st
 
+from .app_secrets import get_secrets
 from .campaign_launch import (
     CampaignLaunchStore,
     LaunchStatus,
@@ -29,7 +30,7 @@ def blog_page_path(property_id: UUID | str, campaign: str = "owner_finance_homes
 
 def _approved_blog_state(property_id: UUID | str, campaign: str):
     try:
-        state = CampaignLaunchStore(st.secrets).load(property_id, campaign)
+        state = CampaignLaunchStore(get_secrets()).load(property_id, campaign)
     except LaunchStoreError:
         return None
     if state is None or state.approved_at is None:
@@ -67,10 +68,10 @@ def render_blog_request(storage: Storage) -> bool:
         return True
 
     links = build_channel_links(
-        dwelyx_base_url(st.secrets),
+        dwelyx_base_url(get_secrets()),
         campaign=campaign,
         property_id=property_.property_id,
-        tracking_base_url=tracking_app_base_url(st.secrets),
+        tracking_base_url=tracking_app_base_url(get_secrets()),
     )
     tracked_link = next(
         row["Tracked Dwelyx link"] for row in links if row["Channel key"] == "blog"
