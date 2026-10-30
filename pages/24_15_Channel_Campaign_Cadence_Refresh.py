@@ -6,7 +6,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.automatic_launch import (
     AutomationDispatchSettings,
     LaunchAction,
@@ -58,36 +59,13 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("15-Channel Campaign Cadence & Refresh Center")
-    st.caption("Private internal access")
-    with st.form("campaign_cadence_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def save_ledger(store: CampaignCadenceStore, ledger) -> None:
     store.save(ledger)
     st.session_state.campaign_cadence_refresh = True
-
 
 def task_label(task) -> str:
     return (
@@ -95,13 +73,11 @@ def task_label(task) -> str:
         f"{task.channel_name} — {task.property_address}"
     )
 
-
 def queue_label(item) -> str:
     return (
         f"{item.priority.value} — {item.channel_name} — "
         f"{item.property_address}"
     )
-
 
 def sync_launch_status(
     launch_store: CampaignLaunchStore | None,
@@ -124,7 +100,6 @@ def sync_launch_status(
     )
     launch_store.save(state)
 
-
 require_password()
 st.title("15-Channel Campaign Cadence & Refresh Center")
 st.caption(
@@ -139,7 +114,7 @@ st.warning(
 try:
     storage = get_storage()
     properties = storage.list_properties()
-    cadence_store = CampaignCadenceStore(st.secrets)
+    cadence_store = CampaignCadenceStore(get_secrets())
     cadence_ledger = cadence_store.load()
 except (StorageError, CampaignCadenceError) as exc:
     st.error(f"Campaign Cadence Center is safety-locked: {exc}")
@@ -147,20 +122,20 @@ except (StorageError, CampaignCadenceError) as exc:
 
 click_events = []
 try:
-    click_events = ClickAnalyticsStore(st.secrets).list_recent(90)
+    click_events = ClickAnalyticsStore(get_secrets()).list_recent(90)
 except AnalyticsError as exc:
     st.warning(f"Tracked-click history is unavailable: {exc}")
 
 attribution_events = []
 try:
-    attribution_events = DwelyxAttributionStore(st.secrets).list_events(limit=10000)
+    attribution_events = DwelyxAttributionStore(get_secrets()).list_events(limit=10000)
 except DwelyxAttributionError as exc:
     st.warning(f"Dwelyx result events are unavailable: {exc}")
 
 launch_store = None
 launch_states = {}
 try:
-    launch_store = CampaignLaunchStore(st.secrets)
+    launch_store = CampaignLaunchStore(get_secrets())
     for property_record in properties:
         property_id = str(property_record.property_id)
         launch_states[property_id] = launch_store.load(
@@ -182,8 +157,8 @@ queue = build_cadence_queue(
 )
 snapshot = cadence_snapshot(queue, cadence_ledger)
 properties_by_id = {str(item.property_id): item for item in properties}
-dwelyx_url = dwelyx_base_url(st.secrets)
-dispatch_settings = AutomationDispatchSettings.from_mapping(st.secrets)
+dwelyx_url = dwelyx_base_url(get_secrets())
+dispatch_settings = AutomationDispatchSettings.from_mapping(get_secrets())
 
 metrics = st.columns(7)
 metrics[0].metric("Active Channel Lanes", snapshot.total_active_lanes)

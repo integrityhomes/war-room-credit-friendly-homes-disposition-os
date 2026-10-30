@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from cfh_disposition.analytics import AnalyticsError, ClickAnalyticsStore
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.buyer_conversion import (
     BuyerConversionError,
     BuyerConversionLedger,
@@ -84,37 +85,14 @@ PAGE_PATHS = {
     "Dwelyx Results Tracking & Attribution Center": "pages/19_Dwelyx_Results_Attribution.py",
 }
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Daily Executive Disposition Command Center")
-    st.caption("Private internal access")
-    with st.form("executive_command_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def page_link(page_name: str, *, label: str | None = None) -> None:
     path = PAGE_PATHS.get(page_name)
     if path:
         st.page_link(path, label=label or f"Open {page_name}")
-
 
 def render_action_cards(items, *, maximum: int = 8) -> None:
     if not items:
@@ -150,7 +128,6 @@ def render_action_cards(items, *, maximum: int = 8) -> None:
             st.write(item.reason)
             page_link(item.page_name)
 
-
 require_password()
 now = datetime.now(UTC)
 st.title("Daily Executive Disposition Command Center")
@@ -176,13 +153,13 @@ except StorageError as exc:
     st.stop()
 
 try:
-    click_events = ClickAnalyticsStore(st.secrets).list_recent(365)
+    click_events = ClickAnalyticsStore(get_secrets()).list_recent(365)
 except AnalyticsError as exc:
     click_events = []
     system_errors["Click Analytics"] = str(exc)
 
 try:
-    attribution_events = DwelyxAttributionStore(st.secrets).list_events(10000)
+    attribution_events = DwelyxAttributionStore(get_secrets()).list_events(10000)
 except DwelyxAttributionError as exc:
     attribution_events = []
     system_errors["Dwelyx Results"] = str(exc)
@@ -190,14 +167,14 @@ real_attribution_events = [event for event in attribution_events if not event.te
 attribution_connected = bool(real_attribution_events)
 
 try:
-    velocity_ledger = InventoryVelocityStore(st.secrets).load()
+    velocity_ledger = InventoryVelocityStore(get_secrets()).load()
 except InventoryVelocityError as exc:
     velocity_ledger = InventoryVelocityLedger()
     system_errors["Vacant Home Escalation"] = str(exc)
 
 launch_states = {}
 try:
-    launch_store = CampaignLaunchStore(st.secrets)
+    launch_store = CampaignLaunchStore(get_secrets())
     for property_record in properties:
         property_id = str(property_record.property_id)
         launch_states[property_id] = launch_store.load(
@@ -219,7 +196,7 @@ assessments = build_velocity_queue(
 )
 
 try:
-    cadence_ledger = CampaignCadenceStore(st.secrets).load()
+    cadence_ledger = CampaignCadenceStore(get_secrets()).load()
 except CampaignCadenceError as exc:
     cadence_ledger = CampaignCadenceLedger()
     system_errors["15-Channel Campaign Cadence"] = str(exc)
@@ -233,7 +210,7 @@ cadence_queue = build_cadence_queue(
 )
 
 try:
-    conversion_ledger = BuyerConversionStore(st.secrets).load()
+    conversion_ledger = BuyerConversionStore(get_secrets()).load()
 except BuyerConversionError as exc:
     conversion_ledger = BuyerConversionLedger()
     system_errors["Buyer Conversion Records"] = str(exc)
@@ -245,7 +222,7 @@ conversion_queue = build_conversion_queue(
 )
 
 try:
-    showing_ledger = ShowingConversionStore(st.secrets).load()
+    showing_ledger = ShowingConversionStore(get_secrets()).load()
 except ShowingConversionError as exc:
     showing_ledger = ShowingConversionLedger()
     system_errors["Showing Conversion Records"] = str(exc)
@@ -257,7 +234,7 @@ showing_queue = build_showing_queue(
 )
 
 try:
-    terms_ledger = TermsTestingStore(st.secrets).load()
+    terms_ledger = TermsTestingStore(get_secrets()).load()
 except TermsTestingError as exc:
     terms_ledger = TermsTestingLedger()
     system_errors["Property Terms Testing"] = str(exc)
@@ -280,7 +257,7 @@ for experiment in terms_ledger.experiments:
         system_errors[f"Terms Test {experiment.experiment_id[:8]}"] = str(exc)
 
 try:
-    property_control_ledger = PropertyControlStore(st.secrets).load()
+    property_control_ledger = PropertyControlStore(get_secrets()).load()
 except PropertyControlError as exc:
     property_control_ledger = PropertyControlLedger()
     system_errors["Property Shutdown Records"] = str(exc)

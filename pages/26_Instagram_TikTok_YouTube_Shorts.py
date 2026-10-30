@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
 from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
@@ -31,31 +32,9 @@ SOCIAL_CHANNELS = (
     ("youtube", "YouTube Shorts"),
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("Social Video")
-    st.caption("Private internal access")
-    with st.form("social_video_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 require_password()
 st.title("Social Video")
@@ -108,10 +87,10 @@ if not campaign:
     st.stop()
 
 link_rows = build_channel_links(
-    dwelyx_base_url(st.secrets),
+    dwelyx_base_url(get_secrets()),
     campaign=campaign,
     property_id=selected.property_id,
-    tracking_base_url=tracking_app_base_url(st.secrets),
+    tracking_base_url=tracking_app_base_url(get_secrets()),
 )
 links_by_channel = {row["Channel key"]: row["Tracked Dwelyx link"] for row in link_rows}
 
@@ -129,7 +108,7 @@ for channel_key, channel_name in SOCIAL_CHANNELS:
         st.info("Correct the saved property facts in Properties & Buyers, then return to Social Video.")
         st.stop()
 
-publish_settings = SocialPublishSettings.from_mapping(st.secrets)
+publish_settings = SocialPublishSettings.from_mapping(get_secrets())
 summary = st.columns(5)
 summary[0].metric("Property", selected.city or selected.state or "Saved property")
 summary[1].metric("Platforms", "3")
@@ -238,7 +217,7 @@ for tab, (channel_key, channel_name) in zip(tabs, SOCIAL_CHANNELS, strict=True):
         if handoff_clicked:
             try:
                 receipt = dispatch_social_publish_handoff(
-                    st.secrets,
+                    get_secrets(),
                     property_record=selected,
                     package=package,
                     campaign=campaign,
