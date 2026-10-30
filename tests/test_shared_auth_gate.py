@@ -29,7 +29,7 @@ def test_all_private_pages_call_shared_require_password() -> None:
 
 
 def test_operator_dashboard_redirect_is_password_gated() -> None:
-    source = Path("pages/21_CommandCore_Operator_Dashboard.py").read_text(encoding="utf-8")
+    source = Path("pages/56_CommandCore_Operator_Dashboard.py").read_text(encoding="utf-8")
     assert "require_password(" in source
     assert source.index("require_password(") < source.index("st.switch_page")
 

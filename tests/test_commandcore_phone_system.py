@@ -26,7 +26,7 @@ from cfh_disposition.commandcore_phone_system import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGE = (ROOT / "pages/49_CommandCore_Phone_System_Setup.py").read_text(encoding="utf-8")
+PAGE = (ROOT / "pages/57_CommandCore_Phone_System_Setup.py").read_text(encoding="utf-8")
 QUO_ADAPTER = (ROOT / "supabase/functions/commandcore-quo-openphone-adapter/index.ts").read_text(encoding="utf-8")
 
 
