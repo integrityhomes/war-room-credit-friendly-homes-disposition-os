@@ -5,7 +5,8 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_followup import build_followup_record
 from supabase import create_client
 
@@ -26,34 +27,13 @@ PIPELINE_STAGES = [
 ]
 DEAL_STATUSES = ["Active", "On Hold", "Closed", "Dead"]
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Follow-Up & Pipeline")
-    with st.form("commandcore_pipeline_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
-
 
 def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
@@ -62,26 +42,21 @@ def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
     data = getattr(response, "data", None)
     return data if isinstance(data, dict) else {}
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
-
 
 def list_records(entity: str) -> list[dict[str, Any]]:
     result = call_crm({"action": "list", "entity": entity, "limit": 500})
     records = result.get("records", [])
     return records if isinstance(records, list) else []
 
-
 def upsert(entity: str, record: dict[str, Any]) -> dict[str, Any]:
     return call_crm({"action": "upsert", "entity": entity, "record": record})
-
 
 def choice_options(current: str, approved: list[str]) -> list[str]:
     if current and current not in approved:
         return [current, *approved]
     return list(approved)
-
 
 def due_date(record: dict[str, Any]) -> date | None:
     raw = text(record.get("due_date") or record.get("due_at"))
@@ -95,7 +70,6 @@ def due_date(record: dict[str, Any]) -> date | None:
         except ValueError:
             return None
 
-
 def is_open_task(record: dict[str, Any]) -> bool:
     return text(record.get("status")).lower() not in {
         "done",
@@ -105,10 +79,8 @@ def is_open_task(record: dict[str, Any]) -> bool:
         "canceled",
     }
 
-
 def deal_title(record: dict[str, Any]) -> str:
     return text(record.get("title")) or text(record.get("external_id")) or text(record.get("id"))
-
 
 def open_deal_button(deal: dict[str, Any], *, key: str, label: str = "Open Deal") -> None:
     deal_id = text(deal.get("id"))
@@ -118,12 +90,10 @@ def open_deal_button(deal: dict[str, Any], *, key: str, label: str = "Open Deal"
         st.session_state["commandcore_selected_deal_id"] = deal_id
         st.switch_page("pages/45_CommandCore_Deal_Record.py")
 
-
 def linked_deal_for_task(task: dict[str, Any], deals: list[dict[str, Any]]) -> dict[str, Any] | None:
     task_links = task.get("links") if isinstance(task.get("links"), dict) else {}
     deal_id = text(task_links.get("deal_id") if isinstance(task_links, dict) else "")
     return next((deal for deal in deals if text(deal.get("id")) == deal_id), None)
-
 
 def show_followup_task(task: dict[str, Any], deals: list[dict[str, Any]], *, key_prefix: str) -> None:
     task_due = due_date(task)
@@ -143,7 +113,6 @@ def show_followup_task(task: dict[str, Any], deals: list[dict[str, Any]], *, key
             st.caption(f"Priority: {priority.title()}")
         if linked_deal:
             open_deal_button(linked_deal, key=f"{key_prefix}_{task_key}")
-
 
 require_password()
 if st.sidebar.button("Log out", key="commandcore_pipeline_logout"):
