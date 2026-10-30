@@ -2,21 +2,15 @@ from __future__ import annotations
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.property_change_detection import CHANGE_TYPES
 from cfh_disposition.property_change_review import read_review_proposal, record_review_decision
 from cfh_disposition.property_change_runtime import latest_property_check, read_property_changes
 
 st.set_page_config(page_title="Property Changes", page_icon="🔎", layout="wide")
-if not st.session_state.get("authenticated"):
-    with st.form("changes_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in")
-    expected = configured_password(st.secrets)
-    if submitted and expected and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    st.stop()
+
+require_password()
 
 st.title("Property Change Review")
 st.caption("Review what changed, inspect an exact update preview, and decide what needs investigation. Live Apply is disabled.")
@@ -25,7 +19,7 @@ refresh = st.button("Check for changes", key="check_property_changes")
 st.session_state.pop("property_detection", None)
 try:
     with st.spinner("Loading the latest property check…"):
-        st.session_state.property_detection = read_property_changes(st.secrets, force=refresh)
+        st.session_state.property_detection = read_property_changes(get_secrets(), force=refresh)
 except Exception:
     st.error("The complete check could not finish. No checkpoint was advanced and nothing was changed. Try again.")
 
@@ -41,7 +35,7 @@ if result is not None:
         st.success("No eligible property changes to review.")
     else:
         kind = st.selectbox("Show changes", ("All", *CHANGE_TYPES))
-        status = latest_property_check(st.secrets)
+        status = latest_property_check(get_secrets())
         decisions = status.get("review_decisions", {})
         view = st.selectbox("Review status", ("Pending", "Needs investigation", "Ignored", "All"))
         visible = [change for change in result.changes if (kind == "All" or kind in change.categories)
@@ -61,7 +55,7 @@ if result is not None:
                 st.session_state.pop("property_patch_preview", None)
                 try:
                     with st.spinner("Revalidating current source and canonical facts…"):
-                        st.session_state.property_patch_preview = read_review_proposal(st.secrets, change.event_id)
+                        st.session_state.property_patch_preview = read_review_proposal(get_secrets(), change.event_id)
                 except Exception:
                     st.error("The current records could not be revalidated. No update can be prepared.")
             proposal = st.session_state.get("property_patch_preview")
@@ -78,7 +72,7 @@ if result is not None:
             for label, decision in (("Ignore this detected change", "Ignored"), ("Needs investigation", "Needs investigation"), ("Return to pending", "Pending")):
                 if st.button(label, key=f"{decision}_{change.event_id}"):
                     try:
-                        record_review_decision(st.secrets, change.event_id, decision)
+                        record_review_decision(get_secrets(), change.event_id, decision)
                         st.rerun()
                     except (ValueError, OSError):
                         st.error("Review decision could not be saved. Reload the current queue.")
@@ -92,12 +86,11 @@ if result is not None:
 
 st.button("Apply safe property update — disabled", disabled=True, key="apply_property_disabled")
 
-
 @st.fragment(run_every=60)
 def watch_scheduled_check():
     # Poll local evidence only; this timer never calls Google or CRM.
     try:
-        status = latest_property_check(st.secrets)
+        status = latest_property_check(get_secrets())
     except Exception:
         st.warning("The local check status could not be read.")
         return
@@ -107,6 +100,5 @@ def watch_scheduled_check():
     st.session_state.property_check_attempt = status.get("last_attempt_at")
     if previous and previous != status.get("last_attempt_at"):
         st.rerun()
-
 
 watch_scheduled_check()

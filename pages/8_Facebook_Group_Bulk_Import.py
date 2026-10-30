@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.facebook_group_import import (
     FacebookGroupImportRow,
     apply_group_import,
@@ -25,40 +26,15 @@ st.set_page_config(
     layout="wide",
 )
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-
-    st.title("Facebook Group Bulk Import")
-    st.caption("Private internal access")
-    with st.form("facebook_group_bulk_login"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 def preview_key() -> str:
     return "facebook_group_bulk_import_preview"
-
 
 def save_preview(rows: list[FacebookGroupImportRow]) -> None:
     st.session_state[preview_key()] = rows
 
-
 def load_preview() -> list[FacebookGroupImportRow]:
     value = st.session_state.get(preview_key(), [])
     return value if isinstance(value, list) else []
-
 
 require_password()
 st.title("Facebook Group Bulk Import")
@@ -68,7 +44,7 @@ st.caption(
 )
 
 try:
-    store = FacebookGroupStore(st.secrets)
+    store = FacebookGroupStore(get_secrets())
     ledger = store.load()
 except FacebookGroupError as exc:
     st.error(f"Bulk import is safety-locked: {exc}")

@@ -13,7 +13,8 @@ from cfh_disposition.ai_campaign import (
     build_fallback_campaign,
     generate_ai_campaign,
 )
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.campaign_launch import (
     CampaignLaunchStore,
     LaunchStoreError,
@@ -57,34 +58,9 @@ WORKFLOW_LABELS = {
     "System Setup": "System Setup",
 }
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.code('APP_PASSWORD = "choose-a-strong-private-password"')
-        st.stop()
-
-    if st.session_state.get("authenticated"):
-        return
-
-    st.title("Marketing")
-    st.caption("Prepare and review property marketing in one place.")
-    with st.form("login_form"):
-        submitted_password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(submitted_password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        show_error("That password did not work.", next_step="Try again or ask an owner for access.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def load_records(force: bool = False) -> None:
     if st.session_state.get("records_loaded") and not force:
@@ -100,17 +76,14 @@ def load_records(force: bool = False) -> None:
         st.session_state.storage_error = str(exc)
     st.session_state.records_loaded = True
 
-
 def money(value: Decimal | None) -> str:
     return "—" if value is None else f"${value:,.0f}"
-
 
 def property_options() -> dict[str, OwnerFinanceProperty]:
     return {
         item.display_address or str(item.property_id): item
         for item in st.session_state.properties
     }
-
 
 def marketing_property_options() -> dict[str, OwnerFinanceProperty]:
     return {
@@ -119,14 +92,12 @@ def marketing_property_options() -> dict[str, OwnerFinanceProperty]:
         if item.status in MARKETABLE_PROPERTY_STATUSES
     }
 
-
 def save_property(record: OwnerFinanceProperty) -> None:
     storage = get_storage()
     storage.save_property(record)
     current = {str(item.property_id): item for item in st.session_state.properties}
     current[str(record.property_id)] = record
     st.session_state.properties = list(current.values())
-
 
 def navigate(page_name: str, *, property_label: str = "") -> None:
     if page_name == "More Tools":
@@ -141,14 +112,12 @@ def navigate(page_name: str, *, property_label: str = "") -> None:
     st.session_state.pending_main_navigation = page_name
     st.rerun()
 
-
 def load_launch_state(property_id: str):
     try:
-        store = CampaignLaunchStore(st.secrets)
+        store = CampaignLaunchStore(get_secrets())
         return store.load(property_id, "owner_finance_homes"), ""
     except LaunchStoreError as exc:
         return None, str(exc)
-
 
 def render_flow_step(step, column) -> None:
     with column.container(border=True):
@@ -160,7 +129,6 @@ def render_flow_step(step, column) -> None:
         else:
             st.error(step.status.value)
         st.write(step.detail)
-
 
 def render_simple_marketing_flow() -> None:
     st.subheader("Marketing Home")
@@ -246,7 +214,6 @@ def render_simple_marketing_flow() -> None:
         )
         st.caption("Dwelyx live connection work remains separate and does not block CommandCore marketing setup.")
 
-
 def render_property_intake(settings: SupabaseSettings) -> None:
     st.subheader("Step 1 — Add an Owner-Finance Property")
     st.info("This property record is the source of truth for price, down payment, monthly payment, bedrooms, and availability. Marketing reads these facts instead of asking the team to re-enter them.")
@@ -318,7 +285,6 @@ def render_property_intake(settings: SupabaseSettings) -> None:
                 st.write(f"- {error}")
     except (ValidationError, InvalidOperation, StorageError) as exc:
         st.error(f"Property could not be saved: {exc}")
-
 
 def render_campaign_readiness(
     dwelyx_url: str,
@@ -418,7 +384,6 @@ def render_campaign_readiness(
     if st.button("Continue to Launch Marketing", type="primary"):
         navigate("Campaign Launch Center", property_label=selected_name)
 
-
 def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
     st.write("### Dwelyx Traffic Hub")
     st.caption("Dwelyx integration is separate from the normal CommandCore marketing workflow and can be connected later.")
@@ -452,7 +417,6 @@ def render_dwelyx_traffic_hub(dwelyx_url: str) -> None:
     st.text_input("Copy this tracked Dwelyx link", value=tracked_url, disabled=True)
     st.caption("Do not paste direct external links into Facebook Marketplace listings.")
 
-
 def render_more_tools(storage, dwelyx_url: str) -> None:
     st.subheader("Advanced Marketing Tools")
     st.caption("Normal daily marketing should start from Marketing Home. Use these tools only when you need deeper control or troubleshooting.")
@@ -462,7 +426,7 @@ def render_more_tools(storage, dwelyx_url: str) -> None:
     elif tool == "Dwelyx Traffic Hub":
         render_dwelyx_traffic_hub(dwelyx_url)
     else:
-        render_marketplace_guard(st.session_state.properties, st.secrets)
+        render_marketplace_guard(st.session_state.properties, get_secrets())
 
     st.divider()
     st.write("### Detailed dashboards")
@@ -482,7 +446,6 @@ def render_more_tools(storage, dwelyx_url: str) -> None:
             "pages/23_Daily_Executive_Disposition_Command.py",
             label="Disposition Performance",
         )
-
 
 def render_system_setup(
     settings: SupabaseSettings,
@@ -515,7 +478,6 @@ def render_system_setup(
         )
         st.warning("Never paste secrets into GitHub, screenshots, property notes, or public pages.")
 
-
 storage = get_storage()
 if render_public_request(storage):
     st.stop()
@@ -529,9 +491,9 @@ render_page_header(
 )
 
 storage = get_storage()
-settings = SupabaseSettings.from_mapping(st.secrets)
-dwelyx_url = dwelyx_base_url(st.secrets)
-campaign_settings = CampaignFactorySettings.from_mapping(st.secrets)
+settings = SupabaseSettings.from_mapping(get_secrets())
+dwelyx_url = dwelyx_base_url(get_secrets())
+campaign_settings = CampaignFactorySettings.from_mapping(get_secrets())
 
 if st.sidebar.button("Log out"):
     st.session_state.authenticated = False
@@ -557,7 +519,7 @@ if st.session_state.get("storage_error"):
     st.error(st.session_state.storage_error)
     st.warning("Open System Setup and confirm the Supabase connection before entering records.")
 
-render_critical_failure_banner(st.secrets)
+render_critical_failure_banner(get_secrets())
 st.divider()
 
 if page == "Simple Marketing Flow":
@@ -567,7 +529,7 @@ elif page == "Property Intake":
 elif page == "Campaign Readiness":
     render_campaign_readiness(dwelyx_url, campaign_settings)
 elif page == "Campaign Launch Center":
-    render_campaign_launch_center(st.session_state.properties, st.secrets, dwelyx_url)
+    render_campaign_launch_center(st.session_state.properties, get_secrets(), dwelyx_url)
 elif page == "More Tools":
     render_more_tools(storage, dwelyx_url)
 else:
