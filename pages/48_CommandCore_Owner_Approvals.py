@@ -8,6 +8,14 @@ import streamlit as st
 from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_contract_controls import legal_template_blocker, pending_document
+from cfh_disposition.commandcore_crm_client import (
+    call_crm,
+    demo_connection_message,
+    demo_connection_next_step,
+    is_demo_mode,
+    list_crm_records,
+    render_demo_banner,
+)
 from cfh_disposition.commandcore_ux import (
     queue_success,
     render_page_header,
@@ -15,31 +23,13 @@ from cfh_disposition.commandcore_ux import (
     show_queued_success,
     show_warning,
 )
-from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Owner Approvals", page_icon="✅", layout="wide")
 
 OWNER_NAMES = {"Shawn", "Sabrina"}
 
-@st.cache_resource
-def get_supabase():
-    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
-    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
-    return create_client(url, key)
-
-def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
-    response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
-    if isinstance(response, dict):
-        return response
-    data = getattr(response, "data", None)
-    return data if isinstance(data, dict) else {}
-
 def list_records(entity: str) -> list[dict[str, Any]]:
-    result = call_crm({"action": "list", "entity": entity, "limit": 500})
-    records = result.get("records", [])
-    return records if isinstance(records, list) else []
+    return list_crm_records(entity)
 
 def upsert(entity: str, record: dict[str, Any]) -> dict[str, Any]:
     result = call_crm({"action": "upsert", "entity": entity, "record": record})
@@ -290,6 +280,7 @@ def render_legal_template_blocker(record: dict[str, Any], deals_by_id: dict[str,
         st.caption("This item cannot be approved from this queue yet.")
 
 require_password()
+render_demo_banner()
 if st.sidebar.button("Log out", key="owner_approval_logout"):
     st.session_state.authenticated = False
     st.rerun()
@@ -313,7 +304,10 @@ try:
     legal_blockers = [record for record in all_documents if legal_template_blocker(record)]
     deals = list_records("deals")
 except RuntimeError as exc:
-    st.error(f"Owner approval data could not be loaded: {exc}")
+    if is_demo_mode():
+        show_error(demo_connection_message(), next_step=demo_connection_next_step())
+    else:
+        st.error(f"Owner approval data could not be loaded: {exc}")
     st.stop()
 
 deals_by_id = {text(record.get("id")): record for record in deals if text(record.get("id"))}

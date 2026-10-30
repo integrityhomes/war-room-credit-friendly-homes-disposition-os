@@ -5,10 +5,10 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_approval_status import approval_decision_time_label, build_deal_approval_status
 from cfh_disposition.commandcore_contract_workspace_ui import render_contract_workspace
+from cfh_disposition.commandcore_crm_client import call_crm, get_crm_client, render_demo_banner
 from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
 from cfh_disposition.commandcore_deal_timeline import build_deal_next_action, build_deal_timeline
 from cfh_disposition.commandcore_followup import MAX_FOLLOWUP_NOTE_LENGTH, build_followup_record
@@ -21,7 +21,6 @@ from cfh_disposition.commandcore_ux import (
     show_error,
     show_queued_success,
 )
-from supabase import create_client
 
 st.set_page_config(page_title="CommandCore Deal Record", page_icon="📂", layout="wide")
 
@@ -36,20 +35,9 @@ DEAL_TAB_LABELS = [
     "Deal Timeline",
 ]
 
-@st.cache_resource
 def get_supabase():
-    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
-    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
-    return create_client(url, key)
-
-def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
-    response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
-    if isinstance(response, dict):
-        return response
-    data = getattr(response, "data", None)
-    return data if isinstance(data, dict) else {}
+    """Return live Supabase or the demo CRM shim (keeps Deal Record helpers working offline)."""
+    return get_crm_client()
 
 def text(value: Any) -> str:
     return str(value or "").strip()
@@ -164,6 +152,7 @@ def open_marketing(property_record: dict[str, Any]) -> None:
     st.switch_page("pages/90_CFH_Marketing_Dispo.py")
 
 require_password()
+render_demo_banner()
 if st.sidebar.button("Log out", key="commandcore_deal_logout"):
     st.session_state.authenticated = False
     st.rerun()

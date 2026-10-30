@@ -21,6 +21,8 @@ from cfh_disposition.campaign_launch import (
     render_campaign_launch_center,
 )
 from cfh_disposition.channels import CHANNELS
+from cfh_disposition.commandcore_crm_client import is_demo_mode, render_demo_banner
+from cfh_disposition.commandcore_demo_data import DEMO_BANNER, DEMO_CONNECT_NEXT_STEP
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error
 from cfh_disposition.dwelyx import build_dwelyx_url, dwelyx_base_url
 from cfh_disposition.fact_lock import MARKETABLE_PROPERTY_STATUSES
@@ -483,6 +485,7 @@ if render_public_request(storage):
     st.stop()
 
 require_password()
+render_demo_banner()
 load_records()
 
 render_page_header(
@@ -516,8 +519,11 @@ with advanced_settings():
     st.caption("Most daily work starts and continues from Marketing Home automatically.")
 
 if st.session_state.get("storage_error"):
-    st.error(st.session_state.storage_error)
-    st.warning("Open System Setup and confirm the Supabase connection before entering records.")
+    if is_demo_mode():
+        show_error(DEMO_BANNER, next_step=DEMO_CONNECT_NEXT_STEP)
+    else:
+        st.error(st.session_state.storage_error)
+        st.warning("Open System Setup and confirm the Supabase connection before entering records.")
 
 render_critical_failure_banner(get_secrets())
 st.divider()

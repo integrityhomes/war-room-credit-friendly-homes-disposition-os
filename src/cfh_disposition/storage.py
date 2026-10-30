@@ -318,7 +318,12 @@ def build_storage(
     fallback_properties: list[OwnerFinanceProperty] | None = None,
     fallback_buyers: list[BuyerProfile] | None = None,
 ) -> Storage:
+    import os
+
+    demo_forced = str(
+        secrets.get("COMMANDCORE_DEMO_MODE", "") or os.environ.get("COMMANDCORE_DEMO_MODE", "")
+    ).strip().lower() in {"1", "true", "yes", "on"}
     settings = SupabaseSettings.from_mapping(secrets)
-    if settings.configured:
+    if settings.configured and not demo_forced:
         return SupabaseStorage(settings)
     return InMemoryStorage(fallback_properties, fallback_buyers)

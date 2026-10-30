@@ -21,9 +21,12 @@ def test_commandcore_home_uses_plain_user_facing_setup_language() -> None:
     assert "require_password()" in source
     assert "from cfh_disposition.auth import require_password" in source
     assert "CommandCore sign-in is not configured yet." in auth_source
-    assert "CommandCore data connection is not configured." in source
+    assert "render_demo_banner" in source
+    assert "demo_connection_message" in source
     assert "APP_PASSWORD is added in Streamlit Secrets" not in source
     assert "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required" not in source
+    demo_data = Path("src/cfh_disposition/commandcore_demo_data.py").read_text(encoding="utf-8")
+    assert "Demo mode — connect Supabase to use real data" in demo_data
 
 
 def test_commandcore_home_keeps_consequential_actions_gated() -> None:
