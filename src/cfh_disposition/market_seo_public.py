@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 import streamlit as st
 
+from .app_secrets import get_secrets
 from .dwelyx import build_dwelyx_url, dwelyx_base_url, tracking_app_base_url
 from .models import OwnerFinanceProperty
 from .public_pages import is_public_property, money, public_location, public_property_path
@@ -35,11 +36,11 @@ def public_market_properties(
 def _market_dwelyx_link(city: str, state: str) -> str:
     campaign = f"market_seo_{market_slug(city, state)}"
     return build_dwelyx_url(
-        dwelyx_base_url(st.secrets),
+        dwelyx_base_url(get_secrets()),
         source="credit_friendly_homes",
         medium="market_seo",
         campaign=campaign,
-        tracking_base_url=tracking_app_base_url(st.secrets),
+        tracking_base_url=tracking_app_base_url(get_secrets()),
     )
 
 
