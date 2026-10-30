@@ -8,6 +8,8 @@ import streamlit as st
 
 from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.auth import require_password
+from cfh_disposition.commandcore_crm_client import is_demo_mode, list_crm_records, render_demo_banner
+from cfh_disposition.commandcore_next_action import next_action as flow_next_action
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     queue_success,
@@ -286,6 +288,41 @@ render_page_header(
     "My Work",
     "See your assigned work and handle the most important item first.",
 )
+render_demo_banner()
+st.markdown("### Deal next actions")
+st.caption("Plain status for each active deal, with one primary next step.")
+try:
+    deals = [
+        deal
+        for deal in list_crm_records("deals")
+        if str(deal.get("status") or "").strip().lower()
+        not in {"closed", "sold", "dead", "lost", "cancelled", "canceled", "archived"}
+    ]
+    offers = list_crm_records("offers")
+    if not deals:
+        st.info("No active deals yet.")
+    else:
+        for deal in deals[:12]:
+            action = flow_next_action(deal, offers=offers)
+            title = str(deal.get("title") or deal.get("stage") or deal.get("id") or "Deal").strip()
+            with st.container(border=True):
+                st.markdown(f"**{title}** — {action.status}")
+                st.caption(action.reason)
+                if st.button(
+                    action.action_label,
+                    key=f"mywork_next_{str(deal.get('id') or '').strip()}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    if action.action_page.endswith("45_CommandCore_Deal_Record.py"):
+                        st.session_state["commandcore_selected_deal_id"] = str(deal.get("id") or "").strip()
+                    st.switch_page(action.action_page)
+except Exception:
+    if is_demo_mode():
+        st.info("Demo mode is on. Connect Supabase to load live My Work queues below.")
+    else:
+        st.caption("Deal next actions could not be loaded from CRM.")
+
 show_queued_success()
 
 try:

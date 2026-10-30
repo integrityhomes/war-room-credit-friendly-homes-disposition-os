@@ -8,6 +8,8 @@ from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_agent_finder_ui import render_agent_finder
 from cfh_disposition.commandcore_crm_client import call_crm, render_demo_banner
+from cfh_disposition.commandcore_next_action import next_action as flow_next_action
+from cfh_disposition.commandcore_next_action import render_next_action_card
 from cfh_disposition.commandcore_ux import advanced_settings, queue_success, render_page_header, show_error
 
 st.set_page_config(page_title="CommandCore CRM", page_icon="🏠", layout="wide")
@@ -377,6 +379,12 @@ def manage_records() -> None:
         elif entity == "properties":
             saved = property_form(selected)
         else:
+            if selected and text(selected.get("id")):
+                render_next_action_card(
+                    st,
+                    flow_next_action(selected, offers=load_records("offers")),
+                    key=f"crm_deal_next_{text(selected.get('id'))}",
+                )
             saved = deal_form(selected, load_records("contacts"), load_records("properties"))
         if saved is not None:
             result = save_record(entity, saved)

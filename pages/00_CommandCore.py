@@ -13,6 +13,7 @@ from cfh_disposition.commandcore_crm_client import (
     list_crm_records,
     render_demo_banner,
 )
+from cfh_disposition.commandcore_next_action import next_action as flow_next_action
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     render_page_header,
@@ -178,6 +179,32 @@ if area == "Home / Command Center":
                 next_step="Refresh the page. If it still does not load, ask an administrator to check the data connection.",
             )
 
+    st.markdown("### My Work — next actions")
+    st.caption("Each active deal shows one plain status and the next safe step.")
+    try:
+        active = [deal for deal in list_records("deals") if active_deal(deal)]
+        all_offers = list_records("offers")
+        if not active:
+            st.info("No active deals yet. Add a lead to see the next action here.")
+        else:
+            for deal in active[:8]:
+                action = flow_next_action(deal, offers=all_offers)
+                title = text(deal.get("title")) or text(deal.get("stage")) or text(deal.get("id")) or "Deal"
+                with st.container(border=True):
+                    st.markdown(f"**{title}** — {action.status}")
+                    st.caption(action.reason)
+                    if st.button(
+                        action.action_label,
+                        key=f"home_next_{text(deal.get('id'))}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        if action.action_page.endswith("45_CommandCore_Deal_Record.py"):
+                            st.session_state["commandcore_selected_deal_id"] = text(deal.get("id"))
+                        st.switch_page(action.action_page)
+    except RuntimeError:
+        st.caption("Deal next actions will appear when the data connection is available.")
+
     st.markdown("### Start work")
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -294,7 +321,7 @@ elif area == "Tasks & Follow-Up":
         )
     with c3:
         link(
-            "pages/21_CommandCore_Operator_Dashboard.py",
+            "pages/56_CommandCore_Operator_Dashboard.py",
             "Team Queue",
             "Use the broader operator queue when you need team-level assignment and workload visibility.",
         )

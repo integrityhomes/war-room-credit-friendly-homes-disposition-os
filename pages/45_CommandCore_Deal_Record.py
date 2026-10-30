@@ -12,6 +12,8 @@ from cfh_disposition.commandcore_crm_client import call_crm, get_crm_client, ren
 from cfh_disposition.commandcore_deal_summary import build_deal_summary, next_open_task, status_label
 from cfh_disposition.commandcore_deal_timeline import build_deal_next_action, build_deal_timeline
 from cfh_disposition.commandcore_followup import MAX_FOLLOWUP_NOTE_LENGTH, build_followup_record
+from cfh_disposition.commandcore_next_action import next_action as flow_next_action
+from cfh_disposition.commandcore_next_action import render_next_action_card
 from cfh_disposition.commandcore_offer_workspace_ui import render_offer_workspace
 from cfh_disposition.commandcore_ux import (
     NEXT,
@@ -204,6 +206,10 @@ with advanced_settings():
     financial_summary = st.columns(2)
     financial_summary[0].metric("Asking", text(deal.get("asking_price")) or "—")
     financial_summary[1].metric("Our offer", text(deal.get("offer_price")) or "—")
+
+# Plain-language status + one next step (commercial completion standard).
+flow_action = flow_next_action(deal, offers=list_records("offers"))
+render_next_action_card(st, flow_action, key=f"deal_flow_next_{deal_id}")
 
 seller_col, property_col = st.columns(2)
 with seller_col:
