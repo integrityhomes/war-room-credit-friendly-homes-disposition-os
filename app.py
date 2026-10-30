@@ -22,65 +22,49 @@ def get_storage():
 DIAGNOSTIC_PAGE = "pages/" + "34_Safe_Full_Payload_Test.py"
 
 EVERYDAY_NAVIGATION = (
+    NavigationSection("Home", (NavigationItem("pages/00_CommandCore.py", "Home"),)),
+    NavigationSection("Leads / CRM", (NavigationItem("pages/44_CommandCore_CRM.py", "Leads"),)),
+    NavigationSection("Deals", (NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"),)),
     NavigationSection(
-        "Home",
-        (
-            NavigationItem("pages/00_CommandCore.py", "Home"),
-            NavigationItem("pages/49_CommandCore_Command_Bot.py", "Ask CorePilot"),
-        ),
-    ),
-    NavigationSection("Leads / Sellers", (NavigationItem("pages/44_CommandCore_CRM.py", "Leads"),)),
-    NavigationSection(
-        "Communications",
-        (NavigationItem("pages/51_CommandCore_Communications.py", "Communications"),),
-    ),
-    NavigationSection(
-        "Deals / Properties",
-        (
-            NavigationItem("pages/45_CommandCore_Deal_Record.py", "Deal Workspace"),
-            NavigationItem("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Work Queue"),
-            NavigationItem("pages/52_CommandCore_Property_Sync_Preview.py", "Property Sync Preview"),
-            NavigationItem("pages/53_CommandCore_Property_Baseline.py", "Final Property Baseline"),
-            NavigationItem("pages/54_CommandCore_Property_Changes.py", "Property Changes"),
-        ),
-    ),
-    NavigationSection(
-        "My Work",
-        (
-            NavigationItem("pages/35_CommandCore_My_Work.py", "My Work"),
-            NavigationItem("pages/46_CommandCore_Pipeline_Followup.py", "Follow-Up & Pipeline"),
-        ),
-    ),
-    NavigationSection(
-        "Buyers / Marketing",
-        (
-            NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home"),
-        ),
-    ),
-    NavigationSection(
-        "Management",
-        (
-            NavigationItem("pages/39_CommandCore_Operations_Hub.py", "Operations"),
-            NavigationItem("pages/38_CommandCore_Management_Alerts.py", "Alerts"),
-            NavigationItem("pages/40_CommandCore_Team_Health.py", "Team Health"),
-        ),
-    ),
-    NavigationSection(
-        "Owner Approvals",
+        "Approvals",
         (NavigationItem("pages/48_CommandCore_Owner_Approvals.py", "Owner Approvals"),),
+    ),
+    NavigationSection(
+        "Marketing",
+        (NavigationItem("pages/90_CFH_Marketing_Dispo.py", "Marketing Home"),),
+    ),
+    NavigationSection(
+        "Buyers",
+        (NavigationItem("pages/01_Record_Manager.py", "Buyers & Properties"),),
+    ),
+    NavigationSection(
+        "Admin",
+        (NavigationItem("pages/39_CommandCore_Operations_Hub.py", "Operations"),),
     ),
 )
 
 ADMIN_ADVANCED_NAVIGATION = (
     NavigationSection(
+        "Daily work tools",
+        (
+            NavigationItem("pages/49_CommandCore_Command_Bot.py", "Ask CorePilot"),
+            NavigationItem("pages/35_CommandCore_My_Work.py", "My Work"),
+            NavigationItem("pages/46_CommandCore_Pipeline_Followup.py", "Follow-Up & Pipeline"),
+            NavigationItem("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deal Work Queue"),
+            NavigationItem("pages/51_CommandCore_Communications.py", "Communications"),
+        ),
+    ),
+    NavigationSection(
         "Records and setup",
         (
-            NavigationItem("pages/01_Record_Manager.py", "Properties & Buyers"),
             NavigationItem("pages/43_CommandCore_CRM_Migration.py", "CRM Import"),
             NavigationItem("pages/50_CommandCore_Contract_Templates.py", "Contract Templates"),
-            NavigationItem("pages/49_CommandCore_Phone_System_Setup.py", "Phone Planning"),
+            NavigationItem("pages/57_CommandCore_Phone_System_Setup.py", "Phone Planning"),
             NavigationItem("pages/32_Go_Live_Connection_Center.py", "Connections"),
             NavigationItem("pages/31_16_Channel_Completion_Audit.py", "Marketing Setup Status"),
+            NavigationItem("pages/52_CommandCore_Property_Sync_Preview.py", "Property Sync Preview"),
+            NavigationItem("pages/53_CommandCore_Property_Baseline.py", "Final Property Baseline"),
+            NavigationItem("pages/54_CommandCore_Property_Changes.py", "Property Changes"),
             NavigationItem(DIAGNOSTIC_PAGE, "Internal Connection Check"),
         ),
     ),
@@ -116,7 +100,9 @@ ADMIN_ADVANCED_NAVIGATION = (
     NavigationSection(
         "Team and reporting tools",
         (
-            NavigationItem("pages/21_CommandCore_Operator_Dashboard.py", "Operator Dashboard Redirect"),
+            NavigationItem("pages/56_CommandCore_Operator_Dashboard.py", "Operator Dashboard Redirect"),
+            NavigationItem("pages/38_CommandCore_Management_Alerts.py", "Alerts"),
+            NavigationItem("pages/40_CommandCore_Team_Health.py", "Team Health"),
             NavigationItem("pages/36_CommandCore_Coverage.py", "Coverage"),
             NavigationItem("pages/37_CommandCore_Coverage_Exceptions.py", "Coverage Exceptions"),
             NavigationItem("pages/41_CommandCore_Workload_Balance.py", "Workload"),
@@ -160,7 +146,7 @@ pages = {
     "Tasks & Follow-Up": [
         st.Page("pages/35_CommandCore_My_Work.py", title="My Work", icon="👤"),
         st.Page("pages/46_CommandCore_Pipeline_Followup.py", title="Follow-Up & Pipeline", icon="📈"),
-        st.Page("pages/21_CommandCore_Operator_Dashboard.py", title="Operator Dashboard"),
+        st.Page("pages/56_CommandCore_Operator_Dashboard.py", title="Operator Dashboard"),
     ],
     "Marketing & Dispo": [
         st.Page("pages/90_CFH_Marketing_Dispo.py", title="Marketing Home", icon="📣"),
@@ -190,7 +176,7 @@ pages = {
     ],
     "Management": [
         st.Page("pages/48_CommandCore_Owner_Approvals.py", title="Owner Approvals", icon="✅"),
-        st.Page("pages/49_CommandCore_Phone_System_Setup.py", title="Phone System Setup", icon="☎️"),
+        st.Page("pages/57_CommandCore_Phone_System_Setup.py", title="Phone System Setup", icon="☎️"),
         st.Page("pages/50_CommandCore_Contract_Templates.py", title="Contract Templates", icon="📄"),
         st.Page("pages/39_CommandCore_Operations_Hub.py", title="Operations", icon="🧭"),
         st.Page("pages/36_CommandCore_Coverage.py", title="Coverage"),

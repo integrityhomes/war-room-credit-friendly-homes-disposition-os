@@ -70,7 +70,7 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     ),
     AppCompletion("pages/20_Vacant_Home_Disposition_Escalation.py", "Marketing & Dispo", AppCompletionState.COMPLETE, "Vacant-home disposition escalation workflow."),
     AppCompletion(
-        "pages/21_CommandCore_Operator_Dashboard.py",
+        "pages/56_CommandCore_Operator_Dashboard.py",
         "Tasks & Follow-Up",
         AppCompletionState.COMPLETE,
         "Compatibility redirect to canonical My Work; former Operator Dashboard is fully consolidated.",
@@ -134,7 +134,7 @@ APP_COMPLETION: tuple[AppCompletion, ...] = (
     AppCompletion("pages/47_CommandCore_Deal_Workflow_Queue.py", "Deals", AppCompletionState.COMPLETE, "Internal deal workflow queue."),
     AppCompletion("pages/48_CommandCore_Owner_Approvals.py", "Management", AppCompletionState.COMPLETE, "Owner Approval Queue with separate PIN and crash-safe history."),
     AppCompletion(
-        "pages/49_CommandCore_Phone_System_Setup.py",
+        "pages/57_CommandCore_Phone_System_Setup.py",
         "Management",
         AppCompletionState.SUPPORT_TOOL,
         "Offline provider-neutral phone inventory, staff assignment, routing, and porting-planning workspace.",
