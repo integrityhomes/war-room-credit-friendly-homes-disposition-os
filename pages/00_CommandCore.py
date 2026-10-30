@@ -5,8 +5,14 @@ from typing import Any
 
 import streamlit as st
 
-from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.auth import require_password
+from cfh_disposition.commandcore_crm_client import (
+    demo_connection_message,
+    demo_connection_next_step,
+    is_demo_mode,
+    list_crm_records,
+    render_demo_banner,
+)
 from cfh_disposition.commandcore_ux import (
     advanced_settings,
     render_page_header,
@@ -14,29 +20,11 @@ from cfh_disposition.commandcore_ux import (
     show_needs_attention,
     show_success,
 )
-from supabase import create_client
 
 st.set_page_config(page_title="CommandCore", page_icon="🧭", layout="wide")
 
-@st.cache_resource
-def get_supabase():
-    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
-    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
-    if not url or not key:
-        raise RuntimeError("CommandCore data connection is not configured.")
-    return create_client(url, key)
-
-def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
-    response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
-    if isinstance(response, dict):
-        return response
-    data = getattr(response, "data", None)
-    return data if isinstance(data, dict) else {}
-
 def list_records(entity: str) -> list[dict[str, Any]]:
-    result = call_crm({"action": "list", "entity": entity, "limit": 500})
-    records = result.get("records", [])
-    return records if isinstance(records, list) else []
+    return list_crm_records(entity)
 
 def text(value: Any) -> str:
     return str(value or "").strip()
@@ -99,6 +87,8 @@ def link(path: str, label: str, caption: str = "") -> None:
             st.caption(caption)
 
 require_password()
+render_demo_banner()
+
 if st.sidebar.button("Log out", key="commandcore_shell_logout"):
     st.session_state.authenticated = False
     st.rerun()
@@ -177,10 +167,16 @@ if area == "Home / Command Center":
                 next_step="Open My Work to continue with your assigned work.",
             )
     except RuntimeError:
-        show_error(
-            "Today's work summary could not be loaded. Your records were not changed.",
-            next_step="Refresh the page. If it still does not load, ask an administrator to check the data connection.",
-        )
+        if is_demo_mode():
+            show_error(
+                demo_connection_message(),
+                next_step=demo_connection_next_step(),
+            )
+        else:
+            show_error(
+                "Today's work summary could not be loaded. Your records were not changed.",
+                next_step="Refresh the page. If it still does not load, ask an administrator to check the data connection.",
+            )
 
     st.markdown("### Start work")
     c1, c2, c3, c4, c5 = st.columns(5)

@@ -7,8 +7,8 @@ import streamlit as st
 from cfh_disposition.app_secrets import get_secrets
 from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_agent_finder_ui import render_agent_finder
+from cfh_disposition.commandcore_crm_client import call_crm, render_demo_banner
 from cfh_disposition.commandcore_ux import advanced_settings, queue_success, render_page_header, show_error
-from supabase import create_client
 
 st.set_page_config(page_title="CommandCore CRM", page_icon="🏠", layout="wide")
 
@@ -27,21 +27,6 @@ PIPELINE_STAGES = [
     "Dead / Not Moving Forward",
 ]
 DEAL_STATUSES = ["Active", "On Hold", "Closed", "Dead"]
-
-@st.cache_resource
-def get_supabase():
-    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
-    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
-    return create_client(url, key)
-
-def call_crm(payload: dict[str, Any]) -> dict[str, Any]:
-    response = get_supabase().functions.invoke("commandcore-crm-core", {"body": payload})
-    if isinstance(response, dict):
-        return response
-    data = getattr(response, "data", None)
-    return data if isinstance(data, dict) else {}
 
 def text(value: Any) -> str:
     return str(value or "").strip()
@@ -401,6 +386,7 @@ def manage_records() -> None:
             st.error(text(result.get("error")) or "CommandCore could not save this record.")
 
 require_password()
+render_demo_banner()
 if st.sidebar.button("Log out", key="commandcore_crm_logout"):
     st.session_state.authenticated = False
     st.rerun()
