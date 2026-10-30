@@ -7,7 +7,8 @@ from urllib import request
 
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.commandcore_ux import advanced_settings, render_page_header, show_error, show_warning
 from supabase import create_client
 
@@ -15,38 +16,17 @@ st.set_page_config(page_title="CommandCore Team Health", page_icon="📊", layou
 
 ACTION_BUCKET = "commandcore-action-queue"
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    st.title("CommandCore Team Health")
-    with st.form("commandcore_team_health_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_supabase():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip()
-    key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    url = str(get_secrets().get("SUPABASE_URL", "")).strip()
+    key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.")
     return create_client(url, key)
 
-
 def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    supabase_url = str(st.secrets.get("SUPABASE_URL", "")).rstrip("/")
-    service_key = str(st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    supabase_url = str(get_secrets().get("SUPABASE_URL", "")).rstrip("/")
+    service_key = str(get_secrets().get("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
     if not supabase_url or not service_key:
         return {}
     req = request.Request(
@@ -64,7 +44,6 @@ def call_commandcore(function_name: str, payload: dict[str, Any]) -> dict[str, A
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
 
 def load_queue_items() -> list[dict[str, Any]]:
     client = get_supabase()
@@ -86,14 +65,11 @@ def load_queue_items() -> list[dict[str, Any]]:
                 items.append(item)
     return items
 
-
 def text(value: Any) -> str:
     return str(value or "").strip()
 
-
 def is_open(item: dict[str, Any]) -> bool:
     return text(item.get("readiness")).upper() in {"HOLD", "MANUAL", "BLOCKED"}
-
 
 def health_level(load_ratio: float, critical: int, blocked: int, availability: str, active: bool) -> str:
     if not active:
@@ -103,7 +79,6 @@ def health_level(load_ratio: float, critical: int, blocked: int, availability: s
     if load_ratio >= 0.8 or blocked or availability == "away":
         return "WATCH"
     return "HEALTHY"
-
 
 require_password()
 
