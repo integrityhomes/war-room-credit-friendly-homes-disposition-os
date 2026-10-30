@@ -1,0 +1,79 @@
+name: CommandCore Safe Auto-Merge
+
+# pull_request_target: runs with base-repo credentials. NEVER check out or execute PR head.
+on:
+  pull_request_target:
+    types: [labeled, synchronize, opened, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  safe-auto-merge:
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'safe-auto-merge') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'safe-auto-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Evaluate changed paths and auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t FILES < <(
+            gh api --paginate \
+              "repos/${REPO}/pulls/${PR_NUMBER}/files" \
+              --jq '.[].filename'
+          )
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No changed files reported; enabling auto-merge."
+            gh pr merge "${PR_NUMBER}" --repo "${REPO}" --auto --squash --match-head-commit "${HEAD_SHA}"
+            exit 0
+          fi
+
+          set +e
+          SENSITIVE="$(printf '%s\n' "${FILES[@]}" | python scripts/safe_auto_merge_check.py)"
+          STATUS=$?
+          set -e
+
+          if [ "${STATUS}" -ne 0 ]; then
+            {
+              echo "This pull request is labeled \`safe-auto-merge\`, but it changes paths that require **explicit owner approval** per \`AGENTS.md\` (credentials/secrets, auth, migrations, workflows, contracts/money/compliance, product rules, etc.)."
+              echo
+              echo "Sensitive paths detected:"
+              echo
+              echo '```'
+              echo "${SENSITIVE}"
+              echo '```'
+              echo
+              echo "Removing the \`safe-auto-merge\` label and disabling auto-merge. Re-add the label only after an owner has reviewed a routine, non-sensitive change set."
+            } > /tmp/safe-auto-merge-comment.md
+
+            gh pr edit "${PR_NUMBER}" --repo "${REPO}" --remove-label "safe-auto-merge" || true
+            gh pr merge "${PR_NUMBER}" --repo "${REPO}" --disable-auto || true
+            gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body-file /tmp/safe-auto-merge-comment.md
+            exit 0
+          fi
+
+          echo "No sensitive paths; enabling squash auto-merge for ${HEAD_SHA}."
+          gh pr merge "${PR_NUMBER}" --repo "${REPO}" --auto --squash --match-head-commit "${HEAD_SHA}"
