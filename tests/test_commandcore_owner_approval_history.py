@@ -25,7 +25,7 @@ def test_owner_decision_history_is_written_before_terminal_approval_state():
 
 def test_owner_approval_safety_boundaries_remain_in_place():
     source = _source()
-    assert 'st.secrets.get("OWNER_APPROVAL_PIN", "")' in source
+    assert 'get_secrets().get("OWNER_APPROVAL_PIN", "")' in source
     assert "if owner_name not in OWNER_NAMES:" in source
     assert "elif not confirm:" in source
     assert "elif not verify_owner_pin(pin):" in source
