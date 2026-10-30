@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from cfh_disposition.auth import configured_password, password_matches
+from cfh_disposition.app_secrets import get_secrets
+from cfh_disposition.auth import require_password
 from cfh_disposition.channel_tracking import build_channel_links
 from cfh_disposition.channels import CHANNELS_BY_KEY
 from cfh_disposition.dwelyx import dwelyx_base_url, tracking_app_base_url
@@ -28,40 +29,18 @@ from cfh_disposition.storage import StorageError, build_storage
 
 st.set_page_config(page_title="Buyer Outreach", page_icon="✉️", layout="wide")
 
-
-def require_password() -> None:
-    expected = configured_password(st.secrets)
-    if not expected:
-        st.error("This app is locked until APP_PASSWORD is added in Streamlit Secrets.")
-        st.stop()
-    if st.session_state.get("authenticated"):
-        return
-    with st.form("outreach_login"):
-        password = st.text_input("App password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary")
-    if submitted and password_matches(password, expected):
-        st.session_state.authenticated = True
-        st.rerun()
-    if submitted:
-        st.error("Incorrect password.")
-    st.stop()
-
-
 @st.cache_resource
 def get_storage():
-    return build_storage(st.secrets, SAMPLE_PROPERTIES, SAMPLE_BUYERS)
-
+    return build_storage(get_secrets(), SAMPLE_PROPERTIES, SAMPLE_BUYERS)
 
 def buyer_label(buyer) -> str:
     name = " ".join(part for part in [buyer.first_name, buyer.last_name] if part).strip()
     phone_tail = buyer.phone[-4:] if buyer.phone else "no phone"
     return f"{name or 'Buyer'} — ••••{phone_tail}"
 
-
 def email_buyer_label(buyer) -> str:
     name = " ".join(part for part in [buyer.first_name, buyer.last_name] if part).strip()
     return f"{name or 'Buyer'} — {buyer.email}"
-
 
 require_password()
 st.title("Buyer Outreach")
@@ -112,10 +91,10 @@ if not campaign:
     st.stop()
 
 links = build_channel_links(
-    dwelyx_base_url(st.secrets),
+    dwelyx_base_url(get_secrets()),
     campaign=campaign,
     property_id=selected.property_id,
-    tracking_base_url=tracking_app_base_url(st.secrets),
+    tracking_base_url=tracking_app_base_url(get_secrets()),
 )
 links_by_key = {row["Channel key"]: row["Tracked Dwelyx link"] for row in links}
 
@@ -182,7 +161,7 @@ for tab, key in zip(tabs, channel_keys, strict=True):
         if key == "email":
             st.divider()
             st.write("### Send Email")
-            email_settings = EmailHandoffSettings.from_mapping(st.secrets)
+            email_settings = EmailHandoffSettings.from_mapping(get_secrets())
             if email_settings.configured:
                 st.success("Approved email sender is connected.")
             else:
@@ -247,7 +226,7 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                 if email_send_clicked:
                     try:
                         receipt = dispatch_email_handoff(
-                            st.secrets,
+                            get_secrets(),
                             buyer=selected_email_buyer,
                             property_record=selected,
                             campaign=campaign,
@@ -262,7 +241,7 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                         )
                     except EmailHandoffError as exc:
                         record_operational_failure(
-                            st.secrets,
+                            get_secrets(),
                             CriticalFailureType.EMAIL,
                             summary=f"Email sender handoff failed for {selected.display_address}.",
                             technical_detail=str(exc),
@@ -280,7 +259,7 @@ for tab, key in zip(tabs, channel_keys, strict=True):
         if key == "sms":
             st.divider()
             st.write("### Send Text Message")
-            sms_settings = SmsHandoffSettings.from_mapping(st.secrets)
+            sms_settings = SmsHandoffSettings.from_mapping(get_secrets())
             if sms_settings.configured:
                 st.success("REI BlackBook / Profit Dial SMS handoff is connected.")
             else:
@@ -335,7 +314,7 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                 if send_clicked:
                     try:
                         receipt = dispatch_sms_handoff(
-                            st.secrets,
+                            get_secrets(),
                             buyer=selected_buyer,
                             property_record=selected,
                             campaign=campaign,
@@ -349,7 +328,7 @@ for tab, key in zip(tabs, channel_keys, strict=True):
                         )
                     except ReiBlackBookSmsError as exc:
                         record_operational_failure(
-                            st.secrets,
+                            get_secrets(),
                             CriticalFailureType.SMS,
                             summary=f"Profit Dial SMS handoff failed for {selected.display_address}.",
                             technical_detail=str(exc),
