@@ -8,7 +8,8 @@ def operations_source() -> str:
 def test_operations_starts_with_management_attention_not_system_internals() -> None:
     source = operations_source()
 
-    assert 'st.title("CommandCore Operations")' in source
+    assert "require_password(" in source
+    assert 'page_title="CommandCore Operations"' in source
     attention_index = source.index('st.subheader("Needs Management Attention")')
     readiness_index = source.index('with st.expander("System readiness & CRM cutover", expanded=False):')
     assert attention_index < readiness_index
@@ -58,7 +59,7 @@ def test_owner_only_property_source_diagnostic_is_safe_and_plain_english() -> No
     for marker in (
         'with st.expander("Property Source Diagnostics", expanded=False):',
         '"Run 3-Property Read-Only Test"',
-        'run_property_source_diagnostic(st.secrets)',
+        'run_property_source_diagnostic(get_secrets())',
         '"Live Google connection: PASS"',
         'status_left.metric("Read-only scope", "PASS")',
         'status_middle.metric("Rows read", diagnostic.rows_read)',
@@ -89,7 +90,7 @@ def test_full_property_source_audit_shows_summary_not_full_source() -> None:
 
     for marker in (
         '"Run Full Property Source Audit"',
-        "run_full_property_source_audit(st.secrets)",
+        "run_full_property_source_audit(get_secrets())",
         '"Full Google property source: PASS"',
         'st.markdown("#### Properties by source tab")',
         'st.markdown("#### Safe sample properties")',

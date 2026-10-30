@@ -16,8 +16,11 @@ def test_commandcore_home_prioritizes_daily_work_over_tool_catalog() -> None:
 
 def test_commandcore_home_uses_plain_user_facing_setup_language() -> None:
     source = Path("pages/00_CommandCore.py").read_text(encoding="utf-8")
+    auth_source = Path("src/cfh_disposition/auth.py").read_text(encoding="utf-8")
 
-    assert "CommandCore sign-in is not configured yet." in source
+    assert "require_password()" in source
+    assert "from cfh_disposition.auth import require_password" in source
+    assert "CommandCore sign-in is not configured yet." in auth_source
     assert "CommandCore data connection is not configured." in source
     assert "APP_PASSWORD is added in Streamlit Secrets" not in source
     assert "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required" not in source
